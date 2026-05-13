@@ -1,0 +1,41 @@
+name: EMON Fast Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy to Hetzner
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cp /var/www/emonfast/public/index.html /var/www/emonfast/public/index.html.bak
+            cd /var/www/emonfast
+            pm2 restart emonfast
+
+      - name: Upload HTML
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "satin_alma_acentesi.html"
+          target: "/var/www/emonfast/public/"
+          strip_components: 0
+
+      - name: Rename file
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            mv /var/www/emonfast/public/satin_alma_acentesi.html /var/www/emonfast/public/index.html
