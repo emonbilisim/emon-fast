@@ -7479,7 +7479,7 @@ function msalBaslat() {
       auth: {
         clientId:    AZURE_CONFIG.clientId,
         authority:   `https://login.microsoftonline.com/${AZURE_CONFIG.tenantId}`,
-        redirectUri: 'https://emonbilisim.github.io/emon-fast/satin_alma_acentesi.html',
+        redirectUri: window.location.origin + '/',
       },
       cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
     });
