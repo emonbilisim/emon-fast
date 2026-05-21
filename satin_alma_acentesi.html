@@ -2040,7 +2040,7 @@
 
 <!-- MODAL: Outlook Gelen Teklifler -->
 <div class="modal-overlay" id="modal-outlookTeklifler">
-  <div class="modal" style="width:min(90vw,780px);max-height:92vh;overflow-y:auto;">
+  <div class="modal" style="width:min(96vw,1240px);max-height:94vh;overflow-y:auto;">
     <div class="modal-title">📥 Outlook'tan Gelen Teklifler</div>
     <div id="outlook-teklifler-icerik">
       <div style="text-align:center;padding:32px;color:var(--text3);">
@@ -9270,13 +9270,13 @@ async function outlookTumMaillerGoster() {
         + '</div>'
         + (mail.hasAttachments ? '<button class="btn btn-sm" onclick="mailEkleriniGoster(' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.3);">📎 Ekler</button>' : '')
         + '<button class="btn btn-sm" onclick="mailIceriginiGoster(' + i + ')" style="font-size:11px;flex-shrink:0;">📄 Tam</button>'
-        + (!zatenEklendi ? '<button class="btn btn-sm btn-primary" onclick="aiMaildenFiyatDoldur(' + i + ')" style="font-size:11px;flex-shrink:0;">🤖 AI</button>' : '')
+        + (!zatenEklendi ? '<button class="btn btn-sm btn-primary" onclick="aiMaildenFiyatDoldur(' + i + ')" style="font-size:11px;flex-shrink:0;">🤖 AI' + (mail.hasAttachments ? ' (📎 dahil)' : '') + '</button>' : '')
         + (!zatenEklendi ? '<button class="btn btn-sm" onclick="revizeTalebiGonder(\'' + (mail.from?.emailAddress?.address||'') + '\',' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--amber);border-color:rgba(251,191,36,0.4);">✏️ Revize</button>' : '')
         + '</div>'
         + '<div id="mail-onizleme-' + i + '" style="padding:10px 14px;font-size:12px;color:var(--text2);line-height:1.6;background:var(--bg2);border-bottom:1px solid var(--border);">'
         + (mail.bodyPreview||'').substring(0,300)
         + '</div>'
-        + '<div id="mail-tam-metin-' + i + '" style="display:none;padding:14px 16px;font-size:13px;color:var(--text);line-height:1.8;background:var(--bg2);border-bottom:1px solid var(--border);max-height:520px;overflow-y:auto;font-family:inherit;white-space:pre-wrap;"></div>'
+        + '<div id="mail-tam-metin-' + i + '" style="display:none;background:var(--bg2);border-bottom:1px solid var(--border);"></div>'
         + '<div id="mail-ekler-' + i + '" style="display:none;"></div>'
         + '<div style="padding:10px 14px;">'
         + '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:6px;">Urun Fiyatları</div>'
@@ -9324,23 +9324,36 @@ async function mailEkleriniGoster(mailIdx) {
       return;
     }
 
+    // Mail için ek listesini global cache'le (AI PDF için kullanılacak)
+    window._mailEkleri = window._mailEkleri || {};
+    window._mailEkleri[mailIdx] = ekler;
+
+    const pdfSayisi = ekler.filter(e => (e.contentType||'').includes('pdf') || (e.name||'').toLowerCase().endsWith('.pdf')).length;
+
     eklerDiv.innerHTML = '<div style="padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);">'
-      + '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:8px;">📎 EK DOSYALAR (' + ekler.length + ')</div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'
+      +   '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);">📎 EK DOSYALAR (' + ekler.length + ')</div>'
+      +   (pdfSayisi > 0 ? '<button class="btn btn-sm btn-primary" onclick="aiMaildenFiyatDoldur(' + mailIdx + ',{pdf:true})" style="font-size:11px;">🤖 PDF + Mail AI Oku</button>' : '')
+      + '</div>'
       + '<div style="display:flex;flex-direction:column;gap:6px;">'
-      + ekler.map(ek => {
+      + ekler.map((ek, ekIdx) => {
           const kb = Math.round((ek.size||0)/1024);
           const isPdf = ek.contentType?.includes('pdf') || ek.name?.toLowerCase().endsWith('.pdf');
           const isImg = ek.contentType?.includes('image');
           const icon = isPdf ? '📄' : isImg ? '🖼' : '📎';
           const b64 = ek.contentBytes ? 'data:'+ek.contentType+';base64,'+ek.contentBytes : null;
-          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);">'
-            + '<span style="font-size:18px;">' + icon + '</span>'
-            + '<div style="flex:1;min-width:0;">'
-            + '<div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + ek.name + '</div>'
-            + '<div style="font-size:11px;color:var(--text3);">' + kb + ' KB · ' + (ek.contentType||'') + '</div>'
+          const previewId = 'pdf-preview-' + mailIdx + '-' + ekIdx;
+          return '<div style="background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;">'
+            + '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;">'
+            +   '<span style="font-size:18px;">' + icon + '</span>'
+            +   '<div style="flex:1;min-width:0;">'
+            +     '<div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + ek.name + '</div>'
+            +     '<div style="font-size:11px;color:var(--text3);">' + kb + ' KB · ' + (ek.contentType||'') + '</div>'
+            +   '</div>'
+            +   (b64 ? '<a href="' + b64 + '" download="' + ek.name + '" class="btn btn-sm btn-primary" style="font-size:11px;flex-shrink:0;">⬇ İndir</a>' : '<button onclick="mailEkIndir(\'' + mail.id + '\',\'' + ek.id + '\',\'' + encodeURIComponent(ek.name) + '\',\'' + ek.contentType + '\')" class="btn btn-sm btn-primary" style="font-size:11px;flex-shrink:0;">⬇ İndir</button>')
+            +   (isPdf ? '<button onclick="pdfInlineToggle(\'' + previewId + '\',\'' + mail.id + '\',\'' + ek.id + '\')" class="btn btn-sm" style="font-size:11px;flex-shrink:0;">👁 Görüntüle</button>' : '')
             + '</div>'
-            + (b64 ? '<a href="' + b64 + '" download="' + ek.name + '" class="btn btn-sm btn-primary" style="font-size:11px;flex-shrink:0;">⬇ İndir</a>' : '<button onclick="mailEkIndir(\'' + mail.id + '\',\'' + ek.id + '\',\'' + encodeURIComponent(ek.name) + '\',\'' + ek.contentType + '\')" class="btn btn-sm btn-primary" style="font-size:11px;flex-shrink:0;">⬇ İndir</button>')
-            + (b64 && isPdf ? '<button onclick="mailEkPdfAc(\'' + encodeURIComponent(b64) + '\',\'' + encodeURIComponent(ek.name) + '\')" class="btn btn-sm" style="font-size:11px;flex-shrink:0;">👁 Görüntüle</button>' : (!b64 && isPdf ? '<button onclick="mailEkPdfGoruntule(\'' + mail.id + '\',\'' + ek.id + '\',\'' + encodeURIComponent(ek.name) + '\')" class="btn btn-sm" style="font-size:11px;flex-shrink:0;">👁 Görüntüle</button>' : ''))
+            + '<div id="' + previewId + '" style="display:none;"></div>'
             + '</div>';
         }).join('')
       + '</div></div>';
@@ -9366,30 +9379,41 @@ async function mailEkIndir(mailId, ekId, nameEncoded, contentType) {
   } catch(e) { showToast('İndirme başarısız: ' + e.message); }
 }
 
-async function mailEkPdfGoruntule(mailId, ekId, nameEncoded) {
-  const name = decodeURIComponent(nameEncoded);
-  showToast('PDF yükleniyor...');
+// PDF eklerini inline (satır içi) iframe olarak aç/kapa
+async function pdfInlineToggle(previewId, mailId, ekId) {
+  const div = document.getElementById(previewId);
+  if (!div) return;
+
+  // Açıksa kapat
+  if (div.style.display !== 'none') {
+    div.style.display = 'none';
+    return;
+  }
+
+  div.style.display = 'block';
+
+  // İçerik zaten yüklendiyse tekrar yükleme
+  if (div.dataset.yuklendi === '1') return;
+
+  div.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px;">📄 PDF yükleniyor...</div>';
+
   try {
     const resp = await fetch(GRAPH_API + '/me/messages/' + mailId + '/attachments/' + ekId + '/$value', {
       headers: { Authorization: 'Bearer ' + msGraphToken }
     });
-    if (!resp.ok) throw new Error('Hata: ' + resp.status);
+    if (!resp.ok) throw new Error('Graph API: ' + resp.status);
     const blob = await resp.blob();
-    const url = URL.createObjectURL(new Blob([blob], {type:'application/pdf'}));
-    const win = window.open('', '_blank');
-    win.document.write('<html><head><title>' + name + '</title></head><body style="margin:0;">'
-      + '<iframe src="' + url + '" style="width:100%;height:100vh;border:none;"></iframe>'
-      + '</body></html>');
-  } catch(e) { showToast('Görüntüleme başarısız: ' + e.message); }
-}
-
-function mailEkPdfAc(b64Encoded, nameEncoded) {
-  const b64 = decodeURIComponent(b64Encoded);
-  const name = decodeURIComponent(nameEncoded);
-  const win = window.open('', '_blank');
-  win.document.write('<html><head><title>' + name + '</title></head><body style="margin:0;padding:0;">'
-    + '<iframe src="' + b64 + '" style="width:100%;height:100vh;border:none;"></iframe>'
-    + '</body></html>');
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    div.innerHTML = '<div style="background:#222;border-top:1px solid var(--border);">'
+      + '<div style="display:flex;justify-content:flex-end;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border);">'
+      +   '<a href="' + url + '" target="_blank" class="btn btn-sm" style="font-size:11px;">↗ Yeni sekmede</a>'
+      + '</div>'
+      + '<iframe src="' + url + '" style="width:100%;height:75vh;border:0;display:block;background:#fff;"></iframe>'
+      + '</div>';
+    div.dataset.yuklendi = '1';
+  } catch (e) {
+    div.innerHTML = '<div style="padding:14px;color:var(--red);font-size:12px;">PDF yüklenemedi: ' + e.message + '</div>';
+  }
 }
 
 // Tam mail metnini göster/gizle
@@ -9398,47 +9422,94 @@ async function mailIceriginiGoster(mailIdx) {
   const tamMetin = document.getElementById('mail-tam-metin-' + mailIdx);
   if (!tamMetin) return;
 
-  if (tamMetin.style.display === 'none') {
-    // Tam içeriği henüz çekilmediyse Graph API'den al
-    if (!tamMetin.dataset.yuklendi) {
-      tamMetin.style.display = 'block';
-      tamMetin.textContent = 'Yükleniyor...';
-      try {
-        const mail = window._outlookMailler?.[mailIdx];
-        if (mail) {
-          const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages/' + mail.id + '?$select=body',
-            { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
-          if (resp.ok) {
-            const d = await resp.json();
-            const temizMetin = (d.body?.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-            tamMetin.textContent = temizMetin;
-            tamMetin.dataset.yuklendi = '1';
-            tamMetin.dataset.icerik = temizMetin;
-          }
-        }
-      } catch (e) { tamMetin.textContent = 'Yüklenemedi: ' + e.message; }
-    } else {
-      tamMetin.style.display = 'block';
-    }
-    if (onizleme) onizleme.style.display = 'none';
-  } else {
+  // Açıksa kapat
+  if (tamMetin.style.display !== 'none') {
     tamMetin.style.display = 'none';
     if (onizleme) onizleme.style.display = 'block';
+    return;
   }
+
+  // İlk açılış — içeriği çek ve iframe olarak render et
+  if (!tamMetin.dataset.yuklendi) {
+    tamMetin.style.display = 'block';
+    tamMetin.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">📨 Mail içeriği yükleniyor...</div>';
+    try {
+      const mail = window._outlookMailler?.[mailIdx];
+      if (!mail) throw new Error('Mail bulunamadı');
+      const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages/' + mail.id + '?$select=body,from,subject,receivedDateTime,toRecipients,ccRecipients',
+        { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
+      if (!resp.ok) throw new Error('Graph API: ' + resp.status);
+      const d = await resp.json();
+      const bodyType = d.body?.contentType || 'text';
+      const bodyContent = d.body?.content || '';
+      const temizMetin = bodyContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      // AI için temiz metin sakla
+      tamMetin.dataset.yuklendi = '1';
+      tamMetin.dataset.icerik = temizMetin;
+
+      // Başlık (kim/konu/tarih/alıcı)
+      const fromName = d.from?.emailAddress?.name || '';
+      const fromAddr = d.from?.emailAddress?.address || '';
+      const toList   = (d.toRecipients||[]).map(r => r.emailAddress?.name || r.emailAddress?.address).filter(Boolean).join(', ');
+      const ccList   = (d.ccRecipients||[]).map(r => r.emailAddress?.name || r.emailAddress?.address).filter(Boolean).join(', ');
+      const tarih = d.receivedDateTime ? new Date(d.receivedDateTime).toLocaleString('tr-TR') : '';
+
+      const baslik =
+        '<div style="padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border);">'
+        + '<div style="font-size:15px;font-weight:600;margin-bottom:6px;">' + (d.subject || '(Konusuz)') + '</div>'
+        + '<div style="font-size:12px;color:var(--text2);line-height:1.7;">'
+        +   '<div><strong style="color:var(--text);">Kimden:</strong> ' + fromName + ' &lt;' + fromAddr + '&gt;</div>'
+        + (toList ? '<div><strong style="color:var(--text);">Alıcı:</strong> ' + toList + '</div>' : '')
+        + (ccList ? '<div><strong style="color:var(--text);">CC:</strong> ' + ccList + '</div>' : '')
+        + (tarih  ? '<div><strong style="color:var(--text);">Tarih:</strong> ' + tarih + '</div>' : '')
+        + '</div>'
+        + '</div>';
+
+      // İçerik: HTML ise iframe srcdoc ile renderla; text ise pre olarak göster
+      let icerikBlok = '';
+      if (bodyType.toLowerCase() === 'html') {
+        // Güvenlik: sandbox ile script/form bloklu, dış istek yok
+        // İçeriği bir base stiliyle sar — mail rendering tutarlı olsun
+        const safe = bodyContent
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<meta[^>]*http-equiv[^>]*>/gi, '');
+        const wrapped =
+          '<!doctype html><html><head><meta charset="utf-8">' +
+          '<base target="_blank">' +
+          '<style>html,body{margin:0;padding:14px;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1a1a1a;background:#fff;}img{max-width:100%;height:auto;}table{max-width:100%;border-collapse:collapse;}*{box-sizing:border-box;}</style>' +
+          '</head><body>' + safe + '</body></html>';
+        const srcdoc = wrapped.replace(/"/g, '&quot;');
+        icerikBlok = '<iframe sandbox="allow-same-origin allow-popups" srcdoc="' + srcdoc + '" style="width:100%;height:70vh;border:0;background:#fff;display:block;"></iframe>';
+      } else {
+        icerikBlok = '<pre style="margin:0;padding:14px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;background:#fff;color:#1a1a1a;max-height:70vh;overflow:auto;">'
+          + bodyContent.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          + '</pre>';
+      }
+
+      tamMetin.innerHTML = baslik + icerikBlok;
+    } catch (e) {
+      tamMetin.innerHTML = '<div style="padding:14px;color:var(--red);font-size:12px;">Yüklenemedi: ' + e.message + '</div>';
+    }
+  } else {
+    tamMetin.style.display = 'block';
+  }
+  if (onizleme) onizleme.style.display = 'none';
 }
 
 // Tek bir mail için AI ile fiyat çıkar
-async function aiMaildenFiyatDoldur(mailIdx) {
+// opts.pdf=true ise mail eklerindeki PDF'leri de Claude'a gönder
+async function aiMaildenFiyatDoldur(mailIdx, opts) {
+  opts = opts || {};
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
   if (!claudeKeyTalepEt()) return;
   const durum = document.getElementById('ai-durum-' + mailIdx);
-  if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--amber);padding:4px 0;">🤖 AI fiyatları çıkarıyor...</div>';
+  if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--amber);padding:4px 0;">🤖 AI ' + (opts.pdf ? 'PDF + mail' : 'mail') + ' okuyor...</div>';
 
   const mail = window._outlookMailler?.[mailIdx];
   if (!mail) return;
 
-  // Önce tam içeriği çek
+  // Önce mail metin içeriğini çek
   let mailBody = mail.bodyPreview || '';
   const tamMetin = document.getElementById('mail-tam-metin-' + mailIdx);
   if (tamMetin?.dataset.icerik) {
@@ -9450,13 +9521,51 @@ async function aiMaildenFiyatDoldur(mailIdx) {
       if (resp.ok) {
         const d = await resp.json();
         mailBody = (d.body?.content || mailBody).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-        if (tamMetin) { tamMetin.textContent = mailBody; tamMetin.dataset.yuklendi = '1'; tamMetin.dataset.icerik = mailBody; }
+        if (tamMetin) tamMetin.dataset.icerik = mailBody;
       }
     } catch {}
   }
 
+  // PDF eklerini topla (opts.pdf veya mail PDF içeriyorsa otomatik)
+  const pdfler = [];
+  if (mail.hasAttachments) {
+    try {
+      // Cache yoksa ekleri çek
+      let ekler = window._mailEkleri?.[mailIdx];
+      if (!ekler) {
+        const resp = await fetch(GRAPH_API + '/me/messages/' + mail.id + '/attachments',
+          { headers: { Authorization: 'Bearer ' + msGraphToken } });
+        if (resp.ok) {
+          const d = await resp.json();
+          ekler = d.value || [];
+          window._mailEkleri = window._mailEkleri || {};
+          window._mailEkleri[mailIdx] = ekler;
+        }
+      }
+      const pdfEkler = (ekler || []).filter(e =>
+        (e.contentType||'').includes('pdf') || (e.name||'').toLowerCase().endsWith('.pdf')
+      );
+      // İlk 3 PDF, max 5MB her biri — Claude limiti gözetilsin
+      for (const ek of pdfEkler.slice(0, 3)) {
+        if ((ek.size||0) > 5 * 1024 * 1024) continue;
+        let b64 = ek.contentBytes;
+        if (!b64) {
+          const r = await fetch(GRAPH_API + '/me/messages/' + mail.id + '/attachments/' + ek.id,
+            { headers: { Authorization: 'Bearer ' + msGraphToken } });
+          if (r.ok) {
+            const dd = await r.json();
+            b64 = dd.contentBytes;
+          }
+        }
+        if (b64) pdfler.push({ name: ek.name, data: b64 });
+      }
+    } catch (e) {
+      console.warn('PDF ek alınamadı:', e);
+    }
+  }
+
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama: t.urun }];
-  const parsed = await maildenFiyatlariCikar(mailBody.substring(0, 8000), urunler);
+  const parsed = await maildenFiyatlariCikar(mailBody.substring(0, 8000), urunler, pdfler);
 
   if (parsed?.fiyatlar) {
     let dolanSayisi = 0;
@@ -9595,7 +9704,8 @@ function claudeKeyDurumGuncelle() {
 }
 
 // Gelen maili Claude API ile parse et — ürün fiyatlarını otomatik çıkar
-async function maildenFiyatlariCikar(mailIcerik, urunler) {
+// pdfler: [{name, data(base64)}] — varsa Claude'a document block olarak gönderilir
+async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
   const apiKey = claudeKeyGetir();
   if (!apiKey) {
     showToast('⚠ Claude API key tanımlı değil. Ayarlar > Entegrasyonlar bölümünden ekleyin.');
@@ -9603,6 +9713,38 @@ async function maildenFiyatlariCikar(mailIcerik, urunler) {
   }
   try {
     const urunListesi = urunler.map((u, i) => `${i+1}. ${u.aciklama}${u.kod ? ' ('+u.kod+')' : ''}`).join('\n');
+    const promptMetin =
+      'Aşağıdaki tedarikçi teklif mailinden ve (varsa) eklerinden, talep edilen ürünler için BİRİM FİYAT bilgilerini çıkar.\n\n' +
+      'TALEP EDİLEN ÜRÜNLER:\n' + urunListesi + '\n\n' +
+      'KURALLAR:\n' +
+      '- Türkçe sayı formatı: "1.234,56" = 1234.56 (nokta binlik ayraç, virgül ondalık). Bu durumda noktaları kaldır, virgülü noktaya çevir.\n' +
+      '- İngilizce sayı formatı: "1,234.56" = 1234.56 (virgül binlik, nokta ondalık). Virgülleri kaldır.\n' +
+      '- Fiyatın yanında ₺/TL/TRY → "TRY", $/USD → "USD", €/EUR → "EUR".\n' +
+      '- KDV dahil/hariç ayrımına dikkat etme — birim fiyatı olduğu gibi al.\n' +
+      '- Toplam tutar değil BİRİM fiyat istiyorum. "1 adet x 1500 TL = 1500 TL" gibi durumlarda 1500 TL al.\n' +
+      '- urunIdx 0\'dan başlar ve yukarıdaki listenin sırasına denk gelir.\n' +
+      '- Bir ürün için fiyat yoksa O ÜRÜNÜ ATLAMA, birimFiyat:0 olarak ekle.\n' +
+      '- PDF ek varsa onu da incele — proforma fatura, teklif formu vb. PDF içindeki fiyatlara öncelik ver.\n' +
+      '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n\n' +
+      'MAİL İÇERİĞİ:\n' + (mailIcerik || '(boş)') + '\n\n' +
+      'SADECE şu JSON formatında cevap ver (markdown veya açıklama yok):\n' +
+      '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY"}],"teslimat":"","odeme":"","not":""}';
+
+    // İçerik bloklarını hazırla: önce PDF'ler, sonra metin prompt'u
+    const contentBlocks = [];
+    if (pdfler && pdfler.length) {
+      pdfler.forEach(p => {
+        contentBlocks.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: p.data }
+        });
+      });
+    }
+    contentBlocks.push({ type: 'text', text: promptMetin });
+
+    // PDF varsa Sonnet (PDF desteği daha güvenilir), yoksa Haiku
+    const model = (pdfler && pdfler.length) ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -9612,27 +9754,10 @@ async function maildenFiyatlariCikar(mailIcerik, urunler) {
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
-        system: 'Sen Türkçe konuşan bir satın alma asistanısın. Tedarikçi teklif mailini analiz edip SADECE geçerli JSON dön. Açıklama yazma, markdown kullanma, ```json bloğu kullanma — sadece düz JSON.',
-        messages: [{
-          role: 'user',
-          content:
-            'Aşağıdaki tedarikçi teklif mailinden, talep edilen ürünler için BİRİM FİYAT bilgilerini çıkar.\n\n' +
-            'TALEP EDİLEN ÜRÜNLER:\n' + urunListesi + '\n\n' +
-            'KURALLAR:\n' +
-            '- Türkçe sayı formatı: "1.234,56" = 1234.56 (nokta binlik ayraç, virgül ondalık). Bu durumda noktaları kaldır, virgülü noktaya çevir.\n' +
-            '- İngilizce sayı formatı: "1,234.56" = 1234.56 (virgül binlik, nokta ondalık). Virgülleri kaldır.\n' +
-            '- Fiyatın yanında ₺/TL/TRY → "TRY", $/USD → "USD", €/EUR → "EUR".\n' +
-            '- KDV dahil/hariç ayrımına dikkat etme — birim fiyatı olduğu gibi al.\n' +
-            '- Toplam tutar değil BİRİM fiyat istiyorum. "1 adet x 1500 TL = 1500 TL" gibi durumlarda 1500 TL al.\n' +
-            '- urunIdx 0\'dan başlar ve yukarıdaki listenin sırasına denk gelir.\n' +
-            '- Bir ürün için fiyat yoksa O ÜRÜNÜ ATLAMA, birimFiyat:0 olarak ekle.\n' +
-            '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n\n' +
-            'MAİL İÇERİĞİ:\n' + mailIcerik + '\n\n' +
-            'SADECE şu JSON formatında cevap ver:\n' +
-            '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY"}],"teslimat":"","odeme":"","not":""}'
-        }]
+        model,
+        max_tokens: 1000,
+        system: 'Sen Türkçe konuşan bir satın alma asistanısın. Tedarikçi teklif mailini ve eklerini analiz edip SADECE geçerli JSON dön. Açıklama yazma, markdown kullanma, ```json bloğu kullanma — sadece düz JSON.',
+        messages: [{ role: 'user', content: contentBlocks }]
       })
     });
     if (!response.ok) {
