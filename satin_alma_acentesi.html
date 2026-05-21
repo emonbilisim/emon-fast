@@ -9431,6 +9431,7 @@ async function mailIceriginiGoster(mailIdx) {
 async function aiMaildenFiyatDoldur(mailIdx) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
+  if (!claudeKeyTalepEt()) return;
   const durum = document.getElementById('ai-durum-' + mailIdx);
   if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--amber);padding:4px 0;">🤖 AI fiyatları çıkarıyor...</div>';
 
@@ -9455,16 +9456,25 @@ async function aiMaildenFiyatDoldur(mailIdx) {
   }
 
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama: t.urun }];
-  const parsed = await maildenFiyatlariCikar(mailBody.substring(0, 2000), urunler);
+  const parsed = await maildenFiyatlariCikar(mailBody.substring(0, 8000), urunler);
 
   if (parsed?.fiyatlar) {
+    let dolanSayisi = 0;
     parsed.fiyatlar.forEach(f => {
       const fiyatEl = document.getElementById('mail-fiyat-' + mailIdx + '-' + f.urunIdx);
-      if (fiyatEl && f.birimFiyat > 0) fiyatEl.value = f.birimFiyat;
+      const paraEl  = document.getElementById('mail-para-' + mailIdx + '-' + f.urunIdx);
+      if (fiyatEl && f.birimFiyat > 0) { fiyatEl.value = f.birimFiyat; dolanSayisi++; }
+      if (paraEl && f.para && ['TRY','USD','EUR'].includes(f.para)) paraEl.value = f.para;
     });
     if (parsed.teslimat) { const el = document.getElementById('mail-teslimat-' + mailIdx); if (el) el.value = parsed.teslimat; }
     if (parsed.odeme)    { const el = document.getElementById('mail-odeme-' + mailIdx);    if (el) el.value = parsed.odeme; }
-    if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--green);padding:4px 0;">✅ AI fiyatları doldurdu — kontrol edin!</div>';
+    if (durum) {
+      if (dolanSayisi > 0) {
+        durum.innerHTML = '<div style="font-size:11px;color:var(--green);padding:4px 0;">✅ ' + dolanSayisi + ' fiyat dolduruldu — kontrol edin!</div>';
+      } else {
+        durum.innerHTML = '<div style="font-size:11px;color:var(--red);padding:4px 0;">⚠ AI mailde fiyat bulamadı — "📄 Tam" ile içeriği görüp manuel girin</div>';
+      }
+    }
   } else if (parsed?._err) {
     const mesajlar = {
       'no-key':       '⚠ API key tanımsız — Ayarlar > Entegrasyonlar',
@@ -9483,6 +9493,7 @@ async function aiMaildenFiyatDoldur(mailIdx) {
 async function aiVeEkle() {
   const secilenler = Array.from(document.querySelectorAll('#outlook-mail-listesi input[type=checkbox]:checked'));
   if (!secilenler.length) { showToast('En az bir mail seçin.'); return; }
+  if (!claudeKeyTalepEt()) return;
 
   const btn = document.querySelector('[onclick="aiVeEkle()"]');
   if (btn) btn.textContent = '⏳ İşleniyor...';
@@ -9500,6 +9511,7 @@ async function aiVeEkle() {
 async function aiTumFiyatlariCikar() {
   const secilenler = Array.from(document.querySelectorAll('#outlook-mail-listesi input[type=checkbox]:checked'));
   if (!secilenler.length) { showToast('En az bir mail seçin.'); return; }
+  if (!claudeKeyTalepEt()) return;
   for (const cb of secilenler) {
     await aiMaildenFiyatDoldur(parseInt(cb.dataset.mailIdx));
   }
@@ -9509,6 +9521,26 @@ async function aiTumFiyatlariCikar() {
 // Claude API key yönetimi
 function claudeKeyGetir() {
   return (localStorage.getItem('emonfast_claude_key') || '').trim();
+}
+
+// Key yoksa yerinde sor, varsa true döner. Kullanıcı iptal ederse false.
+function claudeKeyTalepEt() {
+  let key = claudeKeyGetir();
+  if (key) return true;
+  const val = (prompt(
+    'AI fiyat çıkarımı için Claude API key gerekli.\n\n' +
+    'console.anthropic.com/settings/keys adresinden oluşturabilirsiniz.\n' +
+    'Key sadece bu tarayıcıda saklanır.\n\n' +
+    'API Key (sk-ant-...):'
+  ) || '').trim();
+  if (!val) return false;
+  localStorage.setItem('emonfast_claude_key', val);
+  // Ayarlardaki UI'ı (açıksa) güncelle
+  const el = document.getElementById('ayar-claude-key');
+  if (el) el.value = val;
+  claudeKeyDurumGuncelle();
+  showToast('✅ Claude API key kaydedildi.');
+  return true;
 }
 
 function claudeKeyKaydet() {
@@ -9581,11 +9613,25 @@ async function maildenFiyatlariCikar(mailIcerik, urunler) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 500,
-        system: 'Sen bir satin alma asistanisin. Tedarikci teklif mailini analiz edip SADECE JSON dondur. Baska hicbir sey yazma, aciklama yapma.',
+        max_tokens: 800,
+        system: 'Sen Türkçe konuşan bir satın alma asistanısın. Tedarikçi teklif mailini analiz edip SADECE geçerli JSON dön. Açıklama yazma, markdown kullanma, ```json bloğu kullanma — sadece düz JSON.',
         messages: [{
           role: 'user',
-          content: 'Asagidaki teklif mailinden fiyatlari cikar. Talep edilen urunler:\n' + urunListesi + '\n\nMail icerigi:\n' + mailIcerik + '\n\nSADECE su JSON formatinda cevap ver (baska hicbir sey yazma):\n{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY"},{"urunIdx":1,"birimFiyat":567.89,"para":"USD"}],"teslimat":"3 is gunu","odeme":"30 gun","not":""}\n\nFiyat bulamazsan birimFiyat:0 yaz. Para birimi TRY/USD/EUR olabilir.'
+          content:
+            'Aşağıdaki tedarikçi teklif mailinden, talep edilen ürünler için BİRİM FİYAT bilgilerini çıkar.\n\n' +
+            'TALEP EDİLEN ÜRÜNLER:\n' + urunListesi + '\n\n' +
+            'KURALLAR:\n' +
+            '- Türkçe sayı formatı: "1.234,56" = 1234.56 (nokta binlik ayraç, virgül ondalık). Bu durumda noktaları kaldır, virgülü noktaya çevir.\n' +
+            '- İngilizce sayı formatı: "1,234.56" = 1234.56 (virgül binlik, nokta ondalık). Virgülleri kaldır.\n' +
+            '- Fiyatın yanında ₺/TL/TRY → "TRY", $/USD → "USD", €/EUR → "EUR".\n' +
+            '- KDV dahil/hariç ayrımına dikkat etme — birim fiyatı olduğu gibi al.\n' +
+            '- Toplam tutar değil BİRİM fiyat istiyorum. "1 adet x 1500 TL = 1500 TL" gibi durumlarda 1500 TL al.\n' +
+            '- urunIdx 0\'dan başlar ve yukarıdaki listenin sırasına denk gelir.\n' +
+            '- Bir ürün için fiyat yoksa O ÜRÜNÜ ATLAMA, birimFiyat:0 olarak ekle.\n' +
+            '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n\n' +
+            'MAİL İÇERİĞİ:\n' + mailIcerik + '\n\n' +
+            'SADECE şu JSON formatında cevap ver:\n' +
+            '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY"}],"teslimat":"","odeme":"","not":""}'
         }]
       })
     });
