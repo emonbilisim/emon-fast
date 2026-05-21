@@ -3932,16 +3932,23 @@ function talepDetayAc(idx) {
   satisUrunBaz = {};
   satisToplamPara = null;
   setTimeout(() => {
-    // KDV varsayılan: hariç
-    const kdvEl = document.getElementById('satis-kdv');
-    if (kdvEl) kdvEl.value = '0';
-
-    // Müşteri baz marjını otomatik uygula
-    const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
-    if (musteriObj && (musteriObj.fpKurallari?.baz || musteriObj.fiyatgrup)) {
-      musteriMarjUygula();
-    } else {
+    // Onaylı/talep edilmiş durumda kayıtlı veriyi geri yükle
+    // Öncelik: admin'in onay anındaki verisi (varsa), yoksa satıcının talep anındaki verisi
+    const kayitliData = t.fiyatOnayTalep?.adminSatisData || t.fiyatOnayTalep?.saticiSatisData;
+    if (kayitliData && satisTabloDurumuYukle(kayitliData)) {
       satisHesaplaTablosu();
+    } else {
+      // KDV varsayılan: hariç
+      const kdvEl = document.getElementById('satis-kdv');
+      if (kdvEl) kdvEl.value = '0';
+
+      // Müşteri baz marjını otomatik uygula
+      const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
+      if (musteriObj && (musteriObj.fpKurallari?.baz || musteriObj.fiyatgrup)) {
+        musteriMarjUygula();
+      } else {
+        satisHesaplaTablosu();
+      }
     }
     satisBolumunuGuncelle();
   }, 150);
@@ -6651,6 +6658,9 @@ function satisBolumunuGuncelle() {
       bandi.innerHTML = '⏳ <strong>' + (t.fiyatOnayTalep?.satici || 'Satıcı') + '</strong> onay talep etti — '
         + (t.fiyatOnayTalep?.tarih ? new Date(t.fiyatOnayTalep.tarih).toLocaleString('tr-TR') : '')
         + (t.fiyatOnayTalep?.not ? '<br><span style="font-size:12px;color:var(--text2);">Not: ' + t.fiyatOnayTalep.not + '</span>' : '')
+        + '<div style="margin-top:6px;font-size:12px;color:var(--text2);">'
+        + '💡 İstersen aşağıdaki tablodan <strong>marj %</strong>, <strong>birim satış</strong>, KDV veya nakliye değerlerini değiştirip öyle onaylayabilirsin. Onayladığın değerler satıcıya aynen yansır.'
+        + '</div>'
         + '<div style="margin-top:8px;display:flex;gap:8px;">'
         + '<button class="btn btn-primary btn-sm" onclick="adminFiyatOnayla()">✅ Onayla</button>'
         + '<button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="adminFiyatReddet()">❌ Reddet</button>'
@@ -6675,7 +6685,9 @@ function satisBolumunuGuncelle() {
         bandi.style.display = 'block';
         bandi.style.background = 'rgba(62,207,142,0.1)';
         bandi.style.border = '1px solid rgba(62,207,142,0.3)';
+        const revize = !!t.fiyatOnayTalep?.adminDegisiklik;
         bandi.innerHTML = '✅ <strong>Admin onayladı</strong> — Müşteriye teklif gönderilebilir.'
+          + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti — tablodaki değerler admin\'in onayladığı değerlerdir.</span>' : '')
           + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Admin notu: ' + t.fiyatOnayTalep.adminNot + '</span>' : '');
       }
       const gonder = document.getElementById('btn-satici-gonder');
@@ -6726,6 +6738,34 @@ function satisBolumunuGuncelle() {
   }
 }
 
+// Mevcut satış tablosu durumunu (marj/baz/KDV/nakliye/toplam para) yakala
+function satisTabloDurumuYakala() {
+  return {
+    marjlar:    Object.assign({}, satisUrunMarjlari),
+    baz:        Object.assign({}, satisUrunBaz),
+    toplamPara: satisToplamPara || null,
+    kdv:        parseFloat(document.getElementById('satis-kdv')?.value) || 0,
+    nakliye:    parseFloat(document.getElementById('satis-nakliye')?.value) || 0,
+    ikinciAll:  !!document.getElementById('ikinci-fiyat-cb')?.checked,
+    toplamStr:  document.getElementById('satis-toplam')?.textContent || '',
+  };
+}
+
+// Kayıtlı durumu UI'a uygula (talepDetayAc içinde tablo hesaplanmadan önce çağrılır)
+function satisTabloDurumuYukle(d) {
+  if (!d) return false;
+  satisUrunMarjlari = Object.assign({}, d.marjlar || {});
+  satisUrunBaz      = Object.assign({}, d.baz || {});
+  satisToplamPara   = d.toplamPara || null;
+  const kdvEl = document.getElementById('satis-kdv');
+  if (kdvEl) kdvEl.value = (d.kdv ?? 0).toString();
+  const nakEl = document.getElementById('satis-nakliye');
+  if (nakEl) nakEl.value = d.nakliye ? d.nakliye : '';
+  const cbEl = document.getElementById('ikinci-fiyat-cb');
+  if (cbEl) cbEl.checked = !!d.ikinciAll;
+  return true;
+}
+
 // Satıcı: admin'e onay talebi gönder
 function fiyatOnayTalep() {
   const t = TALEPLER[aktifTalepIdx];
@@ -6740,6 +6780,7 @@ function fiyatOnayTalep() {
     not,
     satisTablosu: document.getElementById('satis-urun-tbody')?.innerHTML || '',
     toplamStr: document.getElementById('satis-toplam')?.textContent || '',
+    saticiSatisData: satisTabloDurumuYakala(),
   };
 
   veriKaydet();
@@ -6752,15 +6793,52 @@ function fiyatOnayTalep() {
 function adminFiyatOnayla() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
-  const not = prompt('Onay notu (isteğe bağlı):') || '';
+
+  // Admin'in tabloda yaptığı (varsa) değişiklikleri yakala
+  const adminData  = satisTabloDurumuYakala();
+  const saticiData = t.fiyatOnayTalep?.saticiSatisData;
+  const degisiklikVar = saticiData ? satisDurumFarkliMi(saticiData, adminData) : false;
+
+  const onayMsg = degisiklikVar
+    ? 'Tablodaki fiyatları değiştirdiniz. Admin\'in girdiği değerlerle onaylansın mı?\n\nYeni toplam: ' + adminData.toplamStr
+    : 'Fiyatları olduğu gibi onaylamak istiyor musunuz?\n\nToplam: ' + adminData.toplamStr;
+  if (!confirm(onayMsg)) return;
+
+  const not = prompt(degisiklikVar
+    ? 'Değişiklik gerekçesi / onay notu (isteğe bağlı):'
+    : 'Onay notu (isteğe bağlı):') || '';
+
   t.fiyatOnayDurumu = 'onaylandi';
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
-  t.fiyatOnayTalep.adminNot = not;
-  t.fiyatOnayTalep.adminTarih = new Date().toISOString();
+  t.fiyatOnayTalep.adminNot       = not;
+  t.fiyatOnayTalep.adminTarih     = new Date().toISOString();
+  t.fiyatOnayTalep.adminSatisData = adminData;
+  t.fiyatOnayTalep.adminDegisiklik = degisiklikVar;
   veriKaydet();
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
-  showToast('✅ Fiyat onaylandı! Satıcı artık müşteriye gönderebilir.');
+  showToast(degisiklikVar
+    ? '✅ Admin\'in revize fiyatlarıyla onaylandı.'
+    : '✅ Fiyat onaylandı! Satıcı artık müşteriye gönderebilir.');
+}
+
+// İki satış durumu birbirinden farklı mı? (admin tabloyu değiştirdi mi tespiti)
+function satisDurumFarkliMi(a, b) {
+  if (!a || !b) return false;
+  if ((a.kdv||0) !== (b.kdv||0)) return true;
+  if ((a.nakliye||0) !== (b.nakliye||0)) return true;
+  if (!!a.ikinciAll !== !!b.ikinciAll) return true;
+  if ((a.toplamPara||null) !== (b.toplamPara||null)) return true;
+  const keys = new Set([...Object.keys(a.marjlar||{}), ...Object.keys(b.marjlar||{})]);
+  for (const k of keys) {
+    const av = parseFloat(a.marjlar?.[k]); const bv = parseFloat(b.marjlar?.[k]);
+    if ((isNaN(av)?null:av) !== (isNaN(bv)?null:bv)) return true;
+  }
+  const bkeys = new Set([...Object.keys(a.baz||{}), ...Object.keys(b.baz||{})]);
+  for (const k of bkeys) {
+    if ((a.baz?.[k]||'secilen') !== (b.baz?.[k]||'secilen')) return true;
+  }
+  return false;
 }
 
 // Admin: reddet
@@ -6836,11 +6914,12 @@ function renderFiyatOnaylari() {
     html += gecmis.map(t => {
       const idx = TALEPLER.indexOf(t);
       const onaylandi = t.fiyatOnayDurumu === 'onaylandi';
+      const revize = onaylandi && t.fiyatOnayTalep?.adminDegisiklik;
       return `<div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px;opacity:0.8;">
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="font-size:16px;">${onaylandi ? '✅' : '❌'}</span>
           <div style="flex:1;">
-            <div style="font-size:13px;font-weight:500;">${t.no} — ${t.musteri}</div>
+            <div style="font-size:13px;font-weight:500;">${t.no} — ${t.musteri} ${revize ? '<span style="font-size:10px;color:var(--amber);font-weight:600;margin-left:6px;">✏ revize</span>' : ''}</div>
             <div style="font-size:11px;color:var(--text3);">${t.urun} · ${t.fiyatOnayTalep?.adminTarih ? new Date(t.fiyatOnayTalep.adminTarih).toLocaleString('tr-TR',{day:'numeric',month:'short'}) : ''}</div>
             ${t.fiyatOnayTalep?.adminNot ? '<div style="font-size:11px;color:var(--text2);">' + t.fiyatOnayTalep.adminNot + '</div>' : ''}
           </div>
