@@ -883,6 +883,7 @@
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Ürün</th>
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Tedarikçi / Maliyet</th>
             <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Adet</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Müşteri Hedef</th>
             <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Kar Marjı %</th>
             <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Birim Satış</th>
             <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Toplam</th>
@@ -890,7 +891,7 @@
           <tbody id="satis-urun-tbody"></tbody>
           <tfoot>
             <tr style="border-top:2px solid var(--border);">
-              <td colspan="4" style="padding:10px;font-size:13px;font-weight:600;color:var(--text);">
+              <td colspan="5" style="padding:10px;font-size:13px;font-weight:600;color:var(--text);">
                 GENEL TOPLAM
                 <div id="satis-toplam-para-sec" style="display:none;margin-top:6px;">
                   <div style="font-size:11px;color:var(--amber);margin-bottom:4px;">⚠ Farklı döviz cinslerinden kalemler var. Toplamı hangi para biriminde gösterelim?</div>
@@ -5253,20 +5254,61 @@ function satisHesaplaTablosu() {
     td2.style.cssText = 'padding:9px 10px;text-align:center;vertical-align:middle;font-size:13px;';
     td2.textContent = adet + ' ' + (u.birim||'adet');
 
+    // Müşteri hedef fiyatı (kalem para birimine göre)
+    const hedefDeger = parseFloat(u.hedefFiyat) || 0;
+    const hedefPara  = u.hedefFiyatPara || para;
+    const hedefSembol = paraSembolu[hedefPara] || '₺';
+    const hedefTL = hedefDeger > 0 ? toTL(hedefDeger, hedefPara) : 0;
+    // Hedef fiyatın karşılık geldiği marj %
+    let hedefMarjNotu = '';
+    if (hedefTL > 0 && topMaliyetTL > 0) {
+      const marjHedef = (hedefTL / (topMaliyetTL * (1 + kdv/100)) - 1) * 100;
+      const marjRenk  = marjHedef >= 0 ? 'var(--green)' : 'var(--red)';
+      const marjIsaret = marjHedef >= 0 ? '' : '−';
+      hedefMarjNotu = '<div style="font-size:10px;color:' + marjRenk + ';font-weight:600;margin-top:3px;">≈ ' + marjIsaret + '%' + Math.abs(marjHedef).toLocaleString('tr-TR',{maximumFractionDigits:1}) + ' marj</div>';
+    }
+    const tdHedef = tr.insertCell();
+    tdHedef.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;';
+    tdHedef.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:center;">'
+      + '<span style="font-size:12px;color:var(--text3);">' + hedefSembol + '</span>'
+      + '<input type="number" value="' + (hedefDeger || '') + '" min="0" step="0.01" placeholder="0,00" style="width:80px;text-align:right;padding:4px 6px;font-size:13px;" '
+      + 'onchange="talepHedefFiyatGuncelle(' + uIdx + ', this.value, \'' + para + '\')">'
+      + '</div>'
+      + hedefMarjNotu;
+
     // Kar marjı
     const td3 = tr.insertCell();
     td3.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;';
     td3.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:center;">'
-      + '<input type="number" value="' + marj + '" min="0" max="99" style="width:56px;text-align:center;padding:4px 6px;font-size:13px;" '
+      + '<input type="number" value="' + (Math.round(marj*10)/10) + '" min="-99" max="999" step="0.1" style="width:64px;text-align:center;padding:4px 6px;font-size:13px;" '
       + 'oninput="satisUrunMarjlari[' + uIdx + ']=parseFloat(this.value)||0;satisHesaplaTablosu()">'
       + '<span style="font-size:12px;color:var(--text3);">%</span></div>';
 
-    // Birim satış
+    // Birim satış — manuel girilebilir + hedef ile karşılaştırma
     const td4 = tr.insertCell();
     td4.style.cssText = 'padding:9px 10px;text-align:right;vertical-align:middle;';
     if (tlFiyat > 0 && birimSatisDoviz) {
-      td4.innerHTML = '<div style="font-weight:600;color:var(--accent2);">' + fmt2(birimSatisDoviz, sembol) + '</div>'
-        + (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(birimSatisTL,'₺')+'</div>' : '');
+      let renk = 'var(--accent2)';
+      let kiyasNotu = '';
+      if (hedefTL > 0) {
+        const farkTL = birimSatisTL - hedefTL;
+        const farkYuzde = (farkTL / hedefTL) * 100;
+        if (birimSatisTL <= hedefTL) {
+          renk = 'var(--green)';
+          kiyasNotu = '<div style="font-size:10px;color:var(--green);font-weight:600;">▼ Hedefin altında (%' + Math.abs(farkYuzde).toLocaleString('tr-TR',{maximumFractionDigits:1}) + ')</div>';
+        } else {
+          renk = 'var(--red)';
+          kiyasNotu = '<div style="font-size:10px;color:var(--red);font-weight:600;">▲ Hedefi aşıyor (+%' + farkYuzde.toLocaleString('tr-TR',{maximumFractionDigits:1}) + ')</div>';
+        }
+      }
+      td4.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;">'
+        + '<span style="font-size:12px;color:var(--text3);">' + sembol + '</span>'
+        + '<input type="number" value="' + birimSatisDoviz.toFixed(2) + '" min="0" step="0.01" '
+        + 'style="width:100px;text-align:right;padding:4px 6px;font-size:13px;font-weight:600;color:' + renk + ';" '
+        + 'onchange="birimSatisManuel(' + uIdx + ', this.value, \'' + para + '\', ' + topMaliyetTL + ', ' + kdv + ')">'
+        + '</div>'
+        + (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(birimSatisTL,'₺')+'</div>' : '')
+        + kiyasNotu;
     } else {
       td4.textContent = '—';
     }
@@ -5293,6 +5335,34 @@ function satisHesaplaTablosu() {
   if (kdvNotuEl) kdvNotuEl.textContent = kdv > 0 ? '%' + kdv + ' KDV dahil' : 'KDV hariç';
 }
 
+
+function birimSatisManuel(uIdx, deger, para, topMaliyetTL, kdv) {
+  const sayi = parseFloat(deger);
+  if (isNaN(sayi) || sayi <= 0 || !topMaliyetTL || topMaliyetTL <= 0) { satisHesaplaTablosu(); return; }
+  const usdKur = parseFloat(dovizKurlari.usdSatis) || 0;
+  const eurKur = parseFloat(dovizKurlari.eurSatis) || 0;
+  const birimSatisTL = para === 'USD' ? sayi * usdKur : (para === 'EUR' ? sayi * eurKur : sayi);
+  const marj = (birimSatisTL / (topMaliyetTL * (1 + kdv/100)) - 1) * 100;
+  satisUrunMarjlari[uIdx] = Math.round(marj * 10) / 10;
+  satisHesaplaTablosu();
+}
+
+function talepHedefFiyatGuncelle(uIdx, deger, para) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : null;
+  if (!urunler || !urunler[uIdx]) return;
+  const sayi = parseFloat(deger);
+  if (isNaN(sayi) || sayi <= 0) {
+    delete urunler[uIdx].hedefFiyat;
+    delete urunler[uIdx].hedefFiyatPara;
+  } else {
+    urunler[uIdx].hedefFiyat = sayi;
+    urunler[uIdx].hedefFiyatPara = para || 'TRY';
+  }
+  veriKaydet();
+  satisHesaplaTablosu();
+}
 
 function satisToplamParaDegistir(para) {
   window.satisToplamParaBirimi = para;
