@@ -1350,6 +1350,23 @@
           <button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="if(confirm('Tüm veriler silinecek! Emin misiniz?')){localStorage.clear();location.reload();}">🗑 Sıfırla</button>
         </div>
       </div>
+
+      <!-- Claude API Key (AI fiyat çıkarımı için) -->
+      <div style="margin-top:14px;padding:14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div>
+            <div style="font-size:13px;font-weight:500;">🤖 Claude AI API Key</div>
+            <div style="font-size:12px;color:var(--text3);">Gelen RFQ maillerinden fiyat çıkarmak için kullanılır. <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent2);">console.anthropic.com</a>'dan oluşturabilirsiniz. Sadece bu tarayıcıda saklanır.</div>
+          </div>
+          <span id="claude-key-badge" class="badge" style="flex-shrink:0;">—</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="password" id="ayar-claude-key" placeholder="sk-ant-..." style="flex:1;font-family:var(--font-mono);font-size:12px;">
+          <button class="btn btn-sm" onclick="claudeKeyGoster()" id="btn-key-goster" type="button" style="flex-shrink:0;">👁</button>
+          <button class="btn btn-primary btn-sm" onclick="claudeKeyKaydet()" type="button" style="flex-shrink:0;">💾 Kaydet</button>
+          <button class="btn btn-sm" onclick="claudeKeyTemizle()" type="button" style="flex-shrink:0;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3247,6 +3264,7 @@ function goPage(id, el) {
   if (id === 'teklifler') renderMusteriTeklifleri();
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); }
+  if (id === 'ayarlar') claudeKeyDurumGuncelle();
 }
 
 // MODAL
@@ -9447,6 +9465,15 @@ async function aiMaildenFiyatDoldur(mailIdx) {
     if (parsed.teslimat) { const el = document.getElementById('mail-teslimat-' + mailIdx); if (el) el.value = parsed.teslimat; }
     if (parsed.odeme)    { const el = document.getElementById('mail-odeme-' + mailIdx);    if (el) el.value = parsed.odeme; }
     if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--green);padding:4px 0;">✅ AI fiyatları doldurdu — kontrol edin!</div>';
+  } else if (parsed?._err) {
+    const mesajlar = {
+      'no-key':       '⚠ API key tanımsız — Ayarlar > Entegrasyonlar',
+      'unauthorized': '⚠ API key geçersiz — Ayarlar\'dan kontrol edin',
+      'rate-limit':   '⚠ API limit aşıldı — bir süre bekleyin',
+      'network':      '⚠ Bağlantı hatası — internet/CORS kontrol edin',
+    };
+    const msg = mesajlar[parsed._err] || ('⚠ AI hatası: ' + parsed._err);
+    if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--red);padding:4px 0;">' + msg + '</div>';
   } else {
     if (durum) durum.innerHTML = '<div style="font-size:11px;color:var(--red);padding:4px 0;">⚠ Fiyat bulunamadı — manuel girin</div>';
   }
@@ -9479,19 +9506,81 @@ async function aiTumFiyatlariCikar() {
   showToast('✅ ' + secilenler.length + ' mail için AI fiyat çıkarımı tamamlandı!');
 }
 
+// Claude API key yönetimi
+function claudeKeyGetir() {
+  return (localStorage.getItem('emonfast_claude_key') || '').trim();
+}
+
+function claudeKeyKaydet() {
+  const el = document.getElementById('ayar-claude-key');
+  const val = (el?.value || '').trim();
+  if (!val) { showToast('⚠ API key boş olamaz.'); return; }
+  if (!val.startsWith('sk-ant-')) {
+    if (!confirm('Bu key Anthropic formatına benzemiyor (sk-ant- ile başlamıyor). Yine de kaydedilsin mi?')) return;
+  }
+  localStorage.setItem('emonfast_claude_key', val);
+  claudeKeyDurumGuncelle();
+  showToast('✅ Claude API key kaydedildi.');
+}
+
+function claudeKeyTemizle() {
+  if (!confirm('Kayıtlı Claude API key silinsin mi?')) return;
+  localStorage.removeItem('emonfast_claude_key');
+  const el = document.getElementById('ayar-claude-key');
+  if (el) el.value = '';
+  claudeKeyDurumGuncelle();
+  showToast('🗑 Key silindi.');
+}
+
+function claudeKeyGoster() {
+  const el = document.getElementById('ayar-claude-key');
+  const btn = document.getElementById('btn-key-goster');
+  if (!el) return;
+  if (el.type === 'password') { el.type = 'text'; if (btn) btn.textContent = '🙈'; }
+  else { el.type = 'password'; if (btn) btn.textContent = '👁'; }
+}
+
+function claudeKeyDurumGuncelle() {
+  const key = claudeKeyGetir();
+  const badge = document.getElementById('claude-key-badge');
+  const input = document.getElementById('ayar-claude-key');
+  if (badge) {
+    if (key) {
+      badge.textContent = '✓ Tanımlı';
+      badge.style.color = 'var(--green)';
+      badge.style.borderColor = 'rgba(62,207,142,0.3)';
+    } else {
+      badge.textContent = '✗ Tanımsız';
+      badge.style.color = 'var(--red)';
+      badge.style.borderColor = 'rgba(240,96,96,0.3)';
+    }
+  }
+  if (input && key && !input.value) {
+    // Mevcut key'i input'a maskeli yansıt
+    input.value = key;
+    input.type = 'password';
+  }
+}
+
 // Gelen maili Claude API ile parse et — ürün fiyatlarını otomatik çıkar
 async function maildenFiyatlariCikar(mailIcerik, urunler) {
+  const apiKey = claudeKeyGetir();
+  if (!apiKey) {
+    showToast('⚠ Claude API key tanımlı değil. Ayarlar > Entegrasyonlar bölümünden ekleyin.');
+    return { _err: 'no-key' };
+  }
   try {
     const urunListesi = urunler.map((u, i) => `${i+1}. ${u.aciklama}${u.kod ? ' ('+u.kod+')' : ''}`).join('\n');
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 500,
         system: 'Sen bir satin alma asistanisin. Tedarikci teklif mailini analiz edip SADECE JSON dondur. Baska hicbir sey yazma, aciklama yapma.',
         messages: [{
@@ -9503,7 +9592,16 @@ async function maildenFiyatlariCikar(mailIcerik, urunler) {
     if (!response.ok) {
       const err = await response.text();
       console.warn('AI API hata:', response.status, err);
-      return null;
+      if (response.status === 401) {
+        showToast('⚠ Claude API key geçersiz (401). Ayarlar\'dan kontrol edin.');
+        return { _err: 'unauthorized' };
+      }
+      if (response.status === 429) {
+        showToast('⚠ Claude API limit aşıldı (429). Bir süre bekleyip tekrar deneyin.');
+        return { _err: 'rate-limit' };
+      }
+      showToast('⚠ AI API hatası: ' + response.status);
+      return { _err: 'http-' + response.status };
     }
     const data = await response.json();
     const metin = data.content?.find(b => b.type === 'text')?.text || '';
@@ -9512,7 +9610,8 @@ async function maildenFiyatlariCikar(mailIcerik, urunler) {
     return JSON.parse(jsonMatch[0]);
   } catch (e) {
     console.warn('Mail parse hatasi:', e);
-    return null;
+    showToast('⚠ AI bağlantı hatası: ' + (e.message || 'bilinmeyen'));
+    return { _err: 'network' };
   }
 }
 
