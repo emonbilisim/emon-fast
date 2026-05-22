@@ -1490,12 +1490,12 @@
         <button class="btn btn-sm btn-primary" id="od-yedekle-btn" onclick="oneDriveYedekleSimdi()" style="display:none;">☁ Şimdi Yedekle</button>
         <label id="od-oto-wrap" style="display:none;font-size:12px;color:var(--text2);align-items:center;gap:6px;cursor:pointer;">
           <input type="checkbox" id="od-oto-check" onchange="oneDriveOtoToggle(this)" style="accent-color:var(--accent);">
-          Otomatik (günde 1 kez)
+          Otomatik (4 saatte bir)
         </label>
       </div>
       <div id="od-liste"></div>
       <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5;">
-        Veriler kullanıcının OneDrive'ında <strong>Apps / EMON FAST</strong> klasörüne yüklenir; başka dosyalara erişim yoktur. Son 30 yedek tutulur, fazlası otomatik silinir. Otomatik mod: günde 1 kez ilk açılışta yüklenir.
+        Veriler kullanıcının OneDrive'ında <strong>Apps / EMON FAST</strong> klasörüne yüklenir; başka dosyalara erişim yoktur. Son 30 yedek tutulur, fazlası otomatik silinir. Otomatik mod: her 4 saatte bir, sayfa açıkken arka planda yüklenir.
       </div>
     </div>
 
@@ -11058,6 +11058,7 @@ function yedekOtomatikBaslat() {
     yedekDurumMiniGuncelle();
     // OneDrive otomatik yedek (toggle açıksa ve MS oturumu varsa)
     setTimeout(oneDriveOtomatikYedekDene, 2000);
+    oneDriveIntervalBaslat();
   } catch (e) { console.warn('Otomatik yedek hatası:', e); }
 }
 
@@ -11067,7 +11068,9 @@ function yedekOtomatikBaslat() {
 const ONEDRIVE_SCOPES = ['Files.ReadWrite.AppFolder'];
 const ONEDRIVE_MAX_YEDEK = 30; // OneDrive'da tutulacak maksimum yedek sayısı
 const ONEDRIVE_LS_TOGGLE = 'emonfast_onedrive_oto';
-const ONEDRIVE_LS_SON = 'emonfast_onedrive_son_yedek'; // YYYY-MM-DD
+const ONEDRIVE_LS_SON = 'emonfast_onedrive_son_yedek'; // ISO timestamp
+const ONEDRIVE_INTERVAL_SAAT = 4;   // her N saatte bir yedek al
+const ONEDRIVE_KONTROL_DK    = 30;  // sayfa açıkken kontrol sıklığı
 
 async function oneDriveTokenAl(zorlaIzin) {
   if (typeof msal === 'undefined') return null;
@@ -11156,7 +11159,7 @@ async function oneDriveYedekAl(elle) {
     const p = n => String(n).padStart(2,'0');
     const filename = `emon-fast-yedek-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
     const item = await oneDriveYukle(filename, json);
-    localStorage.setItem(ONEDRIVE_LS_SON, _yedekTarihiBugun());
+    localStorage.setItem(ONEDRIVE_LS_SON, new Date().toISOString());
     await oneDriveYedekTemizle();
     const kb = Math.round(json.length / 1024);
     if (elle) showToast(`✅ OneDrive'a yüklendi: ${item.name} (${kb} KB)`);
@@ -11218,13 +11221,29 @@ function oneDriveOtoToggle(input) {
 async function oneDriveOtomatikYedekDene() {
   try {
     if (localStorage.getItem(ONEDRIVE_LS_TOGGLE) !== '1') return;
-    if (localStorage.getItem(ONEDRIVE_LS_SON) === _yedekTarihiBugun()) return; // bugün zaten alındı
+    // Son yedekten N saat geçti mi?
+    const sonStr = localStorage.getItem(ONEDRIVE_LS_SON);
+    if (sonStr) {
+      const sonZaman = Date.parse(sonStr);
+      if (!isNaN(sonZaman)) {
+        const farkSaat = (Date.now() - sonZaman) / 3600000;
+        if (farkSaat < ONEDRIVE_INTERVAL_SAAT) return; // henüz vakti gelmedi
+      }
+    }
     if (!await oneDriveBaglandi()) return; // sessiz — giriş gerekiyorsa otomatik yapma
     await oneDriveYedekAl(false);
-    console.log('OneDrive otomatik yedek tamam.');
+    console.log('OneDrive otomatik yedek tamam (frekans: ' + ONEDRIVE_INTERVAL_SAAT + ' saat).');
   } catch (e) {
     console.warn('OneDrive otomatik yedek başarısız:', e.message || e);
   }
+}
+
+// Sayfa açıkken periyodik kontrol — bir kez kurulur
+let _oneDriveIntervalKuruldu = false;
+function oneDriveIntervalBaslat() {
+  if (_oneDriveIntervalKuruldu) return;
+  _oneDriveIntervalKuruldu = true;
+  setInterval(oneDriveOtomatikYedekDene, ONEDRIVE_KONTROL_DK * 60000);
 }
 
 async function oneDriveModalUIYenile() {
@@ -11259,7 +11278,14 @@ async function oneDriveModalUIYenile() {
   items = items || [];
 
   const sonYedek = localStorage.getItem(ONEDRIVE_LS_SON);
-  status.innerHTML = `✅ Bağlı · ${items.length} yedek · son: ${sonYedek || 'henüz yok'}`;
+  let sonGoster = 'henüz yok';
+  if (sonYedek) {
+    const d = new Date(sonYedek);
+    if (!isNaN(d.getTime())) {
+      sonGoster = d.toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+  }
+  status.innerHTML = `✅ Bağlı · ${items.length} yedek · son: ${sonGoster}`;
 
   if (!items.length) {
     if (liste) liste.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text3);font-size:12px;">OneDrive\'da henüz yedek yok.</div>';
