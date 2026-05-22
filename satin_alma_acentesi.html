@@ -274,8 +274,86 @@
     }
     #talepler-card td[data-label=""] { border-top: 0.5px solid var(--border); margin-top: 4px; }
 
-    /* Tedarikçi tablosu */
-    #page-tedarikciler .table-wrap table { min-width: 480px; }
+    /* Tedarikçi & Müşteri tabloları — mobilde kart görünümü */
+    #page-tedarikciler .table-wrap,
+    #page-musteriler .table-wrap { overflow: visible; }
+    #page-tedarikciler .table-wrap table,
+    #page-musteriler .table-wrap table { min-width: unset; width: 100%; }
+    #page-tedarikciler thead,
+    #page-musteriler thead { display: none; }
+    #page-tedarikciler tbody tr,
+    #page-musteriler tbody tr {
+      display: block;
+      margin-bottom: 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      background: var(--bg2);
+    }
+    #page-tedarikciler tbody td,
+    #page-musteriler tbody td {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      border: none;
+      font-size: 13px;
+      min-width: unset;
+      max-width: unset !important;
+      white-space: normal;
+      gap: 10px;
+    }
+    #page-tedarikciler tbody td[data-label]::before,
+    #page-musteriler tbody td[data-label]::before {
+      content: attr(data-label);
+      font-size: 11px;
+      color: var(--text3);
+      font-weight: 500;
+      flex-shrink: 0;
+      margin-right: 8px;
+      min-width: 62px;
+    }
+    #page-tedarikciler tbody td[data-label=""],
+    #page-musteriler tbody td[data-label=""] {
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+      padding-top: 8px;
+      justify-content: flex-start;
+    }
+    /* Kart içindeki butonlar tam genişlik kullanmasın */
+    #page-tedarikciler tbody td > div,
+    #page-musteriler tbody td > div { flex-wrap: wrap; gap: 6px; }
+
+    /* Panel — döviz + sağ panel grid */
+    .panel-doviz-grid { grid-template-columns: 1fr !important; }
+
+    /* Modal içi 1fr 1fr inline grid'leri mobilde tek kolon */
+    .modal [style*="grid-template-columns:1fr 1fr"],
+    .modal [style*="grid-template-columns: 1fr 1fr"] {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* iOS auto-zoom önle: input/select/textarea en az 16px */
+    input, select, textarea, .form-control {
+      font-size: 16px !important;
+    }
+    /* Çok küçük inline yazılı butonlar etkilenmesin */
+    .btn-sm, .btn.btn-sm { font-size: 13px; }
+
+    /* Search ve filter select'leri esnet */
+    #page-tedarikciler .search-wrap,
+    #page-musteriler .search-wrap,
+    #page-talepler .search-wrap,
+    #page-teklifler .search-wrap,
+    #page-arsiv .search-wrap { flex: 1 1 100%; min-width: 0; }
+    #page-tedarikciler select,
+    #page-musteriler select,
+    #page-talepler select,
+    #page-teklifler select,
+    #page-arsiv select { flex: 1; min-width: 130px; width: auto; }
+
+    /* Topbar aksiyonları sarsın (taşmasın) */
+    .topbar-actions { flex-wrap: wrap; }
 
     /* Login */
     #login-screen > div {
@@ -501,7 +579,7 @@
     </div>
 
     <!-- ANA PANEL: SOL (döviz) + SAĞ (iş akışı + aktivite) -->
-    <div style="display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:20px;align-items:start;">
+    <div class="panel-doviz-grid" style="display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:20px;align-items:start;">
 
       <!-- SOL: TCMB DÖVİZ KURLARI -->
       <div style="display:flex;flex-direction:column;gap:12px;">
@@ -1407,7 +1485,7 @@
 </div>
 
 <div class="modal-overlay" id="modal-yeniTalep">
-  <div class="modal" style="width:580px;max-height:88vh;overflow-y:auto;">
+  <div class="modal" style="width:min(92vw,580px);max-height:88vh;overflow-y:auto;">
     <div class="modal-title">📋 Yeni Müşteri Talebi</div>
 
     <!-- ── MÜŞTERİ SEÇİMİ ── -->
@@ -1792,7 +1870,7 @@
 
 <!-- MODAL: Yeni / Düzenle Müşteri (paylaşılan form) -->
 <div class="modal-overlay" id="modal-musteriForm">
-  <div class="modal" style="width:620px;max-height:88vh;overflow-y:auto;">
+  <div class="modal" style="width:min(92vw,620px);max-height:88vh;overflow-y:auto;">
     <div class="modal-title" id="mf-baslik">👥 Yeni Müşteri Ekle</div>
 
     <!-- ── 1. FİRMA BİLGİLERİ ── -->
@@ -2744,15 +2822,15 @@ function filterTedarikciler() {
       const tr = document.createElement('tr');
       tr.dataset.idx = idx;
       tr.innerHTML = `
-        <td style="width:32px;"><input type="checkbox" class="ted-cb" data-idx="${idx}" onchange="tedSecimGuncelle()" style="accent-color:var(--accent);width:14px;height:14px;" ${!isAdmin?'style="display:none"':''}></td>
-        <td style="font-weight:500;min-width:130px;">${r[0]}</td>
-        <td>${badgeHtml(kat)}<div style="font-size:11px;color:var(--text3);margin-top:3px;max-width:180px;">${r[1]}</div></td>
-        <td style="min-width:110px;">${r[2]}</td>
-        <td style="font-size:12px;white-space:nowrap;font-family:'DM Mono',monospace;">${r[3]}</td>
-        <td>${mail}</td>
-        <td style="min-width:140px;">${odemeBadgeleri(r[5])}<div style="margin-top:3px;">${kargoBadge(r[6]||{})}</div></td>
-        <td><button class="btn btn-sm" onclick="rfqMail('${r[0]}','${r[1]}','${r[2]}','${r[4]}')">RFQ ↗</button></td>
-        <td>
+        <td data-label="" style="width:32px;"><input type="checkbox" class="ted-cb" data-idx="${idx}" onchange="tedSecimGuncelle()" style="accent-color:var(--accent);width:14px;height:14px;" ${!isAdmin?'style="display:none"':''}></td>
+        <td data-label="Firma" style="font-weight:500;min-width:130px;">${r[0]}</td>
+        <td data-label="Kategori">${badgeHtml(kat)}<div style="font-size:11px;color:var(--text3);margin-top:3px;max-width:180px;">${r[1]}</div></td>
+        <td data-label="Kişi" style="min-width:110px;">${r[2]}</td>
+        <td data-label="Telefon" style="font-size:12px;white-space:nowrap;font-family:'DM Mono',monospace;">${r[3]}</td>
+        <td data-label="E-posta">${mail}</td>
+        <td data-label="Ödeme" style="min-width:140px;">${odemeBadgeleri(r[5])}<div style="margin-top:3px;">${kargoBadge(r[6]||{})}</div></td>
+        <td data-label="RFQ"><button class="btn btn-sm" onclick="rfqMail('${r[0]}','${r[1]}','${r[2]}','${r[4]}')">RFQ ↗</button></td>
+        <td data-label="">
           <div style="display:flex;gap:4px;">
             <button class="btn btn-sm" style="padding:4px 8px;" title="Düzenle" onclick="tedarikciDuzenle(${idx})">✏️</button>
             <button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Sil" onclick="tedarikciSil(${idx})">🗑</button>
@@ -3559,16 +3637,16 @@ function filterMusteriler() {
       const ek=m.yetkililer&&m.yetkililer.length>1?`<span style="font-size:10px;color:var(--text3);"> +${m.yetkililer.length-1} kişi</span>`:'';
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a></td>
-        <td style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
-        <td><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
-        <td style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
-        <td><a href="mailto:${ilk.mail}" style="color:var(--accent2);font-size:12px;">${ilk.mail||'—'}</a></td>
-        <td style="min-width:160px;">${odemeBadgeMusteri(m.odeme,m.ozelSartlar)}</td>
-        <td style="font-size:12px;color:var(--text2);">${m.odeme&&m.odeme.vadeli&&m.odeme.vadeGun?m.odeme.vadeGun+' gün':'—'}</td>
-        <td>${durumBadge(m.durum)}</td>
-        <td style="font-size:12px;color:var(--text3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.not}">${m.not||'—'}</td>
-        <td><div style="display:flex;gap:4px;">
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a></td>
+        <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
+        <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
+        <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
+        <td data-label="E-posta"><a href="mailto:${ilk.mail}" style="color:var(--accent2);font-size:12px;">${ilk.mail||'—'}</a></td>
+        <td data-label="Ödeme" style="min-width:160px;">${odemeBadgeMusteri(m.odeme,m.ozelSartlar)}</td>
+        <td data-label="Vade" style="font-size:12px;color:var(--text2);">${m.odeme&&m.odeme.vadeli&&m.odeme.vadeGun?m.odeme.vadeGun+' gün':'—'}</td>
+        <td data-label="Durum">${durumBadge(m.durum)}</td>
+        <td data-label="Not" style="font-size:12px;color:var(--text3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.not}">${m.not||'—'}</td>
+        <td data-label=""><div style="display:flex;gap:4px;">
           <button class="btn btn-sm" style="padding:4px 8px;" onclick="musteriDetay(${idx})">👁</button>
           <button class="btn btn-sm" style="padding:4px 8px;" onclick="musteriFormAc(${idx})">✏️</button>
           <button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="musteriSil(${idx})">🗑</button>
