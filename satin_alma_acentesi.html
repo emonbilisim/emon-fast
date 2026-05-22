@@ -324,9 +324,6 @@
     #page-tedarikciler tbody td > div,
     #page-musteriler tbody td > div { flex-wrap: wrap; gap: 6px; }
 
-    /* Panel — döviz + sağ panel grid */
-    .panel-doviz-grid { grid-template-columns: 1fr !important; }
-
     /* Modal içi 1fr 1fr inline grid'leri mobilde tek kolon */
     .modal [style*="grid-template-columns:1fr 1fr"],
     .modal [style*="grid-template-columns: 1fr 1fr"] {
@@ -554,6 +551,32 @@
   <!-- PANEL PAGE -->
   <div class="content page active" id="page-panel">
 
+    <!-- ⏰ Son Teklif Zamanı Uyarıları (sayfa açılışında ilk görünen alan) -->
+    <div class="card" id="panel-stz-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--amber);">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⏰ Son Teklif Zamanı Yaklaşanlar</div>
+          <div class="card-sub">3 gün içinde sona erecek teklifler</div>
+        </div>
+      </div>
+      <div id="panel-stz-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
+
+    <!-- Aktif Talepler -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <div class="card-title">Aktif Talepler</div>
+        <button class="btn btn-sm" onclick="goPage('talepler', document.querySelector('[onclick*=talepler]'))">Tümünü Gör</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Talep No</th><th>Müşteri</th><th>Ürün</th><th>Miktar</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr></thead>
+          <tbody id="panel-talepler-tbody"></tbody>
+        </table>
+        <div class="empty" id="panel-talepler-empty" style="display:none;padding:24px;text-align:center;color:var(--text3);font-size:13px;">Henüz talep yok.</div>
+      </div>
+    </div>
+
     <!-- ÜST METRİKLER -->
     <div class="grid4" style="margin-bottom:20px;">
       <div class="metric-card">
@@ -578,12 +601,53 @@
       </div>
     </div>
 
-    <!-- ANA PANEL: SOL (döviz) + SAĞ (iş akışı + aktivite) -->
-    <div class="panel-doviz-grid" style="display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:20px;align-items:start;">
+    <!-- İŞ AKIŞI + AKTİVİTE (yan yana) -->
+    <div class="grid2" style="margin-bottom:20px;align-items:start;">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">Talep Durumu Özeti</div>
+            <div class="card-sub" id="panel-akis-sub">Güncel durum</div>
+          </div>
+          <button class="btn btn-sm" onclick="renderPanelMetrikler()">🔄</button>
+        </div>
+        <div id="panel-akis-icerik" style="display:flex;flex-direction:column;gap:6px;padding:4px 0;"></div>
+      </div>
 
-      <!-- SOL: TCMB DÖVİZ KURLARI -->
-      <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Son Aktiviteler</div>
+          <span class="badge badge-blue" id="panel-aktivite-badge">—</span>
+        </div>
+        <div id="panel-aktiviteler-icerik">
+          <div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Yükleniyor...</div>
+        </div>
+      </div>
+    </div>
 
+    <!-- Onay Bekleyenler (sadece admin) -->
+    <div class="card" id="panel-onay-card" style="display:none;border-left:3px solid var(--amber);margin-bottom:20px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⏳ Onay Bekleyenler</div>
+          <div class="card-sub">Satıcıların eklediği kayıtlar admin onayı bekliyor</div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="onayModalAc()">İncele</button>
+      </div>
+      <div id="panel-onay-ozet" style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;"></div>
+    </div>
+
+    <!-- 💱 DÖVİZ KURLARI (en altta) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">💱 Döviz Kurları</div>
+          <div class="card-sub" id="tcmb-tarih">Yükleniyor...</div>
+        </div>
+        <button class="btn btn-sm" onclick="tcmbKurCek()" style="padding:4px 10px;font-size:11px;">🔄 Yenile</button>
+      </div>
+
+      <div class="grid2" style="margin-top:8px;">
         <!-- USD Kartı -->
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
           <div style="background:linear-gradient(135deg,#1565C0,#1976D2);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">
@@ -635,79 +699,11 @@
             </div>
           </div>
         </div>
-
-        <!-- Tarih + yenile -->
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;">
-          <div>
-            <div id="tcmb-tarih" style="font-size:11px;color:var(--text3);">Yükleniyor...</div>
-            <div style="font-size:10px;color:var(--text3);margin-top:1px;">
-              Kaynak: ExchangeRate API · 5 dk'da bir güncellenir
-            </div>
-          </div>
-          <button class="btn btn-sm" onclick="tcmbKurCek()" style="padding:4px 10px;font-size:11px;">🔄 Yenile</button>
-        </div>
       </div>
 
-      <!-- SAĞ: İŞ AKIŞI + AKTİVİTE -->
-      <div style="display:flex;flex-direction:column;gap:16px;">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">Talep Durumu Özeti</div>
-              <div class="card-sub" id="panel-akis-sub">Güncel durum</div>
-            </div>
-            <button class="btn btn-sm" onclick="renderPanelMetrikler()">🔄</button>
-          </div>
-          <div id="panel-akis-icerik" style="display:flex;flex-direction:column;gap:6px;padding:4px 0;"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">Son Aktiviteler</div>
-            <span class="badge badge-blue" id="panel-aktivite-badge">—</span>
-          </div>
-          <div id="panel-aktiviteler-icerik">
-            <div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Yükleniyor...</div>
-          </div>
-        </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:10px;text-align:right;">
+        Kaynak: ExchangeRate API · 5 dk'da bir güncellenir
       </div>
-    </div>
-
-    <!-- Son Teklif Zamanı Uyarıları -->
-    <div class="card" id="panel-stz-card" style="display:none;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">⏰ Son Teklif Zamanı Yaklaşanlar</div>
-          <div class="card-sub">3 gün içinde sona erecek teklifler</div>
-        </div>
-      </div>
-      <div id="panel-stz-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <div class="card-title">Aktif Talepler</div>
-        <button class="btn btn-sm" onclick="goPage('talepler', document.querySelector('[onclick*=talepler]'))">Tümünü Gör</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Talep No</th><th>Müşteri</th><th>Ürün</th><th>Miktar</th><th>Durum</th><th>Tarih</th><th>İşlem</th></tr></thead>
-          <tbody id="panel-talepler-tbody"></tbody>
-        </table>
-        <div class="empty" id="panel-talepler-empty" style="display:none;padding:24px;text-align:center;color:var(--text3);font-size:13px;">Henüz talep yok.</div>
-      </div>
-    </div>
-
-    <!-- Onay Bekleyenler (sadece admin) -->
-    <div class="card" id="panel-onay-card" style="display:none;border-left:3px solid var(--amber);">
-      <div class="card-header">
-        <div>
-          <div class="card-title">⏳ Onay Bekleyenler</div>
-          <div class="card-sub">Satıcıların eklediği kayıtlar admin onayı bekliyor</div>
-        </div>
-        <button class="btn btn-sm btn-primary" onclick="onayModalAc()">İncele</button>
-      </div>
-      <div id="panel-onay-ozet" style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;"></div>
     </div>
 
   </div>
