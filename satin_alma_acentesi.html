@@ -5445,8 +5445,9 @@ function birimSatisManuel(uIdx, deger, para, topMaliyetTL, kdv) {
   const usdKur = parseFloat(dovizKurlari.usdSatis) || 0;
   const eurKur = parseFloat(dovizKurlari.eurSatis) || 0;
   const birimSatisTL = para === 'USD' ? sayi * usdKur : (para === 'EUR' ? sayi * eurKur : sayi);
-  const marj = (birimSatisTL / (topMaliyetTL * (1 + kdv/100)) - 1) * 100;
-  satisUrunMarjlari[uIdx] = Math.round(marj * 10) / 10;
+  // Marjı TAM değer olarak sakla — yuvarlama yaparsak geri hesapta birim satış kaymalı (örn. 150 → 150,03)
+  // Marj input'ında zaten Math.round(marj*10)/10 ile gösteriliyor
+  satisUrunMarjlari[uIdx] = (birimSatisTL / (topMaliyetTL * (1 + kdv/100)) - 1) * 100;
   satisHesaplaTablosu();
 }
 
