@@ -3561,6 +3561,9 @@ function onayBekleyenleriYukle() {
 function onayBekleyenleriKaydet() {
   localStorage.setItem('emonfast_onay', JSON.stringify(ONAY_BEKLEYENLER));
   onayBadgeGuncelle();
+  // ONAY_BEKLEYENLER sunucu üzerinden tüm cihazlara senkronlanmalı —
+  // veriKaydet() debounce'lu API push'unu tetikler
+  if (typeof veriKaydet === 'function') veriKaydet();
 }
 function onayBadgeGuncelle() {
   const toplam = ONAY_BEKLEYENLER.musteriler.length + ONAY_BEKLEYENLER.tedarikciler.length;
@@ -10805,6 +10808,16 @@ msalBaslat();
         aktifOturumGoster();
         stzUyariBaslat();
         onayBadgeGuncelle();
+        // Sunucudan taze veri çek — yeni onay istekleri ve diğer
+        // cihazlardan gelen değişiklikler için
+        if (apiTokenAl()) {
+          apiVeriYukle().then(basarili => {
+            if (basarili) {
+              filterMusteriler(); filterTedarikciler(); renderTalepler();
+              renderPanelMetrikler(); onayBadgeGuncelle();
+            }
+          }).catch(() => {});
+        }
         return;
       }
     }
