@@ -1420,8 +1420,11 @@
           <span id="ms-baglanti-badge" class="badge">—</span>
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);">
-          <div><div style="font-size:13px;font-weight:500;">Veri Yedekleme</div><div style="font-size:12px;color:var(--text3);">LocalStorage — bu tarayıcıda</div></div>
-          <button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="if(confirm('Tüm veriler silinecek! Emin misiniz?')){localStorage.clear();location.reload();}">🗑 Sıfırla</button>
+          <div>
+            <div style="font-size:13px;font-weight:500;">💾 Veri Yedekleme</div>
+            <div style="font-size:12px;color:var(--text3);" id="yedek-durum-mini">—</div>
+          </div>
+          <button class="btn btn-sm" onclick="yedekModalAc()">🛠 Yönet</button>
         </div>
       </div>
 
@@ -1445,6 +1448,51 @@
   </div>
 
 </div><!-- /main -->
+
+<!-- MODAL: Veri Yedekleme -->
+<div class="modal-overlay" id="modal-yedek">
+  <div class="modal" style="width:min(94vw,720px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">💾 Veri Yedekleme</div>
+
+    <!-- Manuel Yedek -->
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:10px;">📦 Manuel Yedek</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-sm btn-primary" onclick="yedekIndir()">📥 Yedeği Dosyaya İndir</button>
+        <button class="btn btn-sm" onclick="document.getElementById('yedek-yukle-input').click()">📤 Dosyadan Geri Yükle</button>
+        <input type="file" id="yedek-yukle-input" accept=".json,application/json" onchange="yedekYukle(this)" style="display:none;">
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5;">
+        İndirme: tüm veri (talepler, müşteriler, tedarikçiler, kullanıcılar, ayarlar) tek JSON dosyasında. Yükleme: dosyadaki veriyle mevcut verinin tümü değiştirilir — geri alınamaz, dikkatli kullan.
+      </div>
+    </div>
+
+    <!-- Otomatik Snapshot'lar -->
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);">⏱ Otomatik Yedekler (son 7 gün)</div>
+        <button class="btn btn-sm" onclick="yedekSnapshotAl(true);yedekModalListeYenile();" style="font-size:11px;">📸 Şimdi Snapshot Al</button>
+      </div>
+      <div id="yedek-snapshot-liste"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5;">
+        Her gün ilk açılışta otomatik bir snapshot oluşturulur ve tarayıcıda saklanır. 7 günden eski snapshot'lar silinir.
+      </div>
+    </div>
+
+    <!-- Tehlikeli Bölge -->
+    <div style="background:rgba(240,96,96,0.06);border:1px solid rgba(240,96,96,0.25);border-radius:var(--radius);padding:14px;">
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--red);margin-bottom:8px;">⚠ Tehlikeli Bölge</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--text2);flex:1;">Bu tarayıcıdaki TÜM veriler silinir (talepler, müşteriler, ayarlar dahil). Sunucudaki veri etkilenmez ama bir sonraki kaydetmede üzerine yazılabilir.</div>
+        <button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.4);" onclick="if(confirm('TÜM yerel veriler silinecek! Emin misin?')){localStorage.clear();location.reload();}">🗑 Tümünü Sıfırla</button>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('yedek')">Kapat</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAl: Yeni Talep -->
 <!-- MODAL: Hakkında -->
@@ -7113,6 +7161,8 @@ async function loginYap() {
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
     stzUyariBaslat(); onayBadgeGuncelle();
     setTimeout(renderPanelMetrikler, 100);
+    // API'den taze veri geldi — günlük snapshot'ı bu veriyle güncelle
+    try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
     showToast(`Hoşgeldiniz, ${k.ad.split(' ')[0]}!`);
     return;
   }
@@ -10774,6 +10824,219 @@ async function veriYukleAPI() {
   return veriYukle();
 }
 
+/* ──────────────────────────────────────────────────────────────
+   VERİ YEDEKLEME — Export / Import + Versiyonlu Local Snapshot
+   ────────────────────────────────────────────────────────────── */
+const YEDEK_PREFIX = 'emonfast_yedek_';
+const YEDEK_MAX_GUN = 7;
+
+function _yedekVeriObje() {
+  // Mevcut state'ten taşınabilir bir JSON objesi üret (veriKaydet ile aynı şema)
+  const tedGuvenli = TEDARIKCILER.map(r => r.map(item => {
+    if (item && typeof item === 'object') {
+      try { return JSON.parse(JSON.stringify(item)); } catch { return {}; }
+    }
+    return item;
+  }));
+  return {
+    _yedekVersiyon: 1,
+    _yedekZaman: new Date().toISOString(),
+    TALEPLER: JSON.parse(JSON.stringify(TALEPLER)),
+    MUSTERILER: JSON.parse(JSON.stringify(MUSTERILER)),
+    TEDARIKCILER: tedGuvenli,
+    talepTeklifleri: JSON.parse(JSON.stringify(talepTeklifleri)),
+    talepSayac,
+    FP_KULLANICILAR: undefined,
+    FP_KURALLAR: JSON.parse(JSON.stringify(FP_KURALLAR)),
+    dovizKurlari: { ...dovizKurlari, guncelleme: dovizKurlari.guncelleme?.toISOString?.() || dovizKurlari.guncelleme },
+    KULLANICILAR: KULLANICILAR.map(k => { const { msAccount, ...rest } = k; return rest; }),
+    AYARLAR: JSON.parse(JSON.stringify(AYARLAR || {})),
+    ONAY_BEKLEYENLER: JSON.parse(JSON.stringify(ONAY_BEKLEYENLER)),
+    ROL_IZINLER: (typeof ROL_IZINLER !== 'undefined') ? JSON.parse(JSON.stringify(ROL_IZINLER)) : undefined,
+    tarih: new Date().toISOString(),
+  };
+}
+
+function _yedekTarihiBugun() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function _yedekDosyaAdi() {
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return `emon-fast-yedek-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+}
+
+function yedekIndir() {
+  try {
+    const data = _yedekVeriObje();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = _yedekDosyaAdi();
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    const kb = Math.round(blob.size / 1024);
+    showToast(`✅ Yedek indirildi — ${kb} KB`);
+  } catch (e) {
+    showToast('❌ Yedek alınamadı: ' + (e.message || e));
+  }
+}
+
+function yedekYukle(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const veri = JSON.parse(e.target.result);
+      if (!veri || typeof veri !== 'object') throw new Error('Geçersiz dosya.');
+      if (!Array.isArray(veri.TALEPLER) && !Array.isArray(veri.MUSTERILER) && !Array.isArray(veri.TEDARIKCILER)) {
+        throw new Error('Bu bir EMON FAST yedek dosyası gibi görünmüyor.');
+      }
+      const ozet = [];
+      if (Array.isArray(veri.TALEPLER))     ozet.push(veri.TALEPLER.length + ' talep');
+      if (Array.isArray(veri.MUSTERILER))   ozet.push(veri.MUSTERILER.length + ' müşteri');
+      if (Array.isArray(veri.TEDARIKCILER)) ozet.push(veri.TEDARIKCILER.length + ' tedarikçi');
+      if (!confirm(`Yedek geri yüklenecek (${ozet.join(', ')}).\nMevcut TÜM veri silinip yedekteki veri kullanılacak.\n\nDevam edilsin mi?`)) {
+        input.value = ''; return;
+      }
+      // Yedek almadan önce: mevcut durumun anlık snapshot'ını al — geri dönüş için
+      try { yedekSnapshotAl(true, '_onceki'); } catch(_) {}
+      // LS_KEY'e yaz ve sayfayı yenile
+      localStorage.setItem(LS_KEY, JSON.stringify(veri));
+      showToast('✅ Yedek yüklendi — sayfa yenileniyor...');
+      setTimeout(() => location.reload(), 500);
+    } catch (err) {
+      showToast('❌ ' + (err.message || err));
+      input.value = '';
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function yedekSnapshotAl(zorla, ekKey) {
+  const bugun = _yedekTarihiBugun();
+  const key = YEDEK_PREFIX + bugun + (ekKey || '');
+  if (!zorla && localStorage.getItem(key)) return false; // bugün zaten alınmış
+  try {
+    const data = _yedekVeriObje();
+    localStorage.setItem(key, JSON.stringify(data));
+    yedekSnapshotTemizle();
+    yedekDurumMiniGuncelle();
+    return true;
+  } catch (e) {
+    console.warn('Snapshot alınamadı:', e);
+    return false;
+  }
+}
+
+function yedekSnapshotListesi() {
+  const liste = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(YEDEK_PREFIX)) continue;
+    const tarih = key.slice(YEDEK_PREFIX.length);
+    const raw = localStorage.getItem(key) || '';
+    const sizeKB = Math.round(raw.length / 1024);
+    let ozet = '';
+    try {
+      const v = JSON.parse(raw);
+      const t = Array.isArray(v.TALEPLER)     ? v.TALEPLER.length     : 0;
+      const m = Array.isArray(v.MUSTERILER)   ? v.MUSTERILER.length   : 0;
+      const td= Array.isArray(v.TEDARIKCILER) ? v.TEDARIKCILER.length : 0;
+      ozet = `${t} talep · ${m} müşteri · ${td} tedarikçi`;
+    } catch(_) { ozet = 'bozuk dosya'; }
+    liste.push({ key, tarih, sizeKB, ozet });
+  }
+  return liste.sort((a,b) => b.tarih.localeCompare(a.tarih));
+}
+
+function yedekSnapshotTemizle() {
+  // Sadece YYYY-MM-DD biçiminde olanları temizle; "_onceki" gibi ek anahtarları korur
+  const bugun = new Date();
+  const minDate = new Date(bugun);
+  minDate.setDate(minDate.getDate() - YEDEK_MAX_GUN + 1);
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (!key || !key.startsWith(YEDEK_PREFIX)) continue;
+    const tarihStr = key.slice(YEDEK_PREFIX.length);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tarihStr)) continue; // _onceki vb. değil
+    const d = new Date(tarihStr + 'T00:00:00');
+    if (d < minDate) localStorage.removeItem(key);
+  }
+}
+
+function yedekSnapshotRestore(key) {
+  const raw = localStorage.getItem(key);
+  if (!raw) { showToast('❌ Snapshot bulunamadı.'); return; }
+  let veri;
+  try { veri = JSON.parse(raw); } catch { showToast('❌ Snapshot bozuk.'); return; }
+  const tarih = key.slice(YEDEK_PREFIX.length);
+  if (!confirm(`"${tarih}" tarihli snapshot geri yüklenecek. Mevcut TÜM veri değişecek.\n\nDevam?`)) return;
+  // Önceki durumu da bir snapshot olarak sakla
+  try { yedekSnapshotAl(true, '_onceki'); } catch(_) {}
+  localStorage.setItem(LS_KEY, JSON.stringify(veri));
+  showToast('✅ Snapshot geri yüklendi — sayfa yenileniyor...');
+  setTimeout(() => location.reload(), 500);
+}
+
+function yedekModalAc() {
+  yedekModalListeYenile();
+  openModal('yedek');
+}
+
+function yedekModalListeYenile() {
+  const wrap = document.getElementById('yedek-snapshot-liste');
+  if (!wrap) return;
+  const liste = yedekSnapshotListesi();
+  if (!liste.length) {
+    wrap.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text3);font-size:12px;">Henüz otomatik yedek yok. Sayfa yarın açıldığında ilk snapshot alınacak.</div>';
+    return;
+  }
+  wrap.innerHTML = liste.map(s => {
+    const isOnceki = s.tarih.endsWith('_onceki');
+    const etiket = isOnceki ? '🔄 Önceki Durum (geri yükleme öncesi)' : `📅 ${s.tarih}`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;">
+      <div>
+        <div style="font-size:13px;font-weight:500;">${etiket}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${s.ozet} · ${s.sizeKB} KB</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-sm" onclick="yedekSnapshotRestore('${s.key}')" style="font-size:11px;">↩ Geri Yükle</button>
+        <button class="btn btn-sm" onclick="yedekSnapshotSil('${s.key}')" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Sil">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function yedekSnapshotSil(key) {
+  const tarih = key.slice(YEDEK_PREFIX.length);
+  if (!confirm(`"${tarih}" snapshot'ı silinsin mi?`)) return;
+  localStorage.removeItem(key);
+  yedekModalListeYenile();
+  yedekDurumMiniGuncelle();
+}
+
+function yedekDurumMiniGuncelle() {
+  const el = document.getElementById('yedek-durum-mini');
+  if (!el) return;
+  const liste = yedekSnapshotListesi();
+  if (!liste.length) { el.textContent = 'LocalStorage · henüz yedek yok'; return; }
+  const sonuncu = liste[0];
+  el.textContent = `${liste.length} lokal yedek · son: ${sonuncu.tarih.replace('_onceki','')}`;
+}
+
+// Sayfa açılışında: bugünün snapshot'ı yoksa al, eski olanları temizle
+function yedekOtomatikBaslat() {
+  try {
+    yedekSnapshotTemizle();
+    yedekSnapshotAl(false);
+    yedekDurumMiniGuncelle();
+  } catch (e) { console.warn('Otomatik yedek hatası:', e); }
+}
+
 filterMusteriler();
 filterTedarikciler();
 
@@ -10789,6 +11052,7 @@ renderTalepler();
 fpInit();
 setTimeout(ayarlariYukle, 100);
 setTimeout(renderPanelMetrikler, 200);
+setTimeout(yedekOtomatikBaslat, 300); // Günlük otomatik snapshot + eski yedek temizliği
 msalBaslat();
 
 // Aktif kullanıcıyı localStorage'dan geri yükle
@@ -10815,6 +11079,8 @@ msalBaslat();
             if (basarili) {
               filterMusteriler(); filterTedarikciler(); renderTalepler();
               renderPanelMetrikler(); onayBadgeGuncelle();
+              // API'den taze veri geldi — bugünün snapshot'ını taze veriyle güncelle
+              try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
             }
           }).catch(() => {});
         }
