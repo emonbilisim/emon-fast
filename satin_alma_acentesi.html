@@ -1479,6 +1479,26 @@
       </div>
     </div>
 
+    <!-- ☁ OneDrive Yedek -->
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);">☁ OneDrive Yedekleri (Microsoft 365)</div>
+        <div id="od-status" style="font-size:11px;color:var(--text2);">—</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+        <button class="btn btn-sm btn-primary" id="od-baglan-btn" onclick="oneDriveBaglan()" style="display:none;">🔗 OneDrive'a Bağlan</button>
+        <button class="btn btn-sm btn-primary" id="od-yedekle-btn" onclick="oneDriveYedekleSimdi()" style="display:none;">☁ Şimdi Yedekle</button>
+        <label id="od-oto-wrap" style="display:none;font-size:12px;color:var(--text2);align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="od-oto-check" onchange="oneDriveOtoToggle(this)" style="accent-color:var(--accent);">
+          Otomatik (günde 1 kez)
+        </label>
+      </div>
+      <div id="od-liste"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5;">
+        Veriler kullanıcının OneDrive'ında <strong>Apps / EMON FAST</strong> klasörüne yüklenir; başka dosyalara erişim yoktur. Son 30 yedek tutulur, fazlası otomatik silinir. Otomatik mod: günde 1 kez ilk açılışta yüklenir.
+      </div>
+    </div>
+
     <!-- Tehlikeli Bölge -->
     <div style="background:rgba(240,96,96,0.06);border:1px solid rgba(240,96,96,0.25);border-radius:var(--radius);padding:14px;">
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--red);margin-bottom:8px;">⚠ Tehlikeli Bölge</div>
@@ -10985,6 +11005,8 @@ function yedekSnapshotRestore(key) {
 function yedekModalAc() {
   yedekModalListeYenile();
   openModal('yedek');
+  // OneDrive bölümünü asenkron yenile (token kontrolü ve liste alımı yapılır)
+  setTimeout(() => { try { oneDriveModalUIYenile(); } catch(_) {} }, 50);
 }
 
 function yedekModalListeYenile() {
@@ -11034,7 +11056,236 @@ function yedekOtomatikBaslat() {
     yedekSnapshotTemizle();
     yedekSnapshotAl(false);
     yedekDurumMiniGuncelle();
+    // OneDrive otomatik yedek (toggle açıksa ve MS oturumu varsa)
+    setTimeout(oneDriveOtomatikYedekDene, 2000);
   } catch (e) { console.warn('Otomatik yedek hatası:', e); }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   ONEDRIVE YEDEK — Microsoft Graph App Folder
+   ────────────────────────────────────────────────────────────── */
+const ONEDRIVE_SCOPES = ['Files.ReadWrite.AppFolder'];
+const ONEDRIVE_MAX_YEDEK = 30; // OneDrive'da tutulacak maksimum yedek sayısı
+const ONEDRIVE_LS_TOGGLE = 'emonfast_onedrive_oto';
+const ONEDRIVE_LS_SON = 'emonfast_onedrive_son_yedek'; // YYYY-MM-DD
+
+async function oneDriveTokenAl(zorlaIzin) {
+  if (typeof msal === 'undefined') return null;
+  if (!msalInstance) msalBaslat();
+  if (!msalInstance) return null;
+  if (!msalInitialized) {
+    try { await msalInstance.initialize(); msalInitialized = true; } catch { return null; }
+  }
+  const acc = aktifKullanici?.msAccount || (msalInstance.getAllAccounts?.()[0]);
+  if (!acc) return null;
+  try {
+    const r = await msalInstance.acquireTokenSilent({ scopes: ONEDRIVE_SCOPES, account: acc });
+    return r.accessToken;
+  } catch (e) {
+    if (!zorlaIzin) return null;
+    try {
+      const r = await msalInstance.acquireTokenPopup({ scopes: ONEDRIVE_SCOPES, account: acc, prompt: 'select_account' });
+      return r.accessToken;
+    } catch (e2) {
+      console.warn('OneDrive token izin alınamadı:', e2.message || e2);
+      return null;
+    }
+  }
+}
+
+async function oneDriveBaglandi() {
+  const tok = await oneDriveTokenAl(false);
+  return !!tok;
+}
+
+async function oneDriveYukle(filename, jsonString) {
+  const token = await oneDriveTokenAl(true);
+  if (!token) throw new Error('OneDrive token alınamadı (Microsoft girişi gerekli)');
+  const url = `${GRAPH_API}/me/drive/special/approot:/${encodeURIComponent(filename)}:/content`;
+  const r = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: jsonString,
+  });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => '');
+    throw new Error(`OneDrive yükleme: ${r.status} ${msg.slice(0,200)}`);
+  }
+  return await r.json(); // DriveItem
+}
+
+async function oneDriveListele() {
+  const token = await oneDriveTokenAl(false);
+  if (!token) return null; // bağlı değil
+  const r = await fetch(`${GRAPH_API}/me/drive/special/approot/children?$top=200&$orderby=lastModifiedDateTime desc`, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) {
+    if (r.status === 404) return []; // App folder henüz yok
+    throw new Error(`OneDrive liste: ${r.status}`);
+  }
+  const data = await r.json();
+  return (data.value || []).filter(x => x.name && x.name.endsWith('.json'));
+}
+
+async function oneDriveIndir(itemId) {
+  const token = await oneDriveTokenAl(false);
+  if (!token) throw new Error('OneDrive token yok');
+  const r = await fetch(`${GRAPH_API}/me/drive/items/${itemId}/content`, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) throw new Error(`OneDrive indirme: ${r.status}`);
+  return await r.text();
+}
+
+async function oneDriveSil(itemId) {
+  const token = await oneDriveTokenAl(false);
+  if (!token) return false;
+  const r = await fetch(`${GRAPH_API}/me/drive/items/${itemId}`, {
+    method: 'DELETE',
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  return r.ok;
+}
+
+async function oneDriveYedekAl(elle) {
+  try {
+    const data = _yedekVeriObje();
+    const json = JSON.stringify(data);
+    const d = new Date();
+    const p = n => String(n).padStart(2,'0');
+    const filename = `emon-fast-yedek-${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+    const item = await oneDriveYukle(filename, json);
+    localStorage.setItem(ONEDRIVE_LS_SON, _yedekTarihiBugun());
+    await oneDriveYedekTemizle();
+    const kb = Math.round(json.length / 1024);
+    if (elle) showToast(`✅ OneDrive'a yüklendi: ${item.name} (${kb} KB)`);
+    return item;
+  } catch (e) {
+    if (elle) showToast('❌ OneDrive yedek hatası: ' + (e.message || e));
+    throw e;
+  }
+}
+
+async function oneDriveYedekTemizle() {
+  try {
+    const liste = await oneDriveListele();
+    if (!liste || liste.length <= ONEDRIVE_MAX_YEDEK) return;
+    // En eski olanları sil — listele zaten lastModifiedDateTime desc
+    const silinecekler = liste.slice(ONEDRIVE_MAX_YEDEK);
+    for (const item of silinecekler) {
+      try { await oneDriveSil(item.id); } catch(_) {}
+    }
+  } catch(_) {}
+}
+
+async function oneDriveYedekRestore(itemId, fileName) {
+  if (!confirm(`OneDrive'dan "${fileName}" geri yüklenecek.\nMevcut TÜM veri değişecek.\n\nDevam?`)) return;
+  try {
+    const text = await oneDriveIndir(itemId);
+    const veri = JSON.parse(text);
+    if (!veri || typeof veri !== 'object') throw new Error('Geçersiz dosya.');
+    // Önceki durumu sakla
+    try { yedekSnapshotAl(true, '_onceki'); } catch(_) {}
+    localStorage.setItem(LS_KEY, JSON.stringify(veri));
+    showToast('✅ OneDrive yedeği yüklendi — sayfa yenileniyor...');
+    setTimeout(() => location.reload(), 500);
+  } catch (e) {
+    showToast('❌ Geri yükleme hatası: ' + (e.message || e));
+  }
+}
+
+async function oneDriveBaglan() {
+  const btn = document.getElementById('od-baglan-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Bağlanıyor…'; }
+  try {
+    const tok = await oneDriveTokenAl(true);
+    if (!tok) { showToast('❌ OneDrive bağlanamadı. Microsoft hesabıyla giriş yapmış olmalısın.'); return; }
+    showToast('✅ OneDrive bağlandı.');
+    oneDriveModalUIYenile();
+  } catch (e) {
+    showToast('❌ OneDrive: ' + (e.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function oneDriveOtoToggle(input) {
+  localStorage.setItem(ONEDRIVE_LS_TOGGLE, input.checked ? '1' : '0');
+  if (input.checked) showToast('✅ Otomatik OneDrive yedek açık.');
+}
+
+async function oneDriveOtomatikYedekDene() {
+  try {
+    if (localStorage.getItem(ONEDRIVE_LS_TOGGLE) !== '1') return;
+    if (localStorage.getItem(ONEDRIVE_LS_SON) === _yedekTarihiBugun()) return; // bugün zaten alındı
+    if (!await oneDriveBaglandi()) return; // sessiz — giriş gerekiyorsa otomatik yapma
+    await oneDriveYedekAl(false);
+    console.log('OneDrive otomatik yedek tamam.');
+  } catch (e) {
+    console.warn('OneDrive otomatik yedek başarısız:', e.message || e);
+  }
+}
+
+async function oneDriveModalUIYenile() {
+  const status = document.getElementById('od-status');
+  const liste = document.getElementById('od-liste');
+  const baglanBtn = document.getElementById('od-baglan-btn');
+  const yedekleBtn = document.getElementById('od-yedekle-btn');
+  const otoWrap = document.getElementById('od-oto-wrap');
+  const otoCheck = document.getElementById('od-oto-check');
+  if (!status) return;
+
+  // Toggle state
+  if (otoCheck) otoCheck.checked = (localStorage.getItem(ONEDRIVE_LS_TOGGLE) === '1');
+
+  const tok = await oneDriveTokenAl(false);
+  if (!tok) {
+    status.innerHTML = '⚪ Bağlı değil. Microsoft 365 ile giriş yapıp bağlanman gerek.';
+    if (baglanBtn)  baglanBtn.style.display  = '';
+    if (yedekleBtn) yedekleBtn.style.display = 'none';
+    if (otoWrap)    otoWrap.style.display    = 'none';
+    if (liste)      liste.innerHTML = '';
+    return;
+  }
+  if (baglanBtn)  baglanBtn.style.display  = 'none';
+  if (yedekleBtn) yedekleBtn.style.display = '';
+  if (otoWrap)    otoWrap.style.display    = '';
+
+  status.innerHTML = '⏳ OneDrive listesi alınıyor…';
+  let items;
+  try { items = await oneDriveListele(); }
+  catch (e) { status.innerHTML = '❌ Liste alınamadı: ' + (e.message || e); return; }
+  items = items || [];
+
+  const sonYedek = localStorage.getItem(ONEDRIVE_LS_SON);
+  status.innerHTML = `✅ Bağlı · ${items.length} yedek · son: ${sonYedek || 'henüz yok'}`;
+
+  if (!items.length) {
+    if (liste) liste.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text3);font-size:12px;">OneDrive\'da henüz yedek yok.</div>';
+    return;
+  }
+  if (liste) liste.innerHTML = items.slice(0, 20).map(it => {
+    const tarih = (it.lastModifiedDateTime || '').slice(0,19).replace('T',' ');
+    const kb = Math.round((it.size||0) / 1024);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;">
+      <div>
+        <div style="font-size:12px;font-weight:500;font-family:var(--font-mono);">${it.name.replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${tarih} · ${kb} KB</div>
+      </div>
+      <button class="btn btn-sm" onclick="oneDriveYedekRestore('${it.id}','${it.name.replace(/'/g,'')}')" style="font-size:11px;">↩ Geri Yükle</button>
+    </div>`;
+  }).join('') + (items.length > 20 ? `<div style="padding:6px 10px;text-align:center;color:var(--text3);font-size:11px;font-style:italic;">… ve ${items.length - 20} yedek daha</div>` : '');
+}
+
+async function oneDriveYedekleSimdi() {
+  const btn = document.getElementById('od-yedekle-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Yükleniyor…'; }
+  try {
+    await oneDriveYedekAl(true);
+    await oneDriveModalUIYenile();
+  } catch(_) {}
+  finally { if (btn) { btn.disabled = false; btn.innerHTML = '☁ Şimdi Yedekle'; } }
 }
 
 filterMusteriler();
