@@ -1583,7 +1583,10 @@
         <tbody id="talep-urun-tbody"></tbody>
       </table>
     </div>
-    <button class="btn btn-sm" onclick="talepUrunSatirEkle()" style="margin-bottom:14px;">+ Ürün Ekle</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn btn-sm" onclick="talepUrunSatirEkle()">+ Ürün Ekle</button>
+      <button class="btn btn-sm" onclick="topluYapistirAc()" style="background:rgba(79,142,247,0.10);border-color:rgba(79,142,247,0.35);color:var(--accent2);">📋 Excel / Tablo Yapıştır</button>
+    </div>
 
     <div class="grid2">
       <div class="form-group"><label class="form-label">Öncelik</label>
@@ -1619,6 +1622,74 @@
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('yeniTalep')">İptal</button>
       <button class="btn btn-primary" onclick="talepKaydet()">📋 Talebi Oluştur</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Toplu Ürün Yapıştır -->
+<div class="modal-overlay" id="modal-topluYapistir">
+  <div class="modal" style="width:min(94vw,720px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">📋 Excel / Tablo Yapıştır</div>
+
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5;">
+      Excel'den veya başka bir tablodan kopyaladığın veriyi aşağıya yapıştır, ya da <strong>.xlsx</strong> dosyası yükle. Sütunlar otomatik algılanır; gerekirse aşağıdan elle eşleyebilirsin.
+    </div>
+
+    <!-- Dosya yükleme -->
+    <div style="background:var(--bg3);border:1px dashed var(--border2);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="font-size:13px;color:var(--text2);">📂 Dosyadan yükle:</div>
+      <input type="file" id="tyap-dosya" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="topluYapistirDosya(this)" style="font-size:12px;color:var(--text2);">
+      <div id="tyap-dosya-info" style="font-size:11px;color:var(--text3);"></div>
+    </div>
+
+    <!-- Yapıştırma alanı -->
+    <div class="form-group">
+      <label class="form-label">Veriyi buraya yapıştır</label>
+      <textarea id="tyap-input" placeholder="Excel hücrelerini seçip kopyala, buraya Ctrl+V (Cmd+V) yap...
+Örnek:
+Ürün       Kod    Adet  Birim
+Dell 5450  D54    10    Adet
+HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mono);font-size:12px;" oninput="topluYapistirParse()" onpaste="setTimeout(topluYapistirParse,10)"></textarea>
+    </div>
+
+    <!-- Kontroller -->
+    <div id="tyap-kontroller" style="display:none;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" id="tyap-header" onchange="topluYapistirParse()" style="accent-color:var(--accent);"> İlk satır başlık
+        </label>
+        <div style="font-size:11px;color:var(--text3);">Ayırıcı: <span id="tyap-delim" style="color:var(--text2);font-family:var(--font-mono);">otomatik</span></div>
+        <div style="font-size:11px;color:var(--text3);">Algılanan satır: <span id="tyap-satir-sayi" style="color:var(--text2);">0</span></div>
+      </div>
+
+      <!-- Kolon eşleme -->
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Sütun Eşleme</div>
+      <div id="tyap-eslesme" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;"></div>
+    </div>
+
+    <!-- Önizleme -->
+    <div id="tyap-onizleme-wrap" style="display:none;margin-bottom:12px;">
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Önizleme</div>
+      <div style="border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;max-height:240px;overflow-y:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:var(--bg3);position:sticky;top:0;">
+              <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);">Ürün / Açıklama</th>
+              <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);">Kod</th>
+              <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);">Adet</th>
+              <th style="text-align:left;padding:6px 10px;font-size:11px;color:var(--text3);border-bottom:1px solid var(--border);">Birim</th>
+            </tr>
+          </thead>
+          <tbody id="tyap-onizleme-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tyap-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:12px;"></div>
+
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('topluYapistir')">İptal</button>
+      <button class="btn btn-primary" id="tyap-ekle-btn" onclick="topluYapistirUygula()" disabled>Tabloya Ekle</button>
     </div>
   </div>
 </div>
@@ -6217,6 +6288,374 @@ function talepUrunSatirEkle(d) {
 function talepUrunSayiKontrol() {
   const tbody = document.getElementById('talep-urun-tbody');
   if (tbody && tbody.children.length === 0) talepUrunSatirEkle();
+}
+
+/* ──────────────────────────────────────────────────────────────
+   TOPLU ÜRÜN YAPIŞTIR — Excel/CSV/TSV parse + xlsx upload
+   ────────────────────────────────────────────────────────────── */
+const TYAP_KOLONLAR = [
+  { key: '',         label: '— Kullanma —' },
+  { key: 'aciklama', label: 'Ürün / Açıklama' },
+  { key: 'kod',      label: 'Ürün Kodu' },
+  { key: 'adet',     label: 'Adet / Miktar' },
+  { key: 'birim',    label: 'Birim' },
+];
+const TYAP_BIRIM_DEGERLER = ['Adet','Kutu','Paket','Kg','Metre','Takım','Lisans'];
+const TYAP_BIRIM_ESLESMELER = {
+  'adet':'Adet','adt':'Adet','ad':'Adet','ea':'Adet','pcs':'Adet','piece':'Adet',
+  'kutu':'Kutu','box':'Kutu',
+  'paket':'Paket','pkt':'Paket','pack':'Paket',
+  'kg':'Kg','kilo':'Kg','kilogram':'Kg',
+  'metre':'Metre','mt':'Metre','m':'Metre','meter':'Metre',
+  'takım':'Takım','takim':'Takım','tk':'Takım','set':'Takım',
+  'lisans':'Lisans','license':'Lisans','lic':'Lisans',
+};
+let TYAP_STATE = { satirlar: [], delim: '\t', delimLabel: 'TAB', headerKabul: false, eslesme: [] };
+
+function topluYapistirAc() {
+  document.getElementById('tyap-input').value = '';
+  document.getElementById('tyap-dosya').value = '';
+  document.getElementById('tyap-dosya-info').textContent = '';
+  document.getElementById('tyap-header').checked = false;
+  document.getElementById('tyap-kontroller').style.display = 'none';
+  document.getElementById('tyap-onizleme-wrap').style.display = 'none';
+  document.getElementById('tyap-hata').style.display = 'none';
+  document.getElementById('tyap-ekle-btn').disabled = true;
+  TYAP_STATE = { satirlar: [], delim: '\t', delimLabel: 'TAB', headerKabul: false, eslesme: [] };
+  openModal('topluYapistir');
+  setTimeout(() => document.getElementById('tyap-input').focus(), 50);
+}
+
+// .xlsx / .xls / .csv / .tsv / .txt dosyadan yükleme
+function topluYapistirDosya(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const info = document.getElementById('tyap-dosya-info');
+  info.textContent = `${file.name} okunuyor...`;
+
+  const ad = file.name.toLowerCase();
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    try {
+      let text = '';
+      if (ad.endsWith('.xlsx') || ad.endsWith('.xls')) {
+        if (typeof XLSX === 'undefined') {
+          info.textContent = '❌ XLSX kütüphanesi yüklenemedi.';
+          return;
+        }
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        // TAB ile ayırarak metne çevir (parser TAB'i otomatik seçer)
+        text = XLSX.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false, strip: true });
+      } else {
+        text = e.target.result;
+      }
+      document.getElementById('tyap-input').value = text;
+      info.textContent = `✅ ${file.name}`;
+      topluYapistirParse();
+    } catch (err) {
+      info.textContent = '❌ Dosya okunamadı: ' + (err.message || err);
+    }
+  };
+  reader.onerror = () => { info.textContent = '❌ Dosya okuma hatası.'; };
+
+  if (ad.endsWith('.xlsx') || ad.endsWith('.xls')) reader.readAsArrayBuffer(file);
+  else reader.readAsText(file, 'utf-8');
+}
+
+// Ayırıcı tespiti — TAB > ; > , (satır başına ortalama sayıma bakar)
+function tyapDelimTespit(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return { delim: '\t', label: 'TAB' };
+  const aday = [
+    { delim: '\t', label: 'TAB' },
+    { delim: ';',  label: 'noktalı virgül (;)' },
+    { delim: ',',  label: 'virgül (,)' },
+    { delim: '|',  label: 'pipe (|)' },
+  ];
+  let enIyi = aday[0], enIyiSkor = 0;
+  for (const a of aday) {
+    const sayilar = lines.slice(0,8).map(l => l.split(a.delim).length);
+    const ort = sayilar.reduce((s,n)=>s+n,0) / sayilar.length;
+    // Tutarlılık: max-min
+    const tutarli = Math.max(...sayilar) - Math.min(...sayilar) <= 1;
+    const skor = ort > 1 ? ort + (tutarli ? 2 : 0) : 0;
+    if (skor > enIyiSkor) { enIyiSkor = skor; enIyi = a; }
+  }
+  // Hiçbir ayırıcı bulunamadı — tek kolon
+  if (enIyiSkor === 0) return { delim: '\t', label: 'tek kolon' };
+  return enIyi;
+}
+
+// Bir hücre başlık mı? "ürün","kod","adet","birim" gibi anahtar kelimeler arar
+function tyapBaslikMi(satir) {
+  if (!satir || !satir.length) return false;
+  const metinler = satir.map(s => (s||'').toString().toLowerCase().trim());
+  const anahtarlar = ['ürün','urun','açıklama','aciklama','malzeme','tanım','tanim','ürün adı','isim','name','product','description','kod','sku','stok','code','adet','miktar','qty','quantity','sayı','sayi','birim','unit','ölçü','olcu'];
+  let eslesen = 0;
+  for (const m of metinler) {
+    if (!m) continue;
+    if (anahtarlar.some(a => m === a || m.includes(a))) eslesen++;
+  }
+  // En az 2 hücre anahtar kelimeyle eşleşirse başlık say
+  return eslesen >= 2 || (metinler.length >= 2 && eslesen >= 1 && metinler.every(m => !/^\d+([.,]\d+)?$/.test(m)));
+}
+
+// Başlık adlarına göre kolon eşleme tahmini
+function tyapBasliktanEsle(basliklar) {
+  return basliklar.map(b => {
+    const s = (b||'').toString().toLowerCase().trim();
+    if (!s) return '';
+    if (/(ürün|urun|açıklama|aciklama|malzeme|tanım|tanim|isim|name|product|description)/.test(s)) return 'aciklama';
+    if (/(kod|sku|stok|code|model)/.test(s)) return 'kod';
+    if (/(adet|miktar|qty|quantity|sayı|sayi|toplam)/.test(s)) return 'adet';
+    if (/(birim|unit|ölçü|olcu|uom)/.test(s)) return 'birim';
+    return '';
+  });
+}
+
+// Başlık yoksa içeriğe göre kolon eşleme tahmini
+function tyapIcerikleEsle(satirlar) {
+  if (!satirlar.length) return [];
+  const kolonSayi = Math.max(...satirlar.map(r => r.length));
+  const eslesme = new Array(kolonSayi).fill('');
+  const kullanildi = { aciklama:false, kod:false, adet:false, birim:false };
+
+  // Her kolonun karakterini analiz et
+  const analiz = [];
+  for (let c = 0; c < kolonSayi; c++) {
+    const degerler = satirlar.map(r => (r[c]||'').toString().trim()).filter(Boolean);
+    if (!degerler.length) { analiz.push(null); continue; }
+    const sayiOran = degerler.filter(d => /^\d+([.,]\d+)?$/.test(d)).length / degerler.length;
+    const birimOran = degerler.filter(d => TYAP_BIRIM_ESLESMELER[d.toLowerCase()]).length / degerler.length;
+    const ortUzun = degerler.reduce((s,d)=>s+d.length,0) / degerler.length;
+    const kodaBenzer = degerler.filter(d => /^[A-Za-z0-9\-_/.]{2,20}$/.test(d) && /[A-Za-z]/.test(d) && /\d/.test(d)).length / degerler.length;
+    analiz.push({ sayiOran, birimOran, ortUzun, kodaBenzer });
+  }
+
+  // 1) Birim kolonu (en yüksek birim oranı, > %50)
+  let enIyiBirim = -1, enIyiBirimSkor = 0.5;
+  analiz.forEach((a,i) => { if (a && a.birimOran > enIyiBirimSkor) { enIyiBirim = i; enIyiBirimSkor = a.birimOran; }});
+  if (enIyiBirim >= 0) { eslesme[enIyiBirim] = 'birim'; kullanildi.birim = true; }
+
+  // 2) Adet kolonu (en yüksek sayı oranı, > %60, birim değil)
+  let enIyiAdet = -1, enIyiAdetSkor = 0.6;
+  analiz.forEach((a,i) => { if (a && i !== enIyiBirim && a.sayiOran > enIyiAdetSkor) { enIyiAdet = i; enIyiAdetSkor = a.sayiOran; }});
+  if (enIyiAdet >= 0) { eslesme[enIyiAdet] = 'adet'; kullanildi.adet = true; }
+
+  // 3) Kod kolonu (kodaBenzer oranı en yüksek, kısa)
+  let enIyiKod = -1, enIyiKodSkor = 0.4;
+  analiz.forEach((a,i) => { if (a && !eslesme[i] && a.kodaBenzer > enIyiKodSkor && a.ortUzun < 25) { enIyiKod = i; enIyiKodSkor = a.kodaBenzer; }});
+  if (enIyiKod >= 0) { eslesme[enIyiKod] = 'kod'; kullanildi.kod = true; }
+
+  // 4) Açıklama: en uzun ortalamaya sahip, henüz atanmamış
+  let enIyiAcik = -1, enIyiAcikSkor = 0;
+  analiz.forEach((a,i) => { if (a && !eslesme[i] && a.ortUzun > enIyiAcikSkor) { enIyiAcik = i; enIyiAcikSkor = a.ortUzun; }});
+  if (enIyiAcik >= 0) { eslesme[enIyiAcik] = 'aciklama'; kullanildi.aciklama = true; }
+
+  // Açıklama hâlâ atanmadıysa ilk boş kolonu kullan
+  if (!kullanildi.aciklama) {
+    for (let i = 0; i < kolonSayi; i++) { if (!eslesme[i]) { eslesme[i] = 'aciklama'; break; } }
+  }
+  return eslesme;
+}
+
+// Ana parser — textarea içeriğini okur, state'i günceller, önizlemeyi çizer
+function topluYapistirParse() {
+  const text = document.getElementById('tyap-input').value;
+  const hata = document.getElementById('tyap-hata');
+  const kontrol = document.getElementById('tyap-kontroller');
+  const onizleme = document.getElementById('tyap-onizleme-wrap');
+  const ekleBtn = document.getElementById('tyap-ekle-btn');
+  hata.style.display = 'none';
+
+  if (!text.trim()) {
+    kontrol.style.display = 'none';
+    onizleme.style.display = 'none';
+    ekleBtn.disabled = true;
+    return;
+  }
+
+  // Ayırıcıyı bul
+  const { delim, label } = tyapDelimTespit(text);
+  TYAP_STATE.delim = delim;
+  TYAP_STATE.delimLabel = label;
+  document.getElementById('tyap-delim').textContent = label;
+
+  // Satırlara böl
+  const tumSatirlar = text.split(/\r?\n/)
+    .map(l => l.split(delim).map(h => h.trim()))
+    .filter(r => r.some(c => c && c.length));
+
+  if (!tumSatirlar.length) {
+    kontrol.style.display = 'none';
+    onizleme.style.display = 'none';
+    ekleBtn.disabled = true;
+    return;
+  }
+
+  // Başlık tespiti — kullanıcı manuel kontrol etmediyse otomatik
+  const headerCb = document.getElementById('tyap-header');
+  const oncekiManuel = TYAP_STATE._manuelHeader;
+  if (!oncekiManuel) {
+    const otoBaslik = tumSatirlar.length > 1 && tyapBaslikMi(tumSatirlar[0]);
+    headerCb.checked = otoBaslik;
+  }
+  const headerVar = headerCb.checked;
+  TYAP_STATE.headerKabul = headerVar;
+
+  let basliklar = [];
+  let veriSatirlar = tumSatirlar;
+  if (headerVar) { basliklar = tumSatirlar[0]; veriSatirlar = tumSatirlar.slice(1); }
+
+  TYAP_STATE.satirlar = veriSatirlar;
+  document.getElementById('tyap-satir-sayi').textContent = veriSatirlar.length;
+
+  // Kolon eşleme tahmini
+  const kolonSayi = Math.max(...tumSatirlar.map(r => r.length));
+  let eslesme = headerVar ? tyapBasliktanEsle(basliklar) : tyapIcerikleEsle(veriSatirlar);
+  // Eksik kolonları boş ile tamamla
+  while (eslesme.length < kolonSayi) eslesme.push('');
+  TYAP_STATE.eslesme = eslesme;
+
+  // Eşleme UI'sini çiz
+  const eslesmeWrap = document.getElementById('tyap-eslesme');
+  eslesmeWrap.innerHTML = '';
+  for (let i = 0; i < kolonSayi; i++) {
+    const ornek = veriSatirlar.slice(0,2).map(r => r[i]||'').filter(Boolean).join(' / ').slice(0,30);
+    const baslik = headerVar && basliklar[i] ? basliklar[i] : `Sütun ${i+1}`;
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <div style="font-size:11px;color:var(--text3);margin-bottom:3px;">
+        <strong style="color:var(--text2);">${baslik}</strong>
+        ${ornek ? `<span style="opacity:0.7;"> · ${ornek}</span>` : ''}
+      </div>
+      <select data-kolon="${i}" onchange="topluYapistirEslesmeDegis(${i}, this.value)" style="width:100%;padding:6px 8px;font-size:12px;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;color:var(--text);">
+        ${TYAP_KOLONLAR.map(k => `<option value="${k.key}" ${eslesme[i]===k.key?'selected':''}>${k.label}</option>`).join('')}
+      </select>`;
+    eslesmeWrap.appendChild(div);
+  }
+
+  kontrol.style.display = 'block';
+  topluYapistirOnizleme();
+}
+
+function topluYapistirHeaderToggle() { TYAP_STATE._manuelHeader = true; topluYapistirParse(); }
+// Re-bind header checkbox to mark manual override
+(function bindHeaderManual(){
+  const cb = document.getElementById('tyap-header');
+  if (cb && !cb._patched) {
+    cb._patched = true;
+    cb.addEventListener('change', () => { TYAP_STATE._manuelHeader = true; });
+  }
+})();
+
+function topluYapistirEslesmeDegis(kolonIdx, key) {
+  // Aynı key başka kolondaysa onu temizle (her tip tek kolona düşsün)
+  if (key) {
+    TYAP_STATE.eslesme.forEach((e,i) => {
+      if (i !== kolonIdx && e === key) TYAP_STATE.eslesme[i] = '';
+    });
+  }
+  TYAP_STATE.eslesme[kolonIdx] = key;
+  // UI'yi senkronla
+  document.querySelectorAll('#tyap-eslesme select').forEach((sel,i) => { sel.value = TYAP_STATE.eslesme[i] || ''; });
+  topluYapistirOnizleme();
+}
+
+function tyapBirimNormalleştir(deger) {
+  const s = (deger||'').toString().toLowerCase().trim();
+  if (!s) return 'Adet';
+  return TYAP_BIRIM_ESLESMELER[s] || (TYAP_BIRIM_DEGERLER.includes(deger) ? deger : 'Adet');
+}
+
+function tyapAdetTemizle(deger) {
+  if (!deger) return '';
+  const s = deger.toString().replace(/[^\d.,]/g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return isFinite(n) && n > 0 ? String(Math.round(n)) : '';
+}
+
+function topluYapistirOnizleme() {
+  const body = document.getElementById('tyap-onizleme-body');
+  const wrap = document.getElementById('tyap-onizleme-wrap');
+  const ekleBtn = document.getElementById('tyap-ekle-btn');
+  body.innerHTML = '';
+
+  const acIdx = TYAP_STATE.eslesme.indexOf('aciklama');
+  const kdIdx = TYAP_STATE.eslesme.indexOf('kod');
+  const adIdx = TYAP_STATE.eslesme.indexOf('adet');
+  const brIdx = TYAP_STATE.eslesme.indexOf('birim');
+
+  if (acIdx < 0) {
+    wrap.style.display = 'none';
+    ekleBtn.disabled = true;
+    const hata = document.getElementById('tyap-hata');
+    hata.textContent = '⚠️ En az "Ürün / Açıklama" kolonu eşleştirilmelidir.';
+    hata.style.display = 'block';
+    return;
+  }
+  document.getElementById('tyap-hata').style.display = 'none';
+
+  const gecerli = [];
+  TYAP_STATE.satirlar.forEach(r => {
+    const aciklama = (r[acIdx]||'').trim();
+    if (!aciklama) return;
+    gecerli.push({
+      aciklama,
+      kod:   kdIdx >= 0 ? (r[kdIdx]||'').trim() : '',
+      adet:  adIdx >= 0 ? tyapAdetTemizle(r[adIdx]) : '',
+      birim: brIdx >= 0 ? tyapBirimNormalleştir(r[brIdx]) : 'Adet',
+    });
+  });
+
+  TYAP_STATE._gecerli = gecerli;
+  if (!gecerli.length) {
+    wrap.style.display = 'none';
+    ekleBtn.disabled = true;
+    return;
+  }
+
+  // En fazla 50 satır önizleme
+  gecerli.slice(0, 50).forEach(g => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    tr.innerHTML = `
+      <td style="padding:5px 10px;color:var(--text);">${g.aciklama.replace(/</g,'&lt;')}</td>
+      <td style="padding:5px 10px;color:var(--text2);font-family:var(--font-mono);font-size:11px;">${(g.kod||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:5px 10px;color:var(--text2);">${g.adet||'1'}</td>
+      <td style="padding:5px 10px;color:var(--text2);">${g.birim}</td>`;
+    body.appendChild(tr);
+  });
+  if (gecerli.length > 50) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="4" style="padding:6px 10px;text-align:center;color:var(--text3);font-size:11px;font-style:italic;">… ve ${gecerli.length - 50} satır daha</td>`;
+    body.appendChild(tr);
+  }
+  wrap.style.display = 'block';
+  ekleBtn.disabled = false;
+  ekleBtn.textContent = `${gecerli.length} satırı tabloya ekle`;
+}
+
+function topluYapistirUygula() {
+  const gecerli = TYAP_STATE._gecerli || [];
+  if (!gecerli.length) return;
+
+  const tbody = document.getElementById('talep-urun-tbody');
+  // İlk satır boşsa onu kaldır (initial empty row)
+  if (tbody.children.length === 1) {
+    const ilk = tbody.children[0];
+    const ac = ilk.querySelector('.turun-aciklama')?.value.trim();
+    const kd = ilk.querySelector('.turun-kod')?.value.trim();
+    const ad = ilk.querySelector('.turun-adet')?.value.trim();
+    if (!ac && !kd && !ad) ilk.remove();
+  }
+
+  gecerli.forEach(g => talepUrunSatirEkle(g));
+  closeModal('topluYapistir');
+  showToast(`✅ ${gecerli.length} ürün tabloya eklendi.`);
 }
 
 function talepMusteriAra() {
