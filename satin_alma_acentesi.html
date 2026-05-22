@@ -5374,7 +5374,7 @@ function satisHesaplaTablosu() {
     tdHedef.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;';
     tdHedef.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:center;">'
       + '<span style="font-size:12px;color:var(--text3);">' + hedefSembol + '</span>'
-      + '<input type="number" value="' + (hedefDeger || '') + '" min="0" step="0.01" placeholder="0,00" style="width:80px;text-align:right;padding:4px 6px;font-size:13px;" '
+      + '<input type="text" inputmode="decimal" autocomplete="off" value="' + (hedefDeger || '') + '" placeholder="0,00" style="width:96px;text-align:right;padding:4px 6px;font-size:13px;" '
       + 'onchange="talepHedefFiyatGuncelle(' + uIdx + ', this.value, \'' + para + '\')">'
       + '</div>'
       + hedefMarjNotu;
@@ -5383,8 +5383,8 @@ function satisHesaplaTablosu() {
     const td3 = tr.insertCell();
     td3.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;';
     td3.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:center;">'
-      + '<input type="number" value="' + (Math.round(marj*10)/10) + '" min="-99" max="999" step="0.1" style="width:64px;text-align:center;padding:4px 6px;font-size:13px;" '
-      + 'oninput="satisUrunMarjlari[' + uIdx + ']=parseFloat(this.value)||0;satisHesaplaTablosu()">'
+      + '<input type="text" inputmode="decimal" autocomplete="off" value="' + (Math.round(marj*10)/10) + '" style="width:72px;text-align:center;padding:4px 6px;font-size:13px;" '
+      + 'oninput="marjInputGuncelle(' + uIdx + ', this.value)">'
       + '<span style="font-size:12px;color:var(--text3);">%</span></div>';
 
     // Birim satış — manuel girilebilir + hedef ile karşılaştırma
@@ -5406,8 +5406,8 @@ function satisHesaplaTablosu() {
       }
       td4.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;">'
         + '<span style="font-size:12px;color:var(--text3);">' + sembol + '</span>'
-        + '<input type="number" value="' + birimSatisDoviz.toFixed(2) + '" min="0" step="0.01" '
-        + 'style="width:100px;text-align:right;padding:4px 6px;font-size:13px;font-weight:600;color:' + renk + ';" '
+        + '<input type="text" inputmode="decimal" autocomplete="off" value="' + birimSatisDoviz.toFixed(2) + '" '
+        + 'style="width:112px;text-align:right;padding:4px 6px;font-size:13px;font-weight:600;color:' + renk + ';" '
         + 'onchange="birimSatisManuel(' + uIdx + ', this.value, \'' + para + '\', ' + topMaliyetTL + ', ' + kdv + ')">'
         + '</div>'
         + (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(birimSatisTL,'₺')+'</div>' : '')
@@ -5439,8 +5439,30 @@ function satisHesaplaTablosu() {
 }
 
 
+// TR-uyumlu sayı parse: "1.234,56" / "1234.56" / "1234,56" / "1234" → 1234.56
+function parseTrSayi(s) {
+  if (s == null || s === '') return NaN;
+  if (typeof s === 'number') return s;
+  const str = String(s).trim().replace(/[^\d,.\-]/g, '');
+  if (!str) return NaN;
+  const hasComma = str.includes(','), hasDot = str.includes('.');
+  let norm;
+  if (hasComma && hasDot) norm = str.replace(/\./g, '').replace(',', '.'); // 1.234,56
+  else if (hasComma)      norm = str.replace(',', '.');                     // 1234,56
+  else                    norm = str;                                       // 1234.56 veya 1234
+  return parseFloat(norm);
+}
+
+// Marj input debounce — her tuşa basışta tüm tabloyu yeniden çizmemek için
+let _marjReRenderTimer = null;
+function marjInputGuncelle(uIdx, deger) {
+  satisUrunMarjlari[uIdx] = parseTrSayi(deger) || 0;
+  clearTimeout(_marjReRenderTimer);
+  _marjReRenderTimer = setTimeout(() => satisHesaplaTablosu(), 180);
+}
+
 function birimSatisManuel(uIdx, deger, para, topMaliyetTL, kdv) {
-  const sayi = parseFloat(deger);
+  const sayi = parseTrSayi(deger);
   if (isNaN(sayi) || sayi <= 0 || !topMaliyetTL || topMaliyetTL <= 0) { satisHesaplaTablosu(); return; }
   const usdKur = parseFloat(dovizKurlari.usdSatis) || 0;
   const eurKur = parseFloat(dovizKurlari.eurSatis) || 0;
@@ -5456,7 +5478,7 @@ function talepHedefFiyatGuncelle(uIdx, deger, para) {
   if (!t) return;
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : null;
   if (!urunler || !urunler[uIdx]) return;
-  const sayi = parseFloat(deger);
+  const sayi = parseTrSayi(deger);
   if (isNaN(sayi) || sayi <= 0) {
     delete urunler[uIdx].hedefFiyat;
     delete urunler[uIdx].hedefFiyatPara;
