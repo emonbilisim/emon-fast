@@ -7323,6 +7323,7 @@ async function loginYap() {
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
     stzUyariBaslat(); onayBadgeGuncelle();
+    ayarlariYukle(); // ⚠ AYARLAR sunucudan geldi → Ayarlar formunu tazele (standartKargoUSD vb.)
     setTimeout(renderPanelMetrikler, 100);
     // API'den taze veri geldi — günlük snapshot'ı bu veriyle güncelle
     try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
@@ -8770,6 +8771,7 @@ async function _msalGirisisle(result) {
   const bilgi = document.getElementById('ms-giris-bilgi');
   if (bilgi) bilgi.style.display = 'block';
   rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
+  ayarlariYukle();
   showToast(`Hoşgeldiniz, ${msUser.ad.split(' ')[0]}!`);
 }
 
@@ -10988,6 +10990,7 @@ async function veriYukleAPI() {
     if (basarili) {
       filterMusteriler(); filterTedarikciler(); renderTalepler();
       renderPanelMetrikler(); onayBadgeGuncelle();
+      ayarlariYukle();
       return true;
     }
   }
@@ -11506,6 +11509,7 @@ msalBaslat();
             if (basarili) {
               filterMusteriler(); filterTedarikciler(); renderTalepler();
               renderPanelMetrikler(); onayBadgeGuncelle();
+              ayarlariYukle();
               // API'den taze veri geldi — bugünün snapshot'ını taze veriyle güncelle
               try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
             }
