@@ -945,8 +945,20 @@
             <option value="20">%20 Dahil</option>
             <option value="10">%10 Dahil</option>
           </select>
-          <span style="font-size:12px;color:var(--text3);" title="Sadece 'Proje paylaşımı' modundaki ürünlere dağıtılır">Nakliye (₺):</span>
-          <input type="number" id="satis-nakliye" placeholder="₺0" title="Proje paylaşımı modundaki ürünlere eşit dağıtılır, sonra her birinin adetine bölünür" style="width:90px;padding:4px 8px;font-size:12px;" oninput="satisHesaplaTablosu()">
+          <span style="font-size:12px;color:var(--text3);" title="Sadece 'Proje paylaşımı' modundaki ürünlere dağıtılır">Nakliye:</span>
+          <select id="satis-nakliye-para" onchange="satisHesaplaTablosu()" style="padding:4px 6px;font-size:12px;font-weight:500;">
+            <option value="USD" selected>$ USD</option>
+            <option value="TRY">₺ TL</option>
+          </select>
+          <input type="number" id="satis-nakliye" placeholder="0,00" min="0" step="0.01" title="Proje paylaşımı modundaki ürünlere eşit dağıtılır, sonra her birinin adetine bölünür" style="width:90px;padding:4px 8px;font-size:12px;" oninput="satisHesaplaTablosu()">
+          <span style="font-size:12px;color:var(--text3);margin-left:6px;" title="Tüm ürün satırlarının kargo modunu seçilen değere getirir">Tümüne uygula:</span>
+          <select id="satis-kargo-bulk" onchange="kargoTumSatirlaraUygula(this.value); this.value='';" style="padding:4px 6px;font-size:12px;">
+            <option value="">— mod seç —</option>
+            <option value="proje">Proje paylaşımı</option>
+            <option value="standart">Standart pay</option>
+            <option value="manuel">Manuel parça başı</option>
+            <option value="yok">Yansıtma yok</option>
+          </select>
         </div>
       </div>
 
@@ -5403,12 +5415,16 @@ function satisHesaplaTablosu() {
 
   const liste  = talepTeklifleri[t.no] || [];
   const kdv    = parseFloat(document.getElementById('satis-kdv')?.value) || 0;
-  const nak    = parseFloat(document.getElementById('satis-nakliye')?.value) || 0;
   const globalIkinci = document.getElementById('ikinci-fiyat-cb')?.checked;
 
   const paraSembolu = { TRY:'₺', USD:'$', EUR:'€' };
   const usdKur = parseFloat(dovizKurlari.usdSatis) || 0;
   const eurKur = parseFloat(dovizKurlari.eurSatis) || 0;
+
+  // Nakliye — para birimi seçilebilir (USD default, TL opsiyonel). Hep TL'ye çevir.
+  const nakDeger = parseFloat(document.getElementById('satis-nakliye')?.value) || 0;
+  const nakPara  = document.getElementById('satis-nakliye-para')?.value || 'USD';
+  const nak = nakPara === 'USD' ? nakDeger * (usdKur || 0) : nakDeger;
 
   // TL → hedef döviz
   function tlTo(tl, p) {
@@ -5760,6 +5776,20 @@ function kargoModuGuncelle(uIdx, mod) {
   if (mod !== 'manuel') delete urunler[uIdx].kargoManuelUSD;
   veriKaydet();
   satisHesaplaTablosu();
+}
+
+function kargoTumSatirlaraUygula(mod) {
+  if (!mod) return;
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t || !t.urunler || !t.urunler.length) return;
+  t.urunler.forEach(u => {
+    u.kargoModu = mod;
+    if (mod !== 'manuel') delete u.kargoManuelUSD;
+  });
+  veriKaydet();
+  satisHesaplaTablosu();
+  const label = { proje:'Proje paylaşımı', standart:'Standart pay', manuel:'Manuel parça başı', yok:'Yansıtma yok' }[mod] || mod;
+  showToast('✅ Tüm satırlar: ' + label);
 }
 
 function kargoManuelGuncelle(uIdx, deger) {
