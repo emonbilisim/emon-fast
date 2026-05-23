@@ -960,13 +960,14 @@
             <option value="yok">Yansıtma yok</option>
           </select>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-left:6px;" title="Aktif ise döviz ürünlerin satış fiyatı bu kurlarla TL'ye çevrilir">
-            <input type="checkbox" id="satis-manuel-kur-cb" onchange="satisHesaplaTablosu()" style="accent-color:var(--accent);">
+            <input type="checkbox" id="satis-manuel-kur-cb" onchange="teklifKuruCheckboxToggle(this)" style="accent-color:var(--accent);">
             💱 Teklif Kuru:
           </label>
           <span style="font-size:11px;color:var(--text3);">USD</span>
           <input type="number" id="satis-manuel-kur" placeholder="33,50" min="0" step="0.0001" oninput="satisHesaplaTablosu()" style="width:70px;padding:4px 8px;font-size:12px;">
           <span style="font-size:11px;color:var(--text3);">EUR</span>
           <input type="number" id="satis-manuel-kur-eur" placeholder="36,00" min="0" step="0.0001" oninput="satisHesaplaTablosu()" style="width:70px;padding:4px 8px;font-size:12px;">
+          <button class="btn btn-sm" onclick="teklifKuruGuncelle()" style="padding:3px 8px;font-size:11px;" title="USD ve EUR kurlarını sistem kurlarıyla yenile">🔄 Güncelle</button>
         </div>
       </div>
 
@@ -5833,6 +5834,49 @@ function kargoTumSatirlaraUygula(mod) {
   satisHesaplaTablosu();
   const label = { proje:'Proje paylaşımı', standart:'Standart pay', manuel:'Manuel parça başı', yok:'Yansıtma yok' }[mod] || mod;
   showToast('✅ Tüm satırlar: ' + label);
+}
+
+// 💱 Teklif kuru — sistem dovizKurlari'sından input'lara yaz
+function teklifKuruDoldurEgerBosSa() {
+  const usdEl = document.getElementById('satis-manuel-kur');
+  const eurEl = document.getElementById('satis-manuel-kur-eur');
+  const usdSatis = parseFloat(dovizKurlari.usdSatis) || 0;
+  const eurSatis = parseFloat(dovizKurlari.eurSatis) || 0;
+  if (usdEl && !usdEl.value && usdSatis > 0) usdEl.value = usdSatis.toFixed(4);
+  if (eurEl && !eurEl.value && eurSatis > 0) eurEl.value = eurSatis.toFixed(4);
+}
+
+function teklifKuruCheckboxToggle(cb) {
+  if (cb.checked) teklifKuruDoldurEgerBosSa();
+  satisHesaplaTablosu();
+}
+
+async function teklifKuruGuncelle() {
+  const btn = event?.target;
+  if (btn) btn.disabled = true;
+  const oldHtml = btn ? btn.innerHTML : '';
+  if (btn) btn.innerHTML = '⏳';
+  try {
+    // TCMB'den taze veri çek
+    if (typeof tcmbKurCek === 'function') {
+      try { await tcmbKurCek(); } catch(_) {}
+    }
+    // İnputları sistem kurlarıyla doldur (üzerine yaz)
+    const usdEl = document.getElementById('satis-manuel-kur');
+    const eurEl = document.getElementById('satis-manuel-kur-eur');
+    const usdSatis = parseFloat(dovizKurlari.usdSatis) || 0;
+    const eurSatis = parseFloat(dovizKurlari.eurSatis) || 0;
+    if (usdEl && usdSatis > 0) usdEl.value = usdSatis.toFixed(4);
+    if (eurEl && eurSatis > 0) eurEl.value = eurSatis.toFixed(4);
+    if (usdSatis === 0 && eurSatis === 0) {
+      showToast('⚠ Sistem kuru henüz alınmadı — bekleyip tekrar deneyin.');
+    } else {
+      showToast('💱 Teklif kurları sistem kurlarıyla güncellendi.');
+    }
+    satisHesaplaTablosu();
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = oldHtml || '🔄 Güncelle'; }
+  }
 }
 
 function kargoManuelGuncelle(uIdx, deger) {
