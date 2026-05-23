@@ -5431,6 +5431,32 @@ function satisHesaplaTablosu() {
     if (m?.para) kullanilanParalar.add(m.para);
   });
 
+  // 🎯 Müşterinin hedef marjı (per ürün) — musteriMarjUygula ile aynı mantık
+  const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
+  function musteriHedefMarjHesap(u) {
+    if (!musteriObj) return null;
+    const musteriBaz = musteriObj.fpKurallari?.baz !== undefined
+      && musteriObj.fpKurallari?.baz !== ''
+      && musteriObj.fpKurallari?.baz !== null
+        ? parseFloat(musteriObj.fpKurallari.baz)
+        : null;
+    const globalBaz = parseFloat(FP_KURALLAR?.baz) || 25;
+    const bazMarj = (musteriBaz !== null && !isNaN(musteriBaz)) ? musteriBaz : globalBaz;
+    const grupOfset = (musteriObj.fiyatgrup && FP_KURALLAR?.grup?.[musteriObj.fiyatgrup] !== undefined)
+      ? parseFloat(FP_KURALLAR.grup[musteriObj.fiyatgrup]) || 0
+      : 0;
+    const grupMarj = musteriBaz !== null ? musteriBaz : bazMarj + grupOfset;
+    const urunAnahtar = u.aciklama?.split(' ')[0]?.toUpperCase();
+    const musteriUrunMarj = urunAnahtar && musteriObj.fpKurallari?.urunGrubu?.[urunAnahtar] !== undefined
+      ? parseFloat(musteriObj.fpKurallari.urunGrubu[urunAnahtar])
+      : null;
+    const globalUrunMarj = urunAnahtar && FP_KURALLAR?.urunGrubu?.[urunAnahtar] !== undefined
+      ? parseFloat(FP_KURALLAR.urunGrubu[urunAnahtar])
+      : null;
+    const h = musteriUrunMarj ?? globalUrunMarj ?? grupMarj;
+    return isNaN(h) ? null : h;
+  }
+
   // Karışık döviz varsa ve toplam para birimi seçilmemişse sor
   if (kullanilanParalar.size > 1 && !satisToplamPara) {
     satisParaSecModal(kullanilanParalar);
@@ -5567,10 +5593,40 @@ function satisHesaplaTablosu() {
     // Kar marjı
     const td3 = tr.insertCell();
     td3.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;';
+    const musteriHedefMarj = musteriHedefMarjHesap(u);
     td3.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:center;">'
       + '<input type="text" inputmode="decimal" autocomplete="off" value="' + (Math.round(marj*10)/10) + '" style="width:72px;text-align:center;padding:4px 6px;font-size:13px;" '
       + 'oninput="marjInputGuncelle(' + uIdx + ', this.value)">'
       + '<span style="font-size:12px;color:var(--text3);">%</span></div>';
+    // 🎯 Müşteri hedef marjı karşılaştırması
+    if (musteriHedefMarj !== null) {
+      const fark = marj - musteriHedefMarj;
+      const hedefStr = musteriHedefMarj.toLocaleString('tr-TR', { maximumFractionDigits: 1 });
+      if (fark < -0.05) {
+        // Müşteri marjının altında — kırmızı uyarı
+        const altPt = Math.abs(fark).toLocaleString('tr-TR', { maximumFractionDigits: 1 });
+        const altOran = musteriHedefMarj > 0
+          ? Math.abs(fark) / musteriHedefMarj * 100
+          : null;
+        const altOranStr = altOran !== null
+          ? ' (oransal −%' + altOran.toLocaleString('tr-TR', { maximumFractionDigits: 1 }) + ')'
+          : '';
+        td3.innerHTML += '<div style="font-size:10px;margin-top:4px;line-height:1.4;text-align:center;">'
+          + '<div style="color:var(--text3);">🎯 Müşteri marjı: <strong style="color:var(--text2);">%' + hedefStr + '</strong></div>'
+          + '<div style="color:var(--red);font-weight:600;">⚠ %' + altPt + ' altında' + altOranStr + '</div>'
+          + '</div>';
+      } else if (fark > 0.05) {
+        // Müşteri marjının üstünde — yeşil bilgi
+        td3.innerHTML += '<div style="font-size:10px;margin-top:4px;line-height:1.4;text-align:center;color:var(--text3);">'
+          + '🎯 Müşteri marjı: <strong style="color:var(--green);">%' + hedefStr + '</strong> ✓'
+          + '</div>';
+      } else {
+        // Tam müşteri marjı seviyesinde
+        td3.innerHTML += '<div style="font-size:10px;margin-top:4px;line-height:1.4;text-align:center;color:var(--text3);">'
+          + '🎯 Müşteri marjı: <strong style="color:var(--text2);">%' + hedefStr + '</strong>'
+          + '</div>';
+      }
+    }
 
     // Birim satış — manuel girilebilir + hedef ile karşılaştırma
     const td4 = tr.insertCell();
