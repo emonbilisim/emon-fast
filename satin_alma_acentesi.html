@@ -2112,13 +2112,13 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
     </div>
     <div class="form-group"><label class="form-label">Genel Not</label><textarea id="mf-not" placeholder="Müşteri hakkında özel notlar..." style="min-height:60px;"></textarea></div>
 
-    <!-- ── FİYATLANDIRMA KURALLARI ── -->
-    <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);">
+    <!-- ── FİYATLANDIRMA KURALLARI (sadece admin) ── -->
+    <div data-admin-only style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);">
       💰 Müşteriye Özel Fiyatlandırma Kuralları
       <span style="font-size:10px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;">Boş bırakılırsa genel kurallar geçerlidir</span>
     </div>
 
-    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:16px;">
+    <div data-admin-only style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius-lg);padding:16px;">
 
       <!-- Müşteri bazlı baz marj override -->
       <div class="form-group">
@@ -3778,6 +3778,11 @@ function musteriKaydet() {
     return;
   }
 
+  // Satıcılar kar marjı alanlarını göremiyor → mevcut müşteriyi güncellerken
+  // formdaki boş değerlerin sunucudaki marjları ezmesini engelle
+  if (aktifKullanici?.rol === 'satici' && idx >= 0 && MUSTERILER[idx]?.fpKurallari) {
+    kayit.fpKurallari = MUSTERILER[idx].fpKurallari;
+  }
   if(idx===-1){MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); veriKaydet();}
   else{kayit.tarih=MUSTERILER[idx].tarih;MUSTERILER[idx]=kayit;showToast('Müşteri güncellendi!'); veriKaydet();}
   closeModal('musteriForm');
