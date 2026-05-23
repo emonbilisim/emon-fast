@@ -957,6 +957,7 @@
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Ürün</th>
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Tedarikçi / Maliyet</th>
             <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Adet</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">📦 Kargo</th>
             <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Müşteri Hedef</th>
             <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Kar Marjı %</th>
             <th style="padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Birim Satış</th>
@@ -965,7 +966,7 @@
           <tbody id="satis-urun-tbody"></tbody>
           <tfoot>
             <tr style="border-top:2px solid var(--border);">
-              <td colspan="5" style="padding:10px;font-size:13px;font-weight:600;color:var(--text);">
+              <td colspan="6" style="padding:10px;font-size:13px;font-weight:600;color:var(--text);">
                 GENEL TOPLAM
                 <div id="satis-toplam-para-sec" style="display:none;margin-top:6px;">
                   <div style="font-size:11px;color:var(--amber);margin-bottom:4px;">⚠ Farklı döviz cinslerinden kalemler var. Toplamı hangi para biriminde gösterelim?</div>
@@ -1364,6 +1365,16 @@
         <div class="form-group"><label class="form-label">E-posta</label><input type="email" id="ayar-mail" value="info@emon.com.tr"></div>
         <div class="form-group"><label class="form-label">Telefon</label><input type="text" id="ayar-tel" value="0212 222 33 08"></div>
         <div class="form-group"><label class="form-label">Adres</label><input type="text" id="ayar-adres" placeholder="Şirket adresi..."></div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:6px;">📦 Standart Kargo Maliyeti (USD)
+            <span style="font-size:11px;color:var(--text3);font-weight:400;">— birim satış hesabında "standart pay" modu için</span>
+          </label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:13px;color:var(--text3);">$</span>
+            <input type="number" id="ayar-kargo-usd" placeholder="0,00" min="0" step="0.01" style="max-width:140px;">
+            <span style="font-size:11px;color:var(--text3);">/ sevkiyat</span>
+          </div>
+        </div>
         <button class="btn btn-primary btn-sm" onclick="ayarlariKaydet()">Kaydet</button>
       </div>
       <div class="card">
@@ -5440,7 +5451,17 @@ function satisHesaplaTablosu() {
     const gosterFiyat = (m?.hamFiyat && para !== 'TRY') ? m.hamFiyat : tlFiyat;
     const adet     = parseFloat(u.adet) || 1;
     const nakBirim = nak / urunler.length / adet;
-    const topMaliyetTL = tlFiyat + nakBirim;
+    // 📦 Satır bazlı kargo (yok | standart | manuel)
+    const kargoModu = u.kargoModu || 'yok';
+    const standartKargoUSD = parseFloat(AYARLAR.standartKargoUSD) || 0;
+    let kargoBirimUSD = 0;
+    if (kargoModu === 'standart' && standartKargoUSD > 0 && adet > 0) {
+      kargoBirimUSD = standartKargoUSD / adet;
+    } else if (kargoModu === 'manuel') {
+      kargoBirimUSD = parseFloat(u.kargoManuelUSD) || 0;
+    }
+    const kargoBirimTL = kargoBirimUSD * (usdKur || 0);
+    const topMaliyetTL = tlFiyat + nakBirim + kargoBirimTL;
     const marj     = parseFloat(satisUrunMarjlari[uIdx] ?? 25);
     const netTL    = topMaliyetTL * (1 + marj/100);
     const kdvTutar = netTL * kdv / 100;
@@ -5494,6 +5515,32 @@ function satisHesaplaTablosu() {
     const td2 = tr.insertCell();
     td2.style.cssText = 'padding:9px 10px;text-align:center;vertical-align:middle;font-size:13px;';
     td2.textContent = adet + ' ' + (u.birim||'adet');
+
+    // 📦 Kargo modu seçici
+    const tdK = tr.insertCell();
+    tdK.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;min-width:140px;';
+    const stdInfo = standartKargoUSD > 0
+      ? `<option value="standart" ${kargoModu==='standart'?'selected':''}>Standart pay ($${standartKargoUSD.toLocaleString('tr-TR',{maximumFractionDigits:2})})</option>`
+      : `<option value="standart" disabled>Standart yok (Ayarlar)</option>`;
+    let kargoAlt = '';
+    if (kargoModu === 'standart' && standartKargoUSD > 0 && adet > 0) {
+      kargoAlt = `<div style="font-size:10px;color:var(--amber);margin-top:3px;">$${(standartKargoUSD/adet).toLocaleString('tr-TR',{maximumFractionDigits:2})} / parça · ₺${kargoBirimTL.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`;
+    } else if (kargoModu === 'manuel') {
+      const manVal = parseFloat(u.kargoManuelUSD) || 0;
+      kargoAlt = `<div style="display:flex;align-items:center;gap:4px;justify-content:center;margin-top:4px;">
+        <span style="font-size:11px;color:var(--text3);">$</span>
+        <input type="text" inputmode="decimal" autocomplete="off" value="${manVal||''}" placeholder="0,00" style="width:64px;text-align:right;padding:3px 5px;font-size:12px;" onchange="kargoManuelGuncelle(${uIdx}, this.value)">
+        <span style="font-size:10px;color:var(--text3);">/ adet</span>
+      </div>
+      ${(manVal>0 && usdKur>0) ? `<div style="font-size:10px;color:var(--amber);margin-top:2px;">≈ ₺${(manVal*usdKur).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}`;
+    } else if (kargoModu === 'yok') {
+      kargoAlt = `<div style="font-size:10px;color:var(--text3);margin-top:3px;">Yansıtılmıyor</div>`;
+    }
+    tdK.innerHTML = `<select onchange="kargoModuGuncelle(${uIdx}, this.value)" style="width:100%;padding:4px 6px;font-size:12px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);">
+      <option value="yok" ${kargoModu==='yok'?'selected':''}>Yansıtma yok</option>
+      ${stdInfo}
+      <option value="manuel" ${kargoModu==='manuel'?'selected':''}>Manuel parça başı</option>
+    </select>${kargoAlt}`;
 
     // Müşteri hedef fiyatı (kalem para birimine göre)
     const hedefDeger = parseFloat(u.hedefFiyat) || 0;
@@ -5608,6 +5655,29 @@ function birimSatisManuel(uIdx, deger, para, topMaliyetTL, kdv) {
   // Marjı TAM değer olarak sakla — yuvarlama yaparsak geri hesapta birim satış kaymalı (örn. 150 → 150,03)
   // Marj input'ında zaten Math.round(marj*10)/10 ile gösteriliyor
   satisUrunMarjlari[uIdx] = (birimSatisTL / (topMaliyetTL * (1 + kdv/100)) - 1) * 100;
+  satisHesaplaTablosu();
+}
+
+function kargoModuGuncelle(uIdx, mod) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : null;
+  if (!urunler || !urunler[uIdx]) return;
+  urunler[uIdx].kargoModu = mod;
+  if (mod !== 'manuel') delete urunler[uIdx].kargoManuelUSD;
+  veriKaydet();
+  satisHesaplaTablosu();
+}
+
+function kargoManuelGuncelle(uIdx, deger) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : null;
+  if (!urunler || !urunler[uIdx]) return;
+  const sayi = parseTrSayi(deger);
+  if (isNaN(sayi) || sayi <= 0) delete urunler[uIdx].kargoManuelUSD;
+  else urunler[uIdx].kargoManuelUSD = sayi;
+  veriKaydet();
   satisHesaplaTablosu();
 }
 
@@ -8790,6 +8860,7 @@ let AYARLAR = {
   mail: 'info@emon.com.tr',
   tel: '0212 222 33 08',
   adres: '',
+  standartKargoUSD: 0,
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
 };
 
@@ -8855,9 +8926,14 @@ function ayarlariKaydet() {
   AYARLAR.mail   = document.getElementById('ayar-mail')?.value || '';
   AYARLAR.tel    = document.getElementById('ayar-tel')?.value || '';
   AYARLAR.adres  = document.getElementById('ayar-adres')?.value || '';
+  AYARLAR.standartKargoUSD = parseFloat(document.getElementById('ayar-kargo-usd')?.value) || 0;
   veriKaydet();
   imzaOnizlemeGuncelle();
   showToast('Şirket bilgileri kaydedildi!');
+  // Açık satış hesabını tazele — yeni kargo değeri yansısın
+  if (typeof satisHesaplaTablosu === 'function' && document.getElementById('satis-urun-tbody')?.rows.length) {
+    satisHesaplaTablosu();
+  }
 }
 
 function ayarlariYukle() {
@@ -8866,6 +8942,7 @@ function ayarlariYukle() {
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
   setVal('ayar-adres',  AYARLAR.adres);
+  setVal('ayar-kargo-usd', AYARLAR.standartKargoUSD ? String(AYARLAR.standartKargoUSD) : '');
   const i = AYARLAR.imza || {};
   setVal('imza-ad',       i.ad);
   setVal('imza-unvan',    i.unvan);
