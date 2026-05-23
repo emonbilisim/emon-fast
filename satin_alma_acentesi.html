@@ -2873,6 +2873,21 @@ function getKargo(prefix) {
   };
 }
 
+function setOdeme(prefix, odeme) {
+  if (!odeme) return;
+  const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v ?? '') + ''; };
+  // Hem yeni şema (kkKomisyonsuz/kkKomisyonlu/komisyon) hem eski (kk/kkkom/kkkomOran) için
+  setChk(prefix + '-odeme-havale',   odeme.havale);
+  setChk(prefix + '-odeme-kk-kom',   odeme.kkKomisyonsuz ?? odeme.kk);
+  setChk(prefix + '-odeme-kk-komlu', odeme.kkKomisyonlu  ?? odeme.kkkom);
+  setVal(prefix + '-komisyon',       odeme.komisyon      ?? odeme.kkkomOran ?? '');
+  setChk(prefix + '-odeme-vadeli',   odeme.vadeli);
+  setVal(prefix + '-vade-gun',       odeme.vadeGun);
+  if (typeof toggleVade === 'function') toggleVade(prefix);
+  if (typeof toggleKomisyon === 'function') toggleKomisyon(prefix);
+}
+
 function setKargo(prefix, kargo) {
   if (!kargo) return;
   const radio = document.querySelector(`input[name="${prefix}-kargo"][value="${kargo.durum||'belirsiz'}"]`);
