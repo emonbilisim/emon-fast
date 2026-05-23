@@ -959,6 +959,13 @@
             <option value="manuel">Manuel parça başı</option>
             <option value="yok">Yansıtma yok</option>
           </select>
+          <span style="font-size:12px;color:var(--text3);margin-left:6px;" title="Tüm kalemleri seçilen tek para birimi üzerinden göster">Tek döviz:</span>
+          <select id="satis-tek-doviz" onchange="satisHesaplaTablosu()" style="padding:4px 6px;font-size:12px;">
+            <option value="">— kapalı —</option>
+            <option value="USD">$ USD</option>
+            <option value="EUR">€ EUR</option>
+            <option value="TRY">₺ TL</option>
+          </select>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;margin-left:6px;" title="Aktif ise döviz ürünlerin satış fiyatı bu kurlarla TL'ye çevrilir">
             <input type="checkbox" id="satis-manuel-kur-cb" onchange="teklifKuruCheckboxToggle(this)" style="accent-color:var(--accent);">
             💱 Teklif Kuru:
@@ -5441,6 +5448,23 @@ function satisHesaplaTablosu() {
   const manuelKurEUR     = parseFloat(document.getElementById('satis-manuel-kur-eur')?.value) || 0;
   const manuelKurGecerli = manuelKurAktif && (manuelKurUSD > 0 || manuelKurEUR > 0);
 
+  // 💱 Tek döviz modu — tüm kalemleri seçilen tek para biriminde göster
+  // USD ↔ EUR parite sistem satış kurlarından (usdSatis/eurSatis) hesaplanır
+  const tekDoviz = document.getElementById('satis-tek-doviz')?.value || '';
+  function paraCevirGenel(deger, gelenPara, hedefPara) {
+    if (deger === null || deger === undefined || isNaN(deger)) return null;
+    if (gelenPara === hedefPara) return deger;
+    let tl;
+    if (gelenPara === 'TRY') tl = deger;
+    else if (gelenPara === 'USD') tl = usdKur > 0 ? deger * usdKur : null;
+    else if (gelenPara === 'EUR') tl = eurKur > 0 ? deger * eurKur : null;
+    if (tl === null) return null;
+    if (hedefPara === 'TRY') return tl;
+    if (hedefPara === 'USD') return usdKur > 0 ? tl / usdKur : null;
+    if (hedefPara === 'EUR') return eurKur > 0 ? tl / eurKur : null;
+    return null;
+  }
+
   // TL → hedef döviz
   function tlTo(tl, p) {
     if (p === 'USD') return usdKur > 0 ? tl / usdKur : null;
@@ -5728,17 +5752,35 @@ function satisHesaplaTablosu() {
           kiyasNotu = '<div style="font-size:10px;color:var(--red);font-weight:600;">▲ Hedefi aşıyor (+%' + farkYuzde.toLocaleString('tr-TR',{maximumFractionDigits:1}) + ')</div>';
         }
       }
-      // TL gösterimi: manuel kur aktifse USD ürünlerde manuel kura göre, değilse TCMB ile birimSatisTL
-      const tlAltMetin = birimSatisTLManuel !== null
-        ? '<div style="font-size:11px;color:var(--accent2);font-weight:600;">'+fmt2(birimSatisTLManuel,'₺')+' <span style="font-weight:400;">(teklif kuru)</span></div>'
-        : (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(birimSatisTL,'₺')+'</div>' : '');
+      // Tek döviz modu varsa: input ve sembol seçilen para biriminde — sistem kurlarıyla çevrilir
+      let dispBirim = birimSatisDoviz;
+      let dispPara  = para;
+      let dispSembol = sembol;
+      let altMetin = '';
+      if (tekDoviz) {
+        const cevrilen = paraCevirGenel(birimSatisDoviz, para, tekDoviz);
+        if (cevrilen !== null) {
+          dispBirim = cevrilen;
+          dispPara  = tekDoviz;
+          dispSembol = paraSembolu[tekDoviz] || '₺';
+          if (para !== tekDoviz) {
+            // Alt: native değer (referans)
+            altMetin = '<div style="font-size:11px;color:var(--text3);">' + fmt2(birimSatisDoviz, sembol) + '</div>';
+          }
+        }
+      }
+      if (!tekDoviz) {
+        altMetin = birimSatisTLManuel !== null
+          ? '<div style="font-size:11px;color:var(--accent2);font-weight:600;">'+fmt2(birimSatisTLManuel,'₺')+' <span style="font-weight:400;">(teklif kuru)</span></div>'
+          : (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(birimSatisTL,'₺')+'</div>' : '');
+      }
       td4.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;">'
-        + '<span style="font-size:12px;color:var(--text3);">' + sembol + '</span>'
-        + '<input type="text" inputmode="decimal" autocomplete="off" value="' + birimSatisDoviz.toFixed(2) + '" '
+        + '<span style="font-size:12px;color:var(--text3);">' + dispSembol + '</span>'
+        + '<input type="text" inputmode="decimal" autocomplete="off" value="' + dispBirim.toFixed(2) + '" '
         + 'style="width:112px;text-align:right;padding:4px 6px;font-size:13px;font-weight:600;color:' + renk + ';" '
-        + 'onchange="birimSatisManuel(' + uIdx + ', this.value, \'' + para + '\', ' + topMaliyetTL + ', ' + kdv + ')">'
+        + 'onchange="birimSatisManuel(' + uIdx + ', this.value, \'' + dispPara + '\', ' + topMaliyetTL + ', ' + kdv + ')">'
         + '</div>'
-        + tlAltMetin
+        + altMetin
         + kiyasNotu;
     } else {
       td4.textContent = '—';
@@ -5748,18 +5790,39 @@ function satisHesaplaTablosu() {
     const td5 = tr.insertCell();
     td5.style.cssText = 'padding:9px 10px;text-align:right;vertical-align:middle;font-weight:700;';
     if (tlFiyat > 0 && kalemToplamDoviz) {
-      // Manuel kur aktifse USD kalem toplamı bu kurla göster, değilse normal TCMB-TL
-      const kalemAltTL = kalemToplamTLManuel !== null
-        ? '<div style="font-size:11px;color:var(--accent2);font-weight:600;">'+fmt2(kalemToplamTLManuel,'₺')+'</div>'
-        : (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(kalemToplamTL,'₺')+'</div>' : '');
-      td5.innerHTML = '<div>' + fmt2(kalemToplamDoviz, sembol) + '</div>' + kalemAltTL;
+      // Tek döviz modu: kalem toplamı seçilen para birimine çevir
+      if (tekDoviz) {
+        const cevrilenKalem = paraCevirGenel(kalemToplamDoviz, para, tekDoviz);
+        if (cevrilenKalem !== null) {
+          const dispSym = paraSembolu[tekDoviz] || '₺';
+          const altK = para !== tekDoviz
+            ? '<div style="font-size:11px;color:var(--text3);">' + fmt2(kalemToplamDoviz, sembol) + '</div>'
+            : '';
+          td5.innerHTML = '<div>' + fmt2(cevrilenKalem, dispSym) + '</div>' + altK;
+        } else {
+          td5.innerHTML = '<div>' + fmt2(kalemToplamDoviz, sembol) + '</div>';
+        }
+      } else {
+        // Manuel kur aktifse USD kalem toplamı bu kurla göster, değilse normal TCMB-TL
+        const kalemAltTL = kalemToplamTLManuel !== null
+          ? '<div style="font-size:11px;color:var(--accent2);font-weight:600;">'+fmt2(kalemToplamTLManuel,'₺')+'</div>'
+          : (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(kalemToplamTL,'₺')+'</div>' : '');
+        td5.innerHTML = '<div>' + fmt2(kalemToplamDoviz, sembol) + '</div>' + kalemAltTL;
+      }
     } else {
       td5.textContent = '—';
     }
   });
 
-  // Genel toplam — manuel teklif kuru aktifse TL'ye zorla, değilse seçilen para biriminde
-  if (manuelKurGecerli) {
+  // Genel toplam — Tek döviz / Manuel teklif kuru / Default
+  if (tekDoviz) {
+    const genelTekDoviz = paraCevirGenel(genelToplamTL, 'TRY', tekDoviz);
+    const tekDovizSym = paraSembolu[tekDoviz] || '₺';
+    let kurNotu = '';
+    if (tekDoviz === 'USD' && usdKur > 0) kurNotu = ' <span style="font-size:12px;color:var(--text3);">kur: ₺' + usdKur.toLocaleString('tr-TR',{minimumFractionDigits:4,maximumFractionDigits:4}) + '</span>';
+    else if (tekDoviz === 'EUR' && eurKur > 0) kurNotu = ' <span style="font-size:12px;color:var(--text3);">kur: ₺' + eurKur.toLocaleString('tr-TR',{minimumFractionDigits:4,maximumFractionDigits:4}) + '</span>';
+    toplamEl.innerHTML = (genelTekDoviz !== null ? fmt2(genelTekDoviz, tekDovizSym) : fmt2(genelToplamTL,'₺')) + kurNotu;
+  } else if (manuelKurGecerli) {
     const kurParcalari = [];
     if (manuelKurUSD > 0) kurParcalari.push('USD ₺' + manuelKurUSD.toLocaleString('tr-TR',{minimumFractionDigits:4,maximumFractionDigits:4}));
     if (manuelKurEUR > 0) kurParcalari.push('EUR ₺' + manuelKurEUR.toLocaleString('tr-TR',{minimumFractionDigits:4,maximumFractionDigits:4}));
