@@ -945,8 +945,8 @@
             <option value="20">%20 Dahil</option>
             <option value="10">%10 Dahil</option>
           </select>
-          <span style="font-size:12px;color:var(--text3);">Nakliye:</span>
-          <input type="number" id="satis-nakliye" placeholder="₺0" style="width:80px;padding:4px 8px;font-size:12px;" oninput="satisHesaplaTablosu()">
+          <span style="font-size:12px;color:var(--text3);" title="Sadece 'Proje paylaşımı' modundaki ürünlere dağıtılır">Nakliye (₺):</span>
+          <input type="number" id="satis-nakliye" placeholder="₺0" title="Proje paylaşımı modundaki ürünlere eşit dağıtılır, sonra her birinin adetine bölünür" style="width:90px;padding:4px 8px;font-size:12px;" oninput="satisHesaplaTablosu()">
         </div>
       </div>
 
@@ -5431,6 +5431,9 @@ function satisHesaplaTablosu() {
     if (m?.para) kullanilanParalar.add(m.para);
   });
 
+  // 📦 Proje paylaşımı modundaki satır sayısı (Nakliye'nin pay edileceği satırlar)
+  const projePaylasiminda = urunler.filter(u => (u.kargoModu || 'standart') === 'proje').length;
+
   // 🎯 Müşterinin hedef marjı (per ürün) — musteriMarjUygula ile aynı mantık
   const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
   function musteriHedefMarjHesap(u) {
@@ -5476,18 +5479,22 @@ function satisHesaplaTablosu() {
     const sembol  = paraSembolu[para] || '₺';
     const gosterFiyat = (m?.hamFiyat && para !== 'TRY') ? m.hamFiyat : tlFiyat;
     const adet     = parseFloat(u.adet) || 1;
-    const nakBirim = nak / urunler.length / adet;
-    // 📦 Satır bazlı kargo (yok | standart | manuel)
-    const kargoModu = u.kargoModu || 'yok';
+    // 📦 Satır bazlı kargo (yok | standart | manuel | proje)
+    const kargoModu = u.kargoModu || 'standart';
     const standartKargoUSD = parseFloat(AYARLAR.standartKargoUSD) || 0;
     let kargoBirimUSD = 0;
+    let kargoBirimTL  = 0;
     if (kargoModu === 'standart' && standartKargoUSD > 0 && adet > 0) {
       kargoBirimUSD = standartKargoUSD / adet;
+      kargoBirimTL  = kargoBirimUSD * (usdKur || 0);
     } else if (kargoModu === 'manuel') {
       kargoBirimUSD = parseFloat(u.kargoManuelUSD) || 0;
+      kargoBirimTL  = kargoBirimUSD * (usdKur || 0);
+    } else if (kargoModu === 'proje' && nak > 0 && projePaylasiminda > 0 && adet > 0) {
+      // Nakliye toplamı, proje paylaşımındaki satırlara eşit dağıtılır, sonra adete bölünür
+      kargoBirimTL  = nak / projePaylasiminda / adet;
     }
-    const kargoBirimTL = kargoBirimUSD * (usdKur || 0);
-    const topMaliyetTL = tlFiyat + nakBirim + kargoBirimTL;
+    const topMaliyetTL = tlFiyat + kargoBirimTL;
     const marj     = parseFloat(satisUrunMarjlari[uIdx] ?? 25);
     const netTL    = topMaliyetTL * (1 + marj/100);
     const kdvTutar = netTL * kdv / 100;
@@ -5547,10 +5554,12 @@ function satisHesaplaTablosu() {
     tdK.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;min-width:140px;';
     const stdInfo = standartKargoUSD > 0
       ? `<option value="standart" ${kargoModu==='standart'?'selected':''}>Standart pay ($${standartKargoUSD.toLocaleString('tr-TR',{maximumFractionDigits:2})})</option>`
-      : `<option value="standart" disabled>Standart yok (Ayarlar)</option>`;
+      : `<option value="standart" ${kargoModu==='standart'?'selected':''} disabled>Standart yok (Ayarlar)</option>`;
     let kargoAlt = '';
     if (kargoModu === 'standart' && standartKargoUSD > 0 && adet > 0) {
       kargoAlt = `<div style="font-size:10px;color:var(--amber);margin-top:3px;">$${(standartKargoUSD/adet).toLocaleString('tr-TR',{maximumFractionDigits:2})} / parça · ₺${kargoBirimTL.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`;
+    } else if (kargoModu === 'standart' && standartKargoUSD <= 0) {
+      kargoAlt = `<div style="font-size:10px;color:var(--text3);margin-top:3px;">Ayarlar > Standart Kargo'yu doldurun</div>`;
     } else if (kargoModu === 'manuel') {
       const manVal = parseFloat(u.kargoManuelUSD) || 0;
       kargoAlt = `<div style="display:flex;align-items:center;gap:4px;justify-content:center;margin-top:4px;">
@@ -5559,13 +5568,21 @@ function satisHesaplaTablosu() {
         <span style="font-size:10px;color:var(--text3);">/ adet</span>
       </div>
       ${(manVal>0 && usdKur>0) ? `<div style="font-size:10px;color:var(--amber);margin-top:2px;">≈ ₺${(manVal*usdKur).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}`;
+    } else if (kargoModu === 'proje') {
+      if (nak > 0 && projePaylasiminda > 0 && adet > 0) {
+        const payTL = nak / projePaylasiminda;
+        kargoAlt = `<div style="font-size:10px;color:var(--amber);margin-top:3px;line-height:1.4;">₺${payTL.toLocaleString('tr-TR',{maximumFractionDigits:2})} (1/${projePaylasiminda}) · ₺${kargoBirimTL.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}/parça</div>`;
+      } else if (nak <= 0) {
+        kargoAlt = `<div style="font-size:10px;color:var(--text3);margin-top:3px;">Yukarıdaki Nakliye alanına tutar girin</div>`;
+      }
     } else if (kargoModu === 'yok') {
       kargoAlt = `<div style="font-size:10px;color:var(--text3);margin-top:3px;">Yansıtılmıyor</div>`;
     }
     tdK.innerHTML = `<select onchange="kargoModuGuncelle(${uIdx}, this.value)" style="width:100%;padding:4px 6px;font-size:12px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);">
-      <option value="yok" ${kargoModu==='yok'?'selected':''}>Yansıtma yok</option>
       ${stdInfo}
+      <option value="proje" ${kargoModu==='proje'?'selected':''}>Proje paylaşımı (Nakliye'den)</option>
       <option value="manuel" ${kargoModu==='manuel'?'selected':''}>Manuel parça başı</option>
+      <option value="yok" ${kargoModu==='yok'?'selected':''}>Yansıtma yok</option>
     </select>${kargoAlt}`;
 
     // Müşteri hedef fiyatı (kalem para birimine göre)
