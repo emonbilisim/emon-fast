@@ -4254,12 +4254,13 @@ function talepDetayAc(idx) {
       const kdvEl = document.getElementById('satis-kdv');
       if (kdvEl) kdvEl.value = '0';
 
-      // Müşteri baz marjını otomatik uygula
+      // Müşteri marjını otomatik getir — kart bulunursa müşteri/ürün grubu/genel
+      // baz sırasıyla uygulanır; kart yoksa genel baz marj tüm satırlara yazılır.
       const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
-      if (musteriObj && (musteriObj.fpKurallari?.baz || musteriObj.fiyatgrup)) {
-        musteriMarjUygula();
+      if (musteriObj) {
+        musteriMarjUygula(true); // sessiz — açılışta toast gösterme
       } else {
-        satisHesaplaTablosu();
+        satisHesaplaReset();
       }
     }
     satisBolumunuGuncelle();
@@ -6009,11 +6010,11 @@ function satisHesaplaReset() {
   satisHesaplaTablosu();
 }
 
-function musteriMarjUygula() {
+function musteriMarjUygula(sessiz) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
   const m = MUSTERILER.find(x => x.firma === t.musteri);
-  if (!m) { showToast('Müşteri kartı bulunamadı.'); return; }
+  if (!m) { if (!sessiz) showToast('Müşteri kartı bulunamadı.'); return; }
 
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{}];
 
@@ -6048,8 +6049,10 @@ function musteriMarjUygula() {
 
   satisHesaplaTablosu();
 
-  const kaynak = musteriBaz !== null ? 'Müşteri özel baz' : 'Genel baz + Grup ' + (m.fiyatgrup||'—');
-  showToast(m.firma + ' · ' + kaynak + ': %' + grupMarj);
+  if (!sessiz) {
+    const kaynak = musteriBaz !== null ? 'Müşteri özel baz' : 'Genel baz + Grup ' + (m.fiyatgrup||'—');
+    showToast(m.firma + ' · ' + kaynak + ': %' + grupMarj);
+  }
 }
 
 // Eski fonksiyon — geriye dönük uyumluluk için
