@@ -1414,6 +1414,25 @@
       </div>
     </div>
 
+    <!-- Away (Uzakta) Modu -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div class="card-title" style="margin-bottom:4px;">🌙 Away (Uzakta) Modu</div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.6;">
+            Bu mod açıkken, admin uzaktayken satıcıların gönderdiği fiyat onay talepleri
+            <b>otomatik onaylanır</b> — satıcılar onay beklemeden müşteriye teklif gönderebilir.
+            Onay geçmişinde bu kayıtlar "🌙 Otomatik onay" notuyla işaretlenir.
+          </div>
+          <div id="away-mode-durum" style="font-size:12px;font-weight:600;margin-top:10px;"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;flex-shrink:0;padding-top:4px;">
+          <input type="checkbox" id="ayar-away-mode" onchange="awayModeToggle(this)" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>Away modunu aç</span>
+        </label>
+      </div>
+    </div>
+
     <!-- Mail İmzası -->
     <div class="card" style="margin-top:16px;">
       <div class="card-title" style="margin-bottom:4px;">✉️ Mail İmzası</div>
@@ -7744,16 +7763,32 @@ function fiyatOnayTalep() {
 
   const not = prompt('Admin\'e not eklemek ister misiniz? (isteğe bağlı)') || '';
 
-  t.fiyatOnayDurumu = 'bekliyor';
+  const saticiData = satisTabloDurumuYakala();
   t.fiyatOnayTalep  = {
     satici: aktifKullanici.ad,
     tarih:  new Date().toISOString(),
     not,
     satisTablosu: document.getElementById('satis-urun-tbody')?.innerHTML || '',
     toplamStr: document.getElementById('satis-toplam')?.textContent || '',
-    saticiSatisData: satisTabloDurumuYakala(),
+    saticiSatisData: saticiData,
   };
 
+  // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez)
+  if (AYARLAR.awayMode) {
+    t.fiyatOnayDurumu = 'onaylandi';
+    t.fiyatOnayTalep.adminNot        = '🌙 Otomatik onay — admin away (uzakta) modunda.' + (not ? ' • Satıcı notu: ' + not : '');
+    t.fiyatOnayTalep.adminTarih      = new Date().toISOString();
+    t.fiyatOnayTalep.adminSatisData  = saticiData;
+    t.fiyatOnayTalep.adminDegisiklik = false;
+    t.fiyatOnayTalep.otomatikOnay    = true;
+    veriKaydet();
+    satisBolumunuGuncelle();
+    onayBekleyenBadgeGuncelle();
+    showToast('🌙 Admin away modunda — talebiniz otomatik onaylandı!');
+    return;
+  }
+
+  t.fiyatOnayDurumu = 'bekliyor';
   veriKaydet();
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
@@ -9136,6 +9171,7 @@ let AYARLAR = {
   tel: '0212 222 33 08',
   adres: '',
   standartKargoUSD: 0,
+  awayMode: false,
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
 };
 
@@ -9211,8 +9247,30 @@ function ayarlariKaydet() {
   }
 }
 
+function awayModeToggle(cb) {
+  AYARLAR.awayMode = !!cb.checked;
+  veriKaydet();
+  awayModeDurumGuncelle();
+  showToast(AYARLAR.awayMode
+    ? '🌙 Away modu açıldı — satıcı talepleri otomatik onaylanacak.'
+    : '☀️ Away modu kapatıldı — talepler manuel onay bekleyecek.');
+}
+
+function awayModeDurumGuncelle() {
+  const cb = document.getElementById('ayar-away-mode');
+  if (cb) cb.checked = !!AYARLAR.awayMode;
+  const el = document.getElementById('away-mode-durum');
+  if (el) {
+    el.textContent = AYARLAR.awayMode
+      ? '🌙 Açık — satıcı talepleri otomatik onaylanıyor.'
+      : '☀️ Kapalı — talepler manuel onay bekliyor.';
+    el.style.color = AYARLAR.awayMode ? 'var(--amber)' : 'var(--text3)';
+  }
+}
+
 function ayarlariYukle() {
   const setVal = (id, val) => { const el=document.getElementById(id); if(el&&val) el.value=val; };
+  awayModeDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
