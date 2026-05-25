@@ -1342,7 +1342,7 @@
     </div>
 
     <!-- ───────── CRM: Özet + Pipeline + Etkileşim Geçmişi ───────── -->
-    <div class="grid2" style="margin-bottom:20px;align-items:start;">
+    <div class="grid2" id="crm-detay-bolum" style="margin-bottom:20px;align-items:start;">
       <div class="card">
         <div class="card-title" style="margin-bottom:12px;">📊 Müşteri Özeti</div>
         <div id="crm-ozet" style="display:flex;flex-direction:column;gap:6px;"></div>
@@ -1479,6 +1479,26 @@
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;flex-shrink:0;padding-top:4px;">
           <input type="checkbox" id="ayar-away-mode" onchange="awayModeToggle(this)" style="width:16px;height:16px;accent-color:var(--accent);">
           <span>Away modunu aç</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- CRM Modülü -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div class="card-title" style="margin-bottom:4px;">📇 CRM Modülü</div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.6;">
+            Müşteri etkileşim geçmişi, takip hatırlatıcıları ve satış hunisi.
+            <b>Kapalıyken</b> CRM ekrana yalnızca <b>admin</b> için görünür (siz geliştirir ve veriyi
+            beslersiniz); ekip yalnızca talep/teklif sistemini kullanır. Veri her durumda birikir.
+            Yazılım oturduğunda bu modu açarak CRM'i tüm ekibe açabilirsiniz.
+          </div>
+          <div id="crm-aktif-durum" style="font-size:12px;font-weight:600;margin-top:10px;"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;flex-shrink:0;padding-top:4px;">
+          <input type="checkbox" id="ayar-crm-aktif" onchange="crmAktifToggle(this)" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>CRM'i ekibe aç</span>
         </label>
       </div>
     </div>
@@ -4024,7 +4044,7 @@ function filterMusteriler() {
       const ek=m.yetkililer&&m.yetkililer.length>1?`<span style="font-size:10px;color:var(--text3);"> +${m.yetkililer.length-1} kişi</span>`:'';
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}</td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
@@ -4108,6 +4128,10 @@ function crmMusteriAktiviteleri(firma) {
 function crmRender() {
   const m = MUSTERILER[aktifMusteriDetayIdx];
   if (!m) return;
+  // CRM modülü kapalıysa (ve admin değilse) bölümü tamamen gizle
+  const bolum = document.getElementById('crm-detay-bolum');
+  if (bolum) bolum.style.display = crmGorunur() ? '' : 'none';
+  if (!crmGorunur()) return;
   // Etkileşim tipi select'i doldur
   const tipSel = document.getElementById('crm-yeni-tip');
   if (tipSel && !tipSel.dataset.dolu) {
@@ -9711,6 +9735,7 @@ let AYARLAR = {
   adres: '',
   standartKargoUSD: 0,
   awayMode: false,
+  crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
 };
 
@@ -9807,9 +9832,39 @@ function awayModeDurumGuncelle() {
   }
 }
 
+// CRM ekranlarda görünsün mü? Admin her zaman görür; ekip (satıcı) sadece modül açıksa.
+function crmGorunur() {
+  return AYARLAR.crmAktif === true || aktifKullanici?.rol === 'admin';
+}
+
+function crmAktifToggle(cb) {
+  AYARLAR.crmAktif = !!cb.checked;
+  veriKaydet();
+  crmAktifDurumGuncelle();
+  // Açık ekranları tazele
+  if (aktifMusteriDetayIdx >= 0) crmRender();
+  renderPanelTakip();
+  showToast(AYARLAR.crmAktif
+    ? '📇 CRM tüm ekibe açıldı.'
+    : '📇 CRM ekibe kapatıldı — yalnızca admin görüyor (veri birikmeye devam eder).');
+}
+
+function crmAktifDurumGuncelle() {
+  const cb = document.getElementById('ayar-crm-aktif');
+  if (cb) cb.checked = !!AYARLAR.crmAktif;
+  const el = document.getElementById('crm-aktif-durum');
+  if (el) {
+    el.textContent = AYARLAR.crmAktif
+      ? '📇 Açık — CRM tüm ekibe görünür.'
+      : '🔒 Kapalı — CRM yalnızca admin için görünür, veri yine birikiyor.';
+    el.style.color = AYARLAR.crmAktif ? 'var(--green)' : 'var(--text3)';
+  }
+}
+
 function ayarlariYukle() {
   const setVal = (id, val) => { const el=document.getElementById(id); if(el&&val) el.value=val; };
   awayModeDurumGuncelle();
+  crmAktifDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
@@ -9922,6 +9977,7 @@ function renderPanelTakip() {
   const kart   = document.getElementById('panel-takip-card');
   const icerik = document.getElementById('panel-takip-icerik');
   if (!kart || !icerik) return;
+  if (!crmGorunur()) { kart.style.display = 'none'; return; }
   const simdi = new Date(); simdi.setHours(0,0,0,0);
   const esik  = new Date(simdi); esik.setDate(esik.getDate() + 7);
   // Müşteri başına en son girilen (tarih) sonrakiTemas kaydı
