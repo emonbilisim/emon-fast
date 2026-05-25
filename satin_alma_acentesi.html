@@ -9084,6 +9084,9 @@ const AZURE_CONFIG = {
 const GRAPH_SCOPES = ['Mail.Send', 'Mail.ReadWrite', 'User.Read', 'offline_access'];
 const GRAPH_API    = 'https://graph.microsoft.com/v1.0';
 let msalInstance   = null;
+// Microsoft 365 ile giriş yapınca admin yetkisi alacak e-postalar (küçük harf).
+// Yeni admin eklemek için bu listeye e-posta ekleyin.
+const MS_ADMIN_EMAILS = ['selim@emon.com.tr'];
 let msGraphToken   = null;
 
 let msalInitialized = false;
@@ -9181,17 +9184,29 @@ async function _msalGirisisle(result) {
     msAccount: result.account,
   };
 
-  const mevcut = KULLANICILAR.findIndex(k => k.email === msUser.email);
-  if (mevcut >= 0) {
-    msUser.id  = KULLANICILAR[mevcut].id;
-    msUser.rol = KULLANICILAR[mevcut].rol;
-    KULLANICILAR[mevcut] = msUser;
+  // Zaten giriş yapılmış bir oturum varsa (ör. şifreyle girip Outlook bağlama):
+  // Microsoft hesabını mevcut kullanıcıya bağla — rolü/kimliği DEĞİŞTİRME.
+  if (aktifKullanici && aktifKullanici.rol) {
+    aktifKullanici.msAccount = result.account;
+    if (!aktifKullanici.email) aktifKullanici.email = email;
+    const ai = KULLANICILAR.findIndex(k => k.id === aktifKullanici.id);
+    if (ai >= 0) KULLANICILAR[ai] = { ...KULLANICILAR[ai], msAccount: result.account };
+    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: aktifKullanici.id, username: aktifKullanici.username, msAccount: result.account }));
   } else {
-    KULLANICILAR.push(msUser);
+    // Microsoft ile birincil giriş — rolü belirle
+    const mevcut = KULLANICILAR.findIndex(k => (k.email || '').toLowerCase() === msUser.email.toLowerCase());
+    if (mevcut >= 0) {
+      msUser.id  = KULLANICILAR[mevcut].id;
+      msUser.rol = KULLANICILAR[mevcut].rol;
+      KULLANICILAR[mevcut] = msUser;
+    } else {
+      // Listede yoksa: admin allowlist'i admin yapar, diğer herkes satıcı (en az yetki)
+      msUser.rol = MS_ADMIN_EMAILS.includes(msUser.email.toLowerCase()) ? 'admin' : 'satici';
+      KULLANICILAR.push(msUser);
+    }
+    aktifKullanici = msUser;
+    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: msUser.id, username: msUser.username, msAccount: result.account }));
   }
-
-  aktifKullanici = msUser;
-  localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: msUser.id, username: msUser.username, msAccount: result.account }));
   document.getElementById('login-screen').style.display = 'none';
   const bilgi = document.getElementById('ms-giris-bilgi');
   if (bilgi) bilgi.style.display = 'block';
