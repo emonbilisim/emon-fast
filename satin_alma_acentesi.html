@@ -7415,6 +7415,33 @@ const ROL_IZINLER_VARSAYILAN = {
 // localStorage'dan yükle veya varsayılanı kullan
 let ROL_IZINLER = JSON.parse(localStorage.getItem('emonfast_rol_izinler') || 'null') || JSON.parse(JSON.stringify(ROL_IZINLER_VARSAYILAN));
 
+// Tek bir değeri okunur biçimde göster (onay diff'i için)
+function _degerFmt(v) {
+  if (v === true) return 'Var';
+  if (v === false) return 'Yok';
+  if (v === '' || v === null || v === undefined) return '—';
+  return String(v);
+}
+
+// İki nesneyi alan-alan karşılaştırıp değişenleri "etiket: eski → yeni" satırları olarak döndür
+function _objDiff(eski, yeni, labels) {
+  const out = [];
+  for (const key in labels) {
+    const a = eski?.[key], b = yeni?.[key];
+    const an = (a === undefined || a === null) ? '' : a;
+    const bn = (b === undefined || b === null) ? '' : b;
+    if (String(an) !== String(bn)) {
+      out.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">' + labels[key] + ':</span> <span style="text-decoration:line-through;color:var(--red);">' + _degerFmt(a) + '</span> → <span style="color:var(--green);">' + _degerFmt(b) + '</span></div>');
+    }
+  }
+  return out;
+}
+
+// Alan etiketleri (tedarikçi ödeme/kargo, müşteri ödeme)
+const TED_ODEME_LABELS = { havale:'Havale', kkKomisyonsuz:'KK Komisyonsuz', kkKomisyonlu:'KK Komisyonlu', komisyon:'Komisyon %', vadeli:'Vadeli', vadeGun:'Vade (gün)' };
+const TED_KARGO_LABELS = { durum:'Kargo durumu', tutar:'Kargo tutarı', para:'Kargo para birimi', tip:'Kargo tipi', minKargo:'Min. kargo', not:'Kargo notu' };
+const MUS_ODEME_LABELS = { havale:'Havale', kk:'Kredi Kartı', kkkom:'KK Komisyonlu', kkkomOran:'KK Komisyon %', vadeli:'Vadeli', vadeGun:'Vade (gün)' };
+
 // Müşteri ödeme şartları özeti (onay kartı için)
 function _musteriOdemeOzet(o) {
   if (!o) return '—';
@@ -7454,9 +7481,13 @@ function musteriDiffHtml(eski, yeni) {
   cmp('Vergi Dairesi', eski?.vergidaire, yeni?.vergidaire);
   cmp('Durum', eski?.durum, yeni?.durum);
   cmp('Not', eski?.not, yeni?.not);
-  if (JSON.stringify(eski?.yetkililer) !== JSON.stringify(yeni?.yetkililer)) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Yetkili kişiler değişti</div>');
-  if (JSON.stringify(eski?.odeme) !== JSON.stringify(yeni?.odeme)) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Ödeme şartları: ' + _musteriOdemeOzet(eski?.odeme) + ' → ' + _musteriOdemeOzet(yeni?.odeme) + '</div>');
-  if (JSON.stringify(eski?.ozelSartlar || []) !== JSON.stringify(yeni?.ozelSartlar || [])) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Özel şartlar değişti</div>');
+  diff.push(..._objDiff(eski?.odeme, yeni?.odeme, MUS_ODEME_LABELS));
+  if (JSON.stringify(eski?.yetkililer) !== JSON.stringify(yeni?.yetkililer)) {
+    diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">Yetkililer:</span> <span style="text-decoration:line-through;color:var(--red);">' + ((eski?.yetkililer||[]).map(y=>y.ad).join(', ') || '—') + '</span> → <span style="color:var(--green);">' + ((yeni?.yetkililer||[]).map(y=>y.ad).join(', ') || '—') + '</span></div>');
+  }
+  if (JSON.stringify(eski?.ozelSartlar || []) !== JSON.stringify(yeni?.ozelSartlar || [])) {
+    diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">Özel şartlar:</span> <span style="text-decoration:line-through;color:var(--red);">' + ((eski?.ozelSartlar||[]).join('; ') || '—') + '</span> → <span style="color:var(--green);">' + ((yeni?.ozelSartlar||[]).join('; ') || '—') + '</span></div>');
+  }
   return '<div style="margin-top:6px;">' + (diff.length ? diff.join('') : '<span style="font-size:12px;color:var(--text3);">Değişiklik tespit edilmedi.</span>') + '</div>';
 }
 
@@ -7505,8 +7536,8 @@ function onayModalAc() {
             diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">' + _alanlar[f] + ':</span> <span style="text-decoration:line-through;color:var(--red);">' + (k.eskiSatir?.[f]||'—') + '</span> → <span style="color:var(--green);">' + (k.satir?.[f]||'—') + '</span></div>');
           }
         }
-        if (JSON.stringify(k.eskiSatir?.[5]) !== JSON.stringify(k.satir?.[5])) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Ödeme şartları değişti</div>');
-        if (JSON.stringify(k.eskiSatir?.[6]) !== JSON.stringify(k.satir?.[6])) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Kargo bilgisi değişti</div>');
+        diff.push(..._objDiff(k.eskiSatir?.[5], k.satir?.[5], TED_ODEME_LABELS));
+        diff.push(..._objDiff(k.eskiSatir?.[6], k.satir?.[6], TED_KARGO_LABELS));
         ozet = '<div style="font-size:13px;font-weight:600;">🔁 Değişiklik Talebi — ' + (k.satir?.[0]||'—') + '</div>'
           + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Talep eden: ' + (k._onayKullanici||'—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
           + '<div style="margin-top:6px;">' + (diff.length ? diff.join('') : '<span style="font-size:12px;color:var(--text3);">Değişiklik tespit edilmedi.</span>') + '</div>';
