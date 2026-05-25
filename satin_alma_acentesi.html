@@ -219,6 +219,9 @@
     .hamburger { display: flex; align-items: center; justify-content: center; }
 
     .content { padding: 10px 10px 80px; }
+    /* Güvenlik ağı: hiçbir ekran sayfayı yatay taşırmasın (geniş tablolar
+       kendi .table-wrap'i içinde kayar) */
+    .main, .content { overflow-x: hidden; max-width: 100%; }
 
     .grid2, .grid3, .grid4 {
       grid-template-columns: 1fr !important;
@@ -240,7 +243,10 @@
 
     /* Tablo — mobilde kart görünümü */
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table { min-width: 600px; }
+    /* Sadece kaydırılabilir veri tabloları geniş kalsın; diğer tablolar (müşteri
+       detayı bilgi tabloları, modal ürün tabloları) ekrana sığsın */
+    .table-wrap > table { min-width: 600px; }
+    .modal table { min-width: unset !important; width: 100%; }
 
     /* Talepler tablosu için özel kart görünümü */
     #talepler-card table { min-width: unset; width: 100%; }
