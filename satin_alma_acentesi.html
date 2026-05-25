@@ -3040,6 +3040,15 @@ function filterTedarikciler() {
   const bulkBar = document.getElementById('ted-bulk-bar');
   if (bulkBar) bulkBar.style.display = isAdmin ? 'flex' : 'none';
 
+  // Satıcı: tedarikçiler liste halinde gösterilmez — sadece arama yapınca sonuç gelir
+  if (!isAdmin && q === '') {
+    document.getElementById('t-count').textContent = '';
+    const tEmpty = document.getElementById('t-empty');
+    tEmpty.innerHTML = '<div class="empty-icon">🔍</div>Tedarikçileri görmek için yukarıdan arama yapın.';
+    tEmpty.style.display = 'block';
+    return;
+  }
+
   TEDARIKCILER.forEach((r, idx) => {
     const kat = kategori(r[1]);
     if ((q === '' || aramaKucult(r.slice(0,5).join(' ')).includes(q)) && (cat === '' || kat === cat)) {
@@ -3066,7 +3075,9 @@ function filterTedarikciler() {
     }
   });
   document.getElementById('t-count').textContent = `${count} tedarikçi`;
-  document.getElementById('t-empty').style.display = count === 0 ? 'block' : 'none';
+  const tEmptyEl = document.getElementById('t-empty');
+  tEmptyEl.innerHTML = '<div class="empty-icon">🔍</div>Sonuç bulunamadı.';
+  tEmptyEl.style.display = count === 0 ? 'block' : 'none';
   tedSecimGuncelle();
 }
 
@@ -3926,6 +3937,16 @@ function filterMusteriler() {
   const tbody=document.getElementById('m-tbody');
   tbody.innerHTML=''; let count=0;
   const isAdmin = aktifKullanici?.rol === 'admin';
+
+  // Satıcı: müşteriler liste halinde gösterilmez — sadece arama yapınca sonuç gelir
+  if (!isAdmin && q === '') {
+    document.getElementById('m-count').textContent = '';
+    const mEmpty = document.getElementById('m-empty');
+    mEmpty.innerHTML = '<div class="empty-icon">🔍</div>Müşterileri görmek için yukarıdan arama yapın.';
+    mEmpty.style.display = 'block';
+    return;
+  }
+
   MUSTERILER.forEach((m,idx)=>{
     const yetStr=(m.yetkililer||[]).map(y=>y.ad+' '+y.unvan+' '+y.tel+' '+y.mail).join(' ');
     const text=[m.firma,m.sektor,yetStr,m.adres,m.not].join(' ').toLowerCase();
@@ -3952,7 +3973,9 @@ function filterMusteriler() {
     }
   });
   document.getElementById('m-count').textContent=`${count} müşteri`;
-  document.getElementById('m-empty').style.display=count===0?'block':'none';
+  const mEmptyEl=document.getElementById('m-empty');
+  mEmptyEl.innerHTML = q ? '<div class="empty-icon">🔍</div>Sonuç bulunamadı.' : '<div class="empty-icon">👥</div>Henüz müşteri eklenmemiş.';
+  mEmptyEl.style.display=count===0?'block':'none';
   document.getElementById('mm-toplam').textContent=MUSTERILER.length;
   document.getElementById('mm-aktif').textContent=MUSTERILER.filter(x=>x.durum==='Aktif').length;
   document.getElementById('mm-poten').textContent=MUSTERILER.filter(x=>x.durum==='Potansiyel').length;
