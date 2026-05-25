@@ -7293,10 +7293,20 @@ function talepKaydet() {
       ozelSartlar: [], fiyatgrup: '', durum: 'Aktif', not: '',
       tarih: new Date().toISOString().slice(0,10),
     };
-    MUSTERILER.unshift(yeniM);
-    filterMusteriler();
+    // Satıcı inline yeni müşteri ekliyorsa → doğrudan listeye değil, admin onayına
+    if (aktifKullanici?.rol === 'satici') {
+      yeniM._onayDurumu    = 'bekliyor';
+      yeniM._onayTarih     = new Date().toISOString();
+      yeniM._onayKullanici = aktifKullanici.ad;
+      ONAY_BEKLEYENLER.musteriler.push(yeniM);
+      onayBekleyenleriKaydet();
+      showToast(`📋 "${ymFirma}" müşterisi admin onayına gönderildi.`);
+    } else {
+      MUSTERILER.unshift(yeniM);
+      filterMusteriler();
+      showToast(`"${ymFirma}" müşteri listesine eklendi!`);
+    }
     musteriAd = ymFirma;
-    showToast(`"${ymFirma}" müşteri listesine eklendi!`);
   } else if (musteriIdx >= 0) {
     musteriAd = MUSTERILER[musteriIdx].firma;
   } else {
