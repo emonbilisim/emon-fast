@@ -562,6 +562,17 @@
       <div id="panel-stz-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
     </div>
 
+    <!-- 1b) Takip hatırlatıcıları (CRM — yaklaşan/geçmiş müşteri temasları) -->
+    <div class="card" id="panel-takip-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--accent);">
+      <div class="card-header">
+        <div>
+          <div class="card-title">🔔 Takip Hatırlatıcıları</div>
+          <div class="card-sub">Yaklaşan ve geçmiş müşteri temasları</div>
+        </div>
+      </div>
+      <div id="panel-takip-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
+
     <!-- 2) Satıcılardan gelen fiyat onay talepleri (sadece admin) -->
     <div class="card" id="panel-fiyat-onay-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--accent2);">
       <div class="card-header">
@@ -1327,6 +1338,33 @@
           <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">NOT</div>
           <div id="d-not" style="font-size:13px;color:var(--text2);line-height:1.6;">—</div>
         </div>
+      </div>
+    </div>
+
+    <!-- ───────── CRM: Özet + Pipeline + Etkileşim Geçmişi ───────── -->
+    <div class="grid2" style="margin-bottom:20px;align-items:start;">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px;">📊 Müşteri Özeti</div>
+        <div id="crm-ozet" style="display:flex;flex-direction:column;gap:6px;"></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">SATIŞ HUNİSİ AŞAMASI</div>
+          <div id="crm-asama-secim" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header" style="margin-bottom:10px;">
+          <div class="card-title">🗒️ Etkileşim Geçmişi</div>
+          <span class="badge badge-blue" id="crm-aktivite-sayi">0</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <select id="crm-yeni-tip" style="flex:1;min-width:120px;"></select>
+            <input type="date" id="crm-yeni-sonraki" title="Sonraki temas (takip) tarihi — opsiyonel" style="width:150px;">
+          </div>
+          <textarea id="crm-yeni-aciklama" placeholder="Görüşme / not detayı..." style="min-height:48px;font-size:13px;"></textarea>
+          <button class="btn btn-primary btn-sm" onclick="crmAktiviteEkle()" style="align-self:flex-start;">+ Etkileşim Ekle</button>
+        </div>
+        <div id="crm-timeline" style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;"></div>
       </div>
     </div>
   </div>
@@ -3773,6 +3811,23 @@ function musteriFormAc(idx) {
 
 // ── ONAY BEKLEYENLERİ ──────────────────────
 let ONAY_BEKLEYENLER = { musteriler: [], tedarikciler: [] };
+// CRM: müşteri etkileşim/aktivite kayıtları + müşteri pipeline aşaması (crmAsama müşteri objesinde)
+let CRM_AKTIVITELER = [];   // { id, musteri, tip, aciklama, sonrakiTemas, tarih, kullanici }
+let crmSayac = 0;
+let aktifMusteriDetayIdx = -1;
+const CRM_ASAMALAR = [
+  { key:'aday',        label:'Aday',         renk:'var(--text3)' },
+  { key:'ilgileniyor', label:'İlgileniyor',  renk:'var(--accent2)' },
+  { key:'teklif',      label:'Teklif Aşaması',renk:'var(--amber)' },
+  { key:'kazanildi',   label:'Kazanıldı',    renk:'var(--green)' },
+  { key:'kaybedildi',  label:'Kaybedildi',   renk:'var(--red)' },
+];
+const CRM_TIPLER = [
+  { key:'arama',    label:'📞 Arama' },
+  { key:'toplanti', label:'🤝 Toplantı' },
+  { key:'eposta',   label:'✉️ E-posta' },
+  { key:'not',      label:'📝 Not' },
+];
 
 function onayBekleyenleriYukle() {
   try {
@@ -3912,6 +3967,8 @@ function musteriKaydet() {
   if (aktifKullanici?.rol === 'satici' && idx >= 0 && MUSTERILER[idx]?.fpKurallari) {
     kayit.fpKurallari = MUSTERILER[idx].fpKurallari;
   }
+  // CRM pipeline aşaması müşteri formunda yok — düzenlemede mevcut değeri koru
+  if (idx >= 0 && MUSTERILER[idx]) kayit.crmAsama = MUSTERILER[idx].crmAsama;
 
   // Satıcı mevcut müşteriyi düzenliyorsa → doğrudan değiştirme, admin onayına gönder
   if (aktifKullanici?.rol === 'satici' && idx >= 0) {
@@ -3967,7 +4024,7 @@ function filterMusteriler() {
       const ek=m.yetkililer&&m.yetkililer.length>1?`<span style="font-size:10px;color:var(--text3);"> +${m.yetkililer.length-1} kişi</span>`:'';
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a></td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
@@ -4036,8 +4093,115 @@ function musteriDetay(idx) {
     }
   }
   document.getElementById('detay-edit-btn').onclick=()=>{goPage('musteriler',document.querySelector('[onclick*=musteriler]'));musteriFormAc(idx);};
+  aktifMusteriDetayIdx = idx;
+  crmRender();
   goPage('musteriDetay',null);
   document.getElementById('page-title').textContent=m.firma;
+}
+
+// ───────────── CRM ─────────────
+function crmAsamaBilgi(key) { return CRM_ASAMALAR.find(a => a.key === key) || CRM_ASAMALAR[0]; }
+function crmMusteriAktiviteleri(firma) {
+  return CRM_AKTIVITELER.filter(a => a.musteri === firma).sort((a,b) => new Date(b.tarih) - new Date(a.tarih));
+}
+
+function crmRender() {
+  const m = MUSTERILER[aktifMusteriDetayIdx];
+  if (!m) return;
+  // Etkileşim tipi select'i doldur
+  const tipSel = document.getElementById('crm-yeni-tip');
+  if (tipSel && !tipSel.dataset.dolu) {
+    tipSel.innerHTML = CRM_TIPLER.map(t => `<option value="${t.key}">${t.label}</option>`).join('');
+    tipSel.dataset.dolu = '1';
+  }
+  // Özet
+  const talepler   = TALEPLER.filter(t => t.musteri === m.firma);
+  const teklifVer  = talepler.filter(t => ['Teklif Hazır','Onay Bekliyor','Sipariş Verildi','Tamamlandı'].includes(t.durum));
+  const tamamlanan = talepler.filter(t => t.durum === 'Tamamlandı');
+  const akt = crmMusteriAktiviteleri(m.firma);
+  const satir = (l,v) => `<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:var(--text3);">${l}</span><span style="font-weight:600;">${v}</span></div>`;
+  const ozetEl = document.getElementById('crm-ozet');
+  if (ozetEl) ozetEl.innerHTML = satir('Toplam talep', talepler.length)
+    + satir('Teklif verilen', teklifVer.length)
+    + satir('Tamamlanan sipariş', tamamlanan.length)
+    + satir('Etkileşim sayısı', akt.length)
+    + satir('Son etkileşim', akt[0] ? tarihFmt(akt[0].tarih) : '—');
+  // Pipeline aşaması
+  const asamaEl = document.getElementById('crm-asama-secim');
+  const mevcut = m.crmAsama || 'aday';
+  if (asamaEl) asamaEl.innerHTML = CRM_ASAMALAR.map(a => {
+    const aktif = a.key === mevcut;
+    return `<button class="btn btn-sm" onclick="crmAsamaDegistir('${a.key}')" style="font-size:11px;${aktif ? `background:${a.renk};color:#fff;border-color:${a.renk};` : ''}">${a.label}</button>`;
+  }).join('');
+  // Zaman çizelgesi
+  const sayiEl = document.getElementById('crm-aktivite-sayi');
+  if (sayiEl) sayiEl.textContent = akt.length;
+  const tl = document.getElementById('crm-timeline');
+  if (!tl) return;
+  if (akt.length === 0) {
+    tl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Henüz etkileşim kaydı yok.</div>';
+    return;
+  }
+  const benim = aktifKullanici?.ad;
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  tl.innerHTML = akt.map(a => {
+    const tip = CRM_TIPLER.find(t => t.key === a.tip) || { label: a.tip };
+    const sonraki = a.sonrakiTemas ? `<div style="font-size:11px;color:var(--amber);margin-top:2px;">⏰ Sonraki temas: ${tarihFmt(a.sonrakiTemas)}</div>` : '';
+    const silinebilir = isAdmin || a.kullanici === benim;
+    return `<div style="border-left:2px solid var(--border2);padding:6px 0 6px 10px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <span style="font-size:12px;font-weight:600;">${tip.label}</span>
+        <span style="font-size:11px;color:var(--text3);">${tarihFmt(a.tarih)} · ${a.kullanici || ''}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-top:2px;white-space:pre-wrap;">${(a.aciklama || '').replace(/</g,'&lt;')}</div>
+      ${sonraki}
+      ${silinebilir ? `<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;margin-top:4px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="crmAktiviteSil('${a.id}')">Sil</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function crmAktiviteEkle() {
+  const m = MUSTERILER[aktifMusteriDetayIdx];
+  if (!m) return;
+  const tip = document.getElementById('crm-yeni-tip').value;
+  const aciklama = document.getElementById('crm-yeni-aciklama').value.trim();
+  const sonraki = document.getElementById('crm-yeni-sonraki').value;
+  if (!aciklama) { showToast('Lütfen bir açıklama girin.'); return; }
+  crmSayac++;
+  CRM_AKTIVITELER.push({
+    id: 'CRM-' + Date.now() + '-' + crmSayac,
+    musteri: m.firma,
+    tip, aciklama,
+    sonrakiTemas: sonraki || '',
+    tarih: new Date().toISOString(),
+    kullanici: aktifKullanici?.ad || '',
+  });
+  document.getElementById('crm-yeni-aciklama').value = '';
+  document.getElementById('crm-yeni-sonraki').value = '';
+  veriKaydet();
+  crmRender();
+  renderPanelTakip();
+  showToast('✅ Etkileşim eklendi.');
+}
+
+function crmAktiviteSil(id) {
+  const i = CRM_AKTIVITELER.findIndex(a => a.id === id);
+  if (i < 0) return;
+  if (aktifKullanici?.rol !== 'admin' && CRM_AKTIVITELER[i].kullanici !== aktifKullanici?.ad) {
+    showToast('Sadece kendi eklediğiniz kaydı silebilirsiniz.'); return;
+  }
+  if (!confirm('Bu etkileşim kaydı silinsin mi?')) return;
+  CRM_AKTIVITELER.splice(i, 1);
+  veriKaydet(); crmRender(); renderPanelTakip();
+  showToast('Kayıt silindi.');
+}
+
+function crmAsamaDegistir(key) {
+  const m = MUSTERILER[aktifMusteriDetayIdx];
+  if (!m) return;
+  m.crmAsama = key;
+  veriKaydet(); crmRender();
+  showToast('Aşama: ' + crmAsamaBilgi(key).label);
 }
 
 // TALEPLER VERİTABANI
@@ -9752,6 +9916,41 @@ document.addEventListener('DOMContentLoaded', () => {
 // ═══════════════════════════════════════
 // PANEL METRİKLER — GERÇEK VERİ
 // ═══════════════════════════════════════
+// Panelde takip hatırlatıcıları: her müşteri için en son planlanan "sonraki temas"
+// tarihi 7 gün içinde veya geçmişteyse göster
+function renderPanelTakip() {
+  const kart   = document.getElementById('panel-takip-card');
+  const icerik = document.getElementById('panel-takip-icerik');
+  if (!kart || !icerik) return;
+  const simdi = new Date(); simdi.setHours(0,0,0,0);
+  const esik  = new Date(simdi); esik.setDate(esik.getDate() + 7);
+  // Müşteri başına en son girilen (tarih) sonrakiTemas kaydı
+  const sonTakip = {};
+  CRM_AKTIVITELER.filter(a => a.sonrakiTemas).forEach(a => {
+    if (!sonTakip[a.musteri] || new Date(a.tarih) > new Date(sonTakip[a.musteri].tarih)) sonTakip[a.musteri] = a;
+  });
+  const liste = Object.values(sonTakip)
+    .map(a => ({ ...a, d: new Date(a.sonrakiTemas) }))
+    .filter(a => a.d <= esik)
+    .sort((a,b) => a.d - b.d);
+  if (liste.length === 0) { kart.style.display = 'none'; return; }
+  kart.style.display = 'block';
+  icerik.innerHTML = liste.map(a => {
+    const gecmis = a.d < simdi;
+    const bugunMu = a.d.getTime() === simdi.getTime();
+    const renk = gecmis ? 'var(--red)' : (bugunMu ? 'var(--amber)' : 'var(--accent2)');
+    const etiket = gecmis ? '⚠ Gecikmiş' : (bugunMu ? 'Bugün' : tarihFmt(a.sonrakiTemas));
+    const idx = MUSTERILER.findIndex(m => m.firma === a.musteri);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);${idx >= 0 ? 'cursor:pointer;' : ''}" ${idx >= 0 ? `onclick="musteriDetay(${idx})"` : ''}>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:600;">${a.musteri}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${(a.aciklama || '').slice(0, 70)}</div>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:${renk};white-space:nowrap;">${etiket}</span>
+    </div>`;
+  }).join('');
+}
+
 // Panelde satıcılardan gelen, onay bekleyen fiyat taleplerini göster (sadece admin)
 function renderPanelFiyatOnaylari() {
   const kart   = document.getElementById('panel-fiyat-onay-card');
@@ -9922,6 +10121,8 @@ function renderPanelMetrikler() {
 
   // ─── SON TEKLİF ZAMANI UYARILARI ───
   sonTeklifUyarilariGoster();
+  // Takip hatırlatıcıları (CRM)
+  renderPanelTakip();
   // Satıcılardan gelen fiyat onay talepleri (sadece admin)
   renderPanelFiyatOnaylari();
   // Onay bekleyenler (sadece admin)
@@ -11531,6 +11732,8 @@ async function apiVeriYukle() {
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
     if (veri.AYARLAR)          Object.assign(AYARLAR, veri.AYARLAR);
     if (veri.ONAY_BEKLEYENLER) Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER);
+    if (Array.isArray(veri.CRM_AKTIVITELER)) { CRM_AKTIVITELER.length = 0; CRM_AKTIVITELER.push(...veri.CRM_AKTIVITELER); }
+    if (veri.crmSayac)         crmSayac = veri.crmSayac;
     if (veri.talepSayac)       talepSayac = veri.talepSayac;
     // Doviz kurlarını göster
     if (veri.dovizKurlari?.usdAlis) {
@@ -11585,6 +11788,8 @@ function veriKaydet() {
       KULLANICILAR: KULLANICILAR.map(k => { const { msAccount, ...rest } = k; return rest; }),
       AYARLAR,
       ONAY_BEKLEYENLER,
+      CRM_AKTIVITELER: JSON.parse(JSON.stringify(CRM_AKTIVITELER)),
+      crmSayac,
       tarih: new Date().toISOString(),
     };
 
@@ -11619,6 +11824,8 @@ function veriYukle() {
     if (veri.dovizKurlari)     Object.assign(dovizKurlari, veri.dovizKurlari);
     if (veri.AYARLAR)          Object.assign(AYARLAR, veri.AYARLAR);
     if (veri.ONAY_BEKLEYENLER) Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER);
+    if (Array.isArray(veri.CRM_AKTIVITELER)) { CRM_AKTIVITELER.length = 0; CRM_AKTIVITELER.push(...veri.CRM_AKTIVITELER); }
+    if (veri.crmSayac)         crmSayac = veri.crmSayac;
     if (Array.isArray(veri.KULLANICILAR) && veri.KULLANICILAR.length) {
       const demolar   = KULLANICILAR.filter(k => ['admin','satici1'].includes(k.username));
       const gercekler = veri.KULLANICILAR.filter(k => !['admin','satici1'].includes(k.username));
@@ -11685,6 +11892,8 @@ function _yedekVeriObje() {
     KULLANICILAR: KULLANICILAR.map(k => { const { msAccount, ...rest } = k; return rest; }),
     AYARLAR: JSON.parse(JSON.stringify(AYARLAR || {})),
     ONAY_BEKLEYENLER: JSON.parse(JSON.stringify(ONAY_BEKLEYENLER)),
+    CRM_AKTIVITELER: JSON.parse(JSON.stringify(CRM_AKTIVITELER)),
+    crmSayac,
     ROL_IZINLER: (typeof ROL_IZINLER !== 'undefined') ? JSON.parse(JSON.stringify(ROL_IZINLER)) : undefined,
     tarih: new Date().toISOString(),
   };
