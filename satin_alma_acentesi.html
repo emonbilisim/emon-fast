@@ -1721,6 +1721,13 @@
       <div class="form-group"><label class="form-label">Termin Tarihi</label><input type="date" id="talep-termin"></div>
     </div>
     <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:10px 12px;">
+        <input type="checkbox" id="talep-portal" style="width:16px;height:16px;accent-color:var(--accent);">
+        <span style="font-size:13px;">🌐 <strong>Portal talebi</strong> — müşterinin portalına işlenecek</span>
+      </label>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">İşaretliyse, fiyat onaylandıktan sonra onaylanan fiyatlar satıcının kendi e-postasına arşiv amaçlı gönderilir.</div>
+    </div>
+    <div class="form-group">
       <label class="form-label" style="display:flex;align-items:center;gap:6px;">
         Son Teklif Zamanı
         <span style="font-size:11px;color:var(--amber);font-weight:400;">⏰ Yaklaşınca uyarı verilir</span>
@@ -6685,6 +6692,7 @@ function talepModalAc() {
   document.getElementById('talep-son-teklif-tarih').value = otoStz.tarih;
   document.getElementById('talep-son-teklif-saat').value  = otoStz.saat;
   document.getElementById('talep-musteri-no').value = '';
+  const portalCb = document.getElementById('talep-portal'); if (portalCb) portalCb.checked = false;
   document.getElementById('talep-hata').style.display = 'none';
   // Ürün tablosunu sıfırla — 1 boş satır
   document.getElementById('talep-urun-tbody').innerHTML = '';
@@ -7281,6 +7289,7 @@ function talepKaydet() {
     musteriNo: document.getElementById('talep-musteri-no').value.trim() || '',
     not: document.getElementById('talep-not').value.trim(),
     oncelik: document.getElementById('talep-oncelik').value,
+    portalTalebi: !!document.getElementById('talep-portal')?.checked,
   });
   renderTalepler();
   showToast(`"${musteriAd}" için #${no} numaralı talep oluşturuldu!`); veriKaydet();
@@ -7790,6 +7799,8 @@ function fiyatOnayTalep() {
     satisTablosu: document.getElementById('satis-urun-tbody')?.innerHTML || '',
     toplamStr: document.getElementById('satis-toplam')?.textContent || '',
     saticiSatisData: saticiData,
+    saticiMail: aktifKullanici.email || '',
+    saticiUsername: aktifKullanici.username || '',
   };
 
   // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez)
@@ -7800,10 +7811,13 @@ function fiyatOnayTalep() {
     t.fiyatOnayTalep.adminSatisData  = saticiData;
     t.fiyatOnayTalep.adminDegisiklik = false;
     t.fiyatOnayTalep.otomatikOnay    = true;
+    const _portalTablo  = t.portalTalebi ? satisTabloEmailHtml() : '';
+    const _portalToplam = document.getElementById('satis-toplam')?.textContent || t.fiyatOnayTalep.toplamStr || '';
     veriKaydet();
     satisBolumunuGuncelle();
     onayBekleyenBadgeGuncelle();
     showToast('🌙 Admin away modunda — talebiniz otomatik onaylandı!');
+    if (t.portalTalebi) portalArsivMailiGonder(t, _portalTablo, _portalToplam);
     return;
   }
 
@@ -7812,6 +7826,88 @@ function fiyatOnayTalep() {
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
   showToast('✅ Onay talebi admin\'e iletildi!');
+}
+
+// Ekrandaki satış tablosunu (input/select/buton içeren) e-posta için temiz HTML'e çevirir
+function satisTabloEmailHtml() {
+  const tablo = document.getElementById('satis-urun-tbody')?.closest('table');
+  if (!tablo) return '';
+  const klon = tablo.cloneNode(true);
+  klon.querySelectorAll('input').forEach(inp => {
+    const v = inp.type === 'checkbox' ? (inp.checked ? '✓' : '') : (inp.value || '');
+    inp.replaceWith(document.createTextNode(v));
+  });
+  klon.querySelectorAll('select').forEach(sel => {
+    sel.replaceWith(document.createTextNode(sel.options[sel.selectedIndex]?.text || ''));
+  });
+  klon.querySelectorAll('button').forEach(b => b.remove());
+  klon.querySelectorAll('#satis-toplam-para-sec').forEach(e => e.remove());
+  klon.setAttribute('style', 'border-collapse:collapse;width:100%;font-size:13px;border:1px solid #ddd;');
+  klon.querySelectorAll('th,td').forEach(c => { c.style.border = '1px solid #ddd'; c.style.padding = '6px 8px'; });
+  return klon.outerHTML;
+}
+
+// Graph üzerinden HTML gövdeli mail gönder (RFQ şablonuna sarmadan)
+async function graphMailHtmlGonder(toList, subject, htmlContent) {
+  try {
+    if (msalInstance && aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount);
+    if (!msGraphToken) return false;
+    const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: {
+          subject,
+          body: { contentType: 'HTML', content: htmlContent },
+          toRecipients: toList.map(addr => ({ emailAddress: { address: addr } }))
+        },
+        saveToSentItems: true
+      })
+    });
+    if (resp.ok || resp.status === 202) return true;
+    console.error('graphMailHtmlGonder hatası:', resp.status, await resp.text());
+    return false;
+  } catch (e) { console.error('graphMailHtmlGonder hatası:', e); return false; }
+}
+
+// Portal talebi onaylandığında satıcının kendi e-postasına arşiv maili gönder
+async function portalArsivMailiGonder(t, tabloHtml, toplamStr) {
+  if (!t || !t.portalTalebi) return;
+  // Satıcı e-postası: onay talebinde yakalanan, yoksa kullanıcı listesinden ada göre
+  let mail = t.fiyatOnayTalep?.saticiMail || '';
+  if (!mail && t.fiyatOnayTalep?.satici) {
+    const u = KULLANICILAR.find(k => k.ad === t.fiyatOnayTalep.satici || k.username === t.fiyatOnayTalep.saticiUsername);
+    mail = u?.email || '';
+  }
+  if (!mail) { showToast('⚠ Portal arşiv maili gönderilemedi — satıcı e-postası bulunamadı.'); return; }
+
+  const urunSatir = (t.urunler || []).map(u =>
+    `<li>${u.aciklama || ''}${u.kod ? ' (' + u.kod + ')' : ''} — ${u.adet || ''} ${u.birim || ''}</li>`
+  ).join('') || '<li>—</li>';
+  const onayTarih = t.fiyatOnayTalep?.adminTarih ? new Date(t.fiyatOnayTalep.adminTarih).toLocaleString('tr-TR') : '—';
+
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+      <h2 style="margin:0 0 4px;">🌐 Portal Talebi — Onaylanan Fiyatlar (Arşiv)</h2>
+      <p style="color:#666;margin:0 0 16px;">Bu e-posta arşiv amaçlıdır. Aşağıdaki talep için fiyatlar yönetici tarafından onaylandı.</p>
+      <table style="font-size:13px;margin-bottom:14px;">
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${t.no || '—'}</strong></td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${t.musteri || '—'}</td></tr>
+        ${t.musteriNo ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri Talep No</td><td>${t.musteriNo}</td></tr>` : ''}
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Onay Tarihi</td><td>${onayTarih}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylanan Toplam</td><td style="font-weight:700;color:#1a7f4b;">${toplamStr || '—'}</td></tr>
+      </table>
+      <h3 style="margin:0 0 6px;">Ürünler</h3>
+      <ul style="margin:0 0 16px;padding-left:20px;">${urunSatir}</ul>
+      <h3 style="margin:0 0 6px;">Onaylanan Fiyat Tablosu</h3>
+      ${tabloHtml || '<i>Tablo bulunamadı.</i>'}
+      ${t.fiyatOnayTalep?.adminNot ? `<p style="margin-top:14px;color:#666;"><strong>Admin notu:</strong> ${t.fiyatOnayTalep.adminNot}</p>` : ''}
+    </div>`;
+
+  const ok = await graphMailHtmlGonder([mail], `[Portal Arşiv] ${t.no || ''} — ${t.musteri || ''} onaylandı`, html);
+  showToast(ok
+    ? `📧 Onaylanan fiyatlar arşiv için ${mail} adresine gönderildi.`
+    : '⚠ Portal arşiv maili gönderilemedi (Outlook bağlı değil olabilir).');
 }
 
 // Admin: onayla
@@ -7839,12 +7935,16 @@ function adminFiyatOnayla() {
   t.fiyatOnayTalep.adminTarih     = new Date().toISOString();
   t.fiyatOnayTalep.adminSatisData = adminData;
   t.fiyatOnayTalep.adminDegisiklik = degisiklikVar;
+  // Portal talebi ise onaylanan fiyat tablosunu (DOM canlıyken) yakala
+  const _portalTablo  = t.portalTalebi ? satisTabloEmailHtml() : '';
+  const _portalToplam = document.getElementById('satis-toplam')?.textContent || adminData.toplamStr || '';
   veriKaydet();
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
   showToast(degisiklikVar
     ? '✅ Admin\'in revize fiyatlarıyla onaylandı.'
     : '✅ Fiyat onaylandı! Satıcı artık müşteriye gönderebilir.');
+  if (t.portalTalebi) portalArsivMailiGonder(t, _portalTablo, _portalToplam);
 }
 
 // İki satış durumu birbirinden farklı mı? (admin tabloyu değiştirdi mi tespiti)
