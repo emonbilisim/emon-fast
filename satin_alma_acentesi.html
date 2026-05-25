@@ -405,6 +405,45 @@
 
     /* Döviz paneli */
     #page-panel > .grid2 { grid-template-columns: 1fr !important; }
+
+    /* Satış / fiyat-onay tablosu — mobilde dikey kart görünümü (yatay taşmayı önler) */
+    #satis-tablo { min-width: unset !important; width: 100%; display: block; }
+    #satis-tablo thead { display: none; }
+    #satis-tablo tbody { display: block; }
+    #satis-tablo tbody tr {
+      display: block;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      background: var(--bg2);
+    }
+    #satis-tablo tbody td {
+      display: block;
+      width: auto !important;
+      min-width: 0 !important;
+      padding: 5px 0 !important;
+      text-align: left !important;
+      border: none;
+      white-space: normal;
+    }
+    #satis-tablo tbody td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text3);
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+    /* Hücre içi giriş alanları taşmasın */
+    #satis-tablo tbody td input,
+    #satis-tablo tbody td select { width: 100% !important; max-width: 240px; box-sizing: border-box; }
+    #satis-tablo tbody td > div { justify-content: flex-start !important; }
+    /* Genel toplam (tfoot) blok olarak okunur kalsın */
+    #satis-tablo tfoot, #satis-tablo tfoot tr { display: block; }
+    #satis-tablo tfoot td { display: block; width: 100% !important; text-align: left !important; padding: 6px 0 !important; border: none; }
   }
 
   @media (max-width: 480px) {
@@ -1007,7 +1046,7 @@
 
       <!-- Ürün bazlı hesaplama tablosu -->
       <div style="overflow-x:auto;margin-bottom:16px;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <table id="satis-tablo" style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:var(--bg3);">
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Ürün</th>
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Tedarikçi / Maliyet</th>
@@ -6257,6 +6296,12 @@ function satisHesaplaTablosu() {
     } else {
       td5.textContent = '—';
     }
+
+    // Mobil kart görünümü için alan etiketleri
+    td0.dataset.label = 'Ürün';        td1.dataset.label = 'Tedarikçi / Maliyet';
+    td2.dataset.label = 'Adet';        tdK.dataset.label = 'Kargo';
+    tdHedef.dataset.label = 'Müşteri Hedef'; td3.dataset.label = 'Kar Marjı %';
+    td4.dataset.label = 'Birim Satış'; td5.dataset.label = 'Toplam';
   });
 
   // Genel toplam — Tek döviz / Manuel teklif kuru / Default
