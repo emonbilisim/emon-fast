@@ -503,6 +503,10 @@
     <div class="nav-item" onclick="goPage('musteriler',this)">
       <span class="icon">👥</span> Müşteriler
     </div>
+    <div class="nav-item" onclick="goPage('crm',this)" id="nav-crm" style="display:none;">
+      <span class="icon">📇</span> CRM
+      <span id="crm-takip-badge" style="display:none;background:var(--accent2);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
+    </div>
     <div class="nav-label" style="margin-top:8px;">Ayarlar</div>
     <div class="nav-item" onclick="goPage('kullanicilar',this)" id="nav-kullanicilar">
       <span class="icon">🔐</span> Kullanıcılar
@@ -1365,6 +1369,35 @@
           <button class="btn btn-primary btn-sm" onclick="crmAktiviteEkle()" style="align-self:flex-start;">+ Etkileşim Ekle</button>
         </div>
         <div id="crm-timeline" style="display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CRM PAGE -->
+  <div class="content page" id="page-crm">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:600;">📇 CRM</div>
+        <div style="font-size:12px;color:var(--text3);">Müşteri ilişkileri, takip ve satış hunisi</div>
+      </div>
+      <div style="flex:1;"></div>
+      <input type="text" id="crm-musteri-ara" placeholder="Müşteri ara ve aç..." oninput="crmMusteriAraSayfa()" autocomplete="off" style="width:240px;max-width:55vw;">
+    </div>
+    <div id="crm-musteri-arama-sonuc" style="margin-bottom:16px;"></div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-title" style="margin-bottom:12px;">Satış Hunisi</div>
+      <div id="crm-pipeline" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+    </div>
+
+    <div class="grid2" style="align-items:start;">
+      <div class="card">
+        <div class="card-header" style="margin-bottom:10px;"><div class="card-title">🔔 Takipler</div><span class="badge badge-blue" id="crm-takip-sayi">0</span></div>
+        <div id="crm-takip-liste" style="display:flex;flex-direction:column;gap:8px;"></div>
+      </div>
+      <div class="card">
+        <div class="card-header" style="margin-bottom:10px;"><div class="card-title">🕘 Son Etkileşimler</div></div>
+        <div id="crm-son-etkilesim" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;"></div>
       </div>
     </div>
   </div>
@@ -3677,11 +3710,15 @@ function goPage(id, el) {
     showToast('Bu sayfaya erişim yetkiniz yok.');
     return;
   }
+  if (id === 'crm' && !crmGorunur()) {
+    showToast('CRM modülü şu an kapalı.');
+    return;
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar'};
+  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM'};
   document.getElementById('page-title').textContent = titles[id] || id;
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
@@ -3691,6 +3728,7 @@ function goPage(id, el) {
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); }
   if (id === 'ayarlar') claudeKeyDurumGuncelle();
+  if (id === 'crm') renderCRM();
 }
 
 // MODAL
@@ -4224,8 +4262,91 @@ function crmAsamaDegistir(key) {
   const m = MUSTERILER[aktifMusteriDetayIdx];
   if (!m) return;
   m.crmAsama = key;
-  veriKaydet(); crmRender();
+  veriKaydet(); crmRender(); filterMusteriler();
   showToast('Aşama: ' + crmAsamaBilgi(key).label);
+}
+
+// Müşteri başına en son planlanan takipleri döndür (yardımcı)
+function _crmSonTakipler() {
+  const sonTakip = {};
+  CRM_AKTIVITELER.filter(a => a.sonrakiTemas).forEach(a => {
+    if (!sonTakip[a.musteri] || new Date(a.tarih) > new Date(sonTakip[a.musteri].tarih)) sonTakip[a.musteri] = a;
+  });
+  return Object.values(sonTakip).map(a => ({ ...a, d: new Date(a.sonrakiTemas) })).sort((x,y) => x.d - y.d);
+}
+
+// Kenar menü CRM sekmesi + takip rozeti
+function crmNavGuncelle() {
+  const nav = document.getElementById('nav-crm');
+  if (nav) nav.style.display = crmGorunur() ? 'flex' : 'none';
+  const badge = document.getElementById('crm-takip-badge');
+  if (badge) {
+    const esik = new Date(); esik.setHours(0,0,0,0); esik.setDate(esik.getDate() + 7);
+    const say = _crmSonTakipler().filter(a => a.d <= esik).length;
+    badge.textContent = say;
+    badge.style.display = (say > 0 && crmGorunur()) ? 'inline' : 'none';
+  }
+}
+
+function renderCRM() {
+  if (!crmGorunur()) return;
+  // Satış hunisi dağılımı
+  const sayim = {}; CRM_ASAMALAR.forEach(a => sayim[a.key] = 0);
+  MUSTERILER.forEach(m => { const k = m.crmAsama || 'aday'; sayim[k] = (sayim[k] || 0) + 1; });
+  const pipeEl = document.getElementById('crm-pipeline');
+  if (pipeEl) pipeEl.innerHTML = CRM_ASAMALAR.map(a =>
+    `<div style="flex:1;min-width:110px;background:var(--bg3);border-radius:var(--radius);padding:12px;border-top:3px solid ${a.renk};">
+      <div style="font-size:22px;font-weight:700;">${sayim[a.key] || 0}</div>
+      <div style="font-size:12px;color:var(--text3);">${a.label}</div>
+    </div>`).join('');
+
+  // Takipler
+  const simdi = new Date(); simdi.setHours(0,0,0,0);
+  const takipler = _crmSonTakipler();
+  const sayiEl = document.getElementById('crm-takip-sayi');
+  if (sayiEl) sayiEl.textContent = takipler.length;
+  const takipEl = document.getElementById('crm-takip-liste');
+  if (takipEl) takipEl.innerHTML = takipler.length ? takipler.map(a => {
+    const gecmis = a.d < simdi, bugunMu = a.d.getTime() === simdi.getTime();
+    const renk = gecmis ? 'var(--red)' : (bugunMu ? 'var(--amber)' : 'var(--accent2)');
+    const etiket = gecmis ? '⚠ Gecikmiş' : (bugunMu ? 'Bugün' : tarihFmt(a.sonrakiTemas));
+    const idx = MUSTERILER.findIndex(m => m.firma === a.musteri);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);${idx >= 0 ? 'cursor:pointer;' : ''}" ${idx >= 0 ? `onclick="musteriDetay(${idx})"` : ''}>
+      <div style="flex:1;"><div style="font-size:13px;font-weight:600;">${a.musteri}</div><div style="font-size:11px;color:var(--text3);">${(a.aciklama || '').slice(0, 60)}</div></div>
+      <span style="font-size:11px;font-weight:600;color:${renk};white-space:nowrap;">${etiket}</span>
+    </div>`;
+  }).join('') : '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Planlı takip yok.</div>';
+
+  // Son etkileşimler (tüm müşteriler)
+  const sonlar = [...CRM_AKTIVITELER].sort((a,b) => new Date(b.tarih) - new Date(a.tarih)).slice(0, 20);
+  const seEl = document.getElementById('crm-son-etkilesim');
+  if (seEl) seEl.innerHTML = sonlar.length ? sonlar.map(a => {
+    const tip = CRM_TIPLER.find(t => t.key === a.tip) || { label: a.tip };
+    const idx = MUSTERILER.findIndex(m => m.firma === a.musteri);
+    return `<div style="border-left:2px solid var(--border2);padding:6px 0 6px 10px;${idx >= 0 ? 'cursor:pointer;' : ''}" ${idx >= 0 ? `onclick="musteriDetay(${idx})"` : ''}>
+      <div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-size:12px;font-weight:600;">${a.musteri}</span><span style="font-size:11px;color:var(--text3);">${tarihFmt(a.tarih)} · ${a.kullanici || ''}</span></div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px;">${tip.label} · ${(a.aciklama || '').slice(0, 80).replace(/</g,'&lt;')}</div>
+    </div>`;
+  }).join('') : '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Henüz etkileşim yok.</div>';
+
+  const sonucEl = document.getElementById('crm-musteri-arama-sonuc');
+  if (sonucEl) sonucEl.innerHTML = '';
+  const araEl = document.getElementById('crm-musteri-ara');
+  if (araEl) araEl.value = '';
+}
+
+function crmMusteriAraSayfa() {
+  const q = aramaKucult(document.getElementById('crm-musteri-ara').value);
+  const el = document.getElementById('crm-musteri-arama-sonuc');
+  if (!el) return;
+  if (!q) { el.innerHTML = ''; return; }
+  const bulunan = MUSTERILER.map((m, idx) => ({ m, idx }))
+    .filter(({ m }) => aramaKucult(m.firma + ' ' + (m.sektor || '')).includes(q)).slice(0, 8);
+  el.innerHTML = bulunan.length ? bulunan.map(({ m, idx }) =>
+    `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);cursor:pointer;margin-bottom:6px;" onclick="musteriDetay(${idx})">
+      <div style="flex:1;"><div style="font-size:13px;font-weight:600;">${m.firma}</div><div style="font-size:11px;color:var(--text3);">${m.sektor || ''}</div></div>
+      <span class="btn btn-sm btn-primary" style="font-size:11px;">Aç →</span>
+    </div>`).join('') : '<div style="padding:8px;color:var(--text3);font-size:12px;">Sonuç yok.</div>';
 }
 
 // TALEPLER VERİTABANI
@@ -8063,6 +8184,7 @@ function rolUygula() {
   const marjBtn = document.querySelector('[onclick*="fiyatKurallari"]');
   if (marjBtn) marjBtn.style.display = isAdmin ? '' : 'none';
   onayBekleyenBadgeGuncelle();
+  crmNavGuncelle();
 }
 
 function satisBolumunuGuncelle() {
@@ -9844,6 +9966,7 @@ function crmAktifToggle(cb) {
   // Açık ekranları tazele
   if (aktifMusteriDetayIdx >= 0) crmRender();
   renderPanelTakip();
+  crmNavGuncelle();
   showToast(AYARLAR.crmAktif
     ? '📇 CRM tüm ekibe açıldı.'
     : '📇 CRM ekibe kapatıldı — yalnızca admin görüyor (veri birikmeye devam eder).');
@@ -10179,6 +10302,7 @@ function renderPanelMetrikler() {
   sonTeklifUyarilariGoster();
   // Takip hatırlatıcıları (CRM)
   renderPanelTakip();
+  crmNavGuncelle();
   // Satıcılardan gelen fiyat onay talepleri (sadece admin)
   renderPanelFiyatOnaylari();
   // Onay bekleyenler (sadece admin)
