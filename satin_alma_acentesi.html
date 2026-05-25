@@ -2063,7 +2063,7 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
     <input type="hidden" id="dt-index">
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('duzenleTedarikci')">İptal</button>
-      <button class="btn btn-primary" onclick="tedarikciGuncelle()">Güncelle</button>
+      <button class="btn btn-primary" id="dt-guncelle-btn" onclick="tedarikciGuncelle()">Güncelle</button>
     </div>
   </div>
 </div>
@@ -3057,8 +3057,8 @@ function filterTedarikciler() {
         <td data-label="RFQ"><button class="btn btn-sm" onclick="rfqMail('${r[0]}','${r[1]}','${r[2]}','${r[4]}')">RFQ ↗</button></td>
         <td data-label="">
           <div style="display:flex;gap:4px;">
-            <button class="btn btn-sm" style="padding:4px 8px;" title="Düzenle" onclick="tedarikciDuzenle(${idx})">✏️</button>
-            <button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Sil" onclick="tedarikciSil(${idx})">🗑</button>
+            <button class="btn btn-sm" style="padding:4px 8px;" title="${isAdmin?'Düzenle':'Değişiklik talebi öner'}" onclick="tedarikciDuzenle(${idx})">${isAdmin?'✏️':'🔁'}</button>
+            ${isAdmin?`<button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Sil" onclick="tedarikciSil(${idx})">🗑</button>`:''}
           </div>
         </td>`;
       tbody.appendChild(tr);
@@ -3095,6 +3095,7 @@ function tedSecimTemizle() {
 }
 
 function tedTopluSil() {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Toplu silme yetkiniz yok.'); return; }
   const secili = Array.from(document.querySelectorAll('.ted-cb:checked')).map(cb => parseInt(cb.dataset.idx));
   if (secili.length === 0) { showToast('Silinecek tedarikçi seçin.'); return; }
   if (!confirm(secili.length + ' tedarikçi silinecek. Emin misiniz?')) return;
@@ -3185,12 +3186,22 @@ function tedarikciDuzenle(idx) {
   document.getElementById('dt-index').value = idx;
   setOdeme('dt', r[5] || {});
   setKargo('dt', r[6] || { durum:'belirsiz' });
+  // Satıcı doğrudan düzenleyemez — sadece değişiklik talebi oluşturur
+  const gncBtn = document.getElementById('dt-guncelle-btn');
+  if (gncBtn) gncBtn.textContent = aktifKullanici?.rol === 'satici' ? '🔁 Değişiklik Talebi Gönder' : 'Güncelle';
   openModal('duzenleTedarikci');
+}
+
+// İki tedarikçi satırının kimlik alanları (firma/ürün/kişi/tel/mail) aynı mı?
+function tedSatirEslesir(a, b) {
+  if (!a || !b) return false;
+  for (let i = 0; i < 5; i++) if ((a[i] || '') !== (b[i] || '')) return false;
+  return true;
 }
 
 function tedarikciGuncelle() {
   const idx = parseInt(document.getElementById('dt-index').value);
-  TEDARIKCILER[idx] = [
+  const yeniSatir = [
     document.getElementById('dt-firma').value.trim().toUpperCase(),
     document.getElementById('dt-urun').value.trim().toUpperCase(),
     document.getElementById('dt-kisi').value.trim().toUpperCase(),
@@ -3199,6 +3210,27 @@ function tedarikciGuncelle() {
     getOdeme('dt'),
     getKargo('dt'),
   ];
+
+  // Satıcı → doğrudan değiştirmez, admin onayına "değişiklik talebi" gönderir
+  if (aktifKullanici?.rol === 'satici') {
+    const eski = TEDARIKCILER[idx];
+    if (!eski) { showToast('Tedarikçi bulunamadı.'); return; }
+    ONAY_BEKLEYENLER.tedarikciler.push({
+      _tip: 'duzenle',
+      idx,
+      eskiSatir: JSON.parse(JSON.stringify(eski)),
+      satir: yeniSatir,
+      _onayDurumu: 'bekliyor',
+      _onayTarih: new Date().toISOString(),
+      _onayKullanici: aktifKullanici.ad,
+    });
+    onayBekleyenleriKaydet();
+    closeModal('duzenleTedarikci');
+    showToast('🔁 "' + yeniSatir[0] + '" için değişiklik talebi admin onayına gönderildi.');
+    return;
+  }
+
+  TEDARIKCILER[idx] = yeniSatir;
   closeModal('duzenleTedarikci');
   filterTedarikciler();
   showToast('Tedarikçi bilgileri güncellendi!'); veriKaydet();
@@ -3206,6 +3238,10 @@ function tedarikciGuncelle() {
 
 // TEDARİKÇİ SİL
 function tedarikciSil(idx) {
+  if (aktifKullanici?.rol === 'satici') {
+    showToast('Tedarikçi silme yetkiniz yok. Değişiklik için ✏️ ile talep oluşturun.');
+    return;
+  }
   const firma = TEDARIKCILER[idx][0];
   if (confirm(`"${firma}" tedarikçisini listeden silmek istediğinize emin misiniz?`)) {
     TEDARIKCILER.splice(idx, 1);
@@ -7387,18 +7423,34 @@ function onayModalAc() {
 
   if (t.length > 0) {
     html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin:16px 0 10px;">🏭 Tedarikçi Kayıtları (' + t.length + ')</div>';
-    html += t.map((k, i) =>
-      '<div style="border:1px solid var(--amber);border-left:3px solid var(--amber);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;background:rgba(251,191,36,0.05);">'
-      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-      + '<div style="flex:1;">'
-      + '<div style="font-size:13px;font-weight:600;">' + (k.satir?.[0]||'—') + '</div>'
-      + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Ekleyen: ' + (k._onayKullanici||'—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
-      + '<div style="font-size:12px;color:var(--text2);margin-top:3px;">' + (k.satir?.[1]||'') + (k.satir?.[4] ? ' · ' + k.satir[4] : '') + '</div>'
-      + '</div>'
-      + '<button class="btn btn-sm btn-primary" onclick="onayTedarikciKabul(' + i + ')" style="font-size:11px;">✅ Onayla</button>'
-      + '<button class="btn btn-sm" onclick="onayTedarikciReddet(' + i + ')" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);">❌ Reddet</button>'
-      + '</div></div>'
-    ).join('');
+    const _alanlar = ['Firma','Ürün Grubu','Kişi','Telefon','E-posta'];
+    html += t.map((k, i) => {
+      const duzenleMi = k._tip === 'duzenle';
+      let ozet;
+      if (duzenleMi) {
+        const diff = [];
+        for (let f = 0; f < 5; f++) {
+          if ((k.eskiSatir?.[f]||'') !== (k.satir?.[f]||'')) {
+            diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">' + _alanlar[f] + ':</span> <span style="text-decoration:line-through;color:var(--red);">' + (k.eskiSatir?.[f]||'—') + '</span> → <span style="color:var(--green);">' + (k.satir?.[f]||'—') + '</span></div>');
+          }
+        }
+        if (JSON.stringify(k.eskiSatir?.[5]) !== JSON.stringify(k.satir?.[5])) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Ödeme şartları değişti</div>');
+        if (JSON.stringify(k.eskiSatir?.[6]) !== JSON.stringify(k.satir?.[6])) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Kargo bilgisi değişti</div>');
+        ozet = '<div style="font-size:13px;font-weight:600;">🔁 Değişiklik Talebi — ' + (k.satir?.[0]||'—') + '</div>'
+          + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Talep eden: ' + (k._onayKullanici||'—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
+          + '<div style="margin-top:6px;">' + (diff.length ? diff.join('') : '<span style="font-size:12px;color:var(--text3);">Değişiklik tespit edilmedi.</span>') + '</div>';
+      } else {
+        ozet = '<div style="font-size:13px;font-weight:600;">➕ Yeni Tedarikçi — ' + (k.satir?.[0]||'—') + '</div>'
+          + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Ekleyen: ' + (k._onayKullanici||'—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
+          + '<div style="font-size:12px;color:var(--text2);margin-top:3px;">' + (k.satir?.[1]||'') + (k.satir?.[4] ? ' · ' + k.satir[4] : '') + '</div>';
+      }
+      return '<div style="border:1px solid var(--amber);border-left:3px solid var(--amber);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;background:rgba(251,191,36,0.05);">'
+        + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+        + '<div style="flex:1;min-width:200px;">' + ozet + '</div>'
+        + '<button class="btn btn-sm btn-primary" onclick="onayTedarikciKabul(' + i + ')" style="font-size:11px;">✅ Onayla</button>'
+        + '<button class="btn btn-sm" onclick="onayTedarikciReddet(' + i + ')" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);">❌ Reddet</button>'
+        + '</div></div>';
+    }).join('');
   }
 
   el.innerHTML = html;
@@ -7495,6 +7547,25 @@ function onayMusteriReddet(i) {
 function onayTedarikciKabul(i) {
   const kayit = ONAY_BEKLEYENLER.tedarikciler[i];
   if (!kayit) return;
+
+  if (kayit._tip === 'duzenle') {
+    // Hedef satırı bul: önce snapshot eşleşmesi, sonra kayıtlı index
+    let hedef = TEDARIKCILER.findIndex(r => tedSatirEslesir(r, kayit.eskiSatir));
+    if (hedef < 0 && typeof kayit.idx === 'number' && TEDARIKCILER[kayit.idx]) hedef = kayit.idx;
+    if (hedef < 0) {
+      showToast('⚠ Hedef tedarikçi bulunamadı (silinmiş/değişmiş olabilir). Talep kaldırıldı.');
+      ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
+      onayBekleyenleriKaydet(); onayModalAc();
+      return;
+    }
+    TEDARIKCILER[hedef] = kayit.satir;
+    ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
+    onayBekleyenleriKaydet(); veriKaydet(); filterTedarikciler();
+    onayModalAc();
+    showToast('✅ Değişiklik onaylandı ve uygulandı!');
+    return;
+  }
+
   TEDARIKCILER.unshift(kayit.satir);
   ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
   onayBekleyenleriKaydet(); veriKaydet(); filterTedarikciler();
