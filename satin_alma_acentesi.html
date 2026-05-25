@@ -3013,8 +3013,13 @@ function teklifSil(btn) {
   }
 }
 
+// Türkçe-uyumlu küçültme: İ→i, I→ı doğru eşlensin (varsayılan toLowerCase Türkçe'de hatalı)
+function aramaKucult(s) {
+  return (s == null ? '' : String(s)).replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase();
+}
+
 function filterTedarikciler() {
-  const q = document.getElementById('t-search').value.toLowerCase();
+  const q = aramaKucult(document.getElementById('t-search').value);
   const cat = document.getElementById('t-cat').value;
   const tbody = document.getElementById('t-tbody');
   tbody.innerHTML = '';
@@ -3025,7 +3030,7 @@ function filterTedarikciler() {
 
   TEDARIKCILER.forEach((r, idx) => {
     const kat = kategori(r[1]);
-    if ((q === '' || r.slice(0,5).join(' ').toLowerCase().includes(q)) && (cat === '' || kat === cat)) {
+    if ((q === '' || aramaKucult(r.slice(0,5).join(' ')).includes(q)) && (cat === '' || kat === cat)) {
       const mail = r[4] && r[4] !== '—' ? `<a href="mailto:${r[4]}" style="color:var(--accent2);font-size:12px;">${r[4]}</a>` : '<span style="color:var(--text3);">—</span>';
       const tr = document.createElement('tr');
       tr.dataset.idx = idx;
@@ -4372,7 +4377,7 @@ function rfqOnerileriSec() {
 }
 
 function rfqTedarikciAra() {
-  const q = (document.getElementById('rfq-tedarikci-ara')?.value||'').toLowerCase();
+  const q = aramaKucult(document.getElementById('rfq-tedarikci-ara')?.value||'');
   const kat = document.getElementById('rfq-kat-filter')?.value||'';
   const liste = document.getElementById('rfq-tedarikci-liste');
   if (!liste) return;
@@ -4384,7 +4389,7 @@ function rfqTedarikciAra() {
   const firmalar = Object.values(firmaMap)
     .map(f => ({ ...f, skor: rfqEslesmeSkoruHesapla(f, urunler) }))
     .filter(f => {
-      const araText = [f.firma, ...f.urunler, ...f.kisiler, ...f.mailler].join(' ').toLowerCase();
+      const araText = aramaKucult([f.firma, ...f.urunler, ...f.kisiler, ...f.mailler].join(' '));
       return (q===''||araText.includes(q)) && (kat===''||f.kat===kat);
     })
     .sort((a,b) => {
