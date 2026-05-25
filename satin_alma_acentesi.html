@@ -3889,6 +3889,26 @@ function musteriKaydet() {
   if (aktifKullanici?.rol === 'satici' && idx >= 0 && MUSTERILER[idx]?.fpKurallari) {
     kayit.fpKurallari = MUSTERILER[idx].fpKurallari;
   }
+
+  // Satıcı mevcut müşteriyi düzenliyorsa → doğrudan değiştirme, admin onayına gönder
+  if (aktifKullanici?.rol === 'satici' && idx >= 0) {
+    const eski = MUSTERILER[idx];
+    if (!eski) { hata.textContent='Müşteri bulunamadı.'; hata.style.display='block'; return; }
+    if (eski.fiyatgrup && !kayit.fiyatgrup) kayit.fiyatgrup = eski.fiyatgrup; // ticari alanları koru
+    ONAY_BEKLEYENLER.musteriler.push({
+      ...kayit,
+      _tip: 'duzenle',
+      eskiMusteri: JSON.parse(JSON.stringify(eski)),
+      _onayDurumu: 'bekliyor',
+      _onayTarih: new Date().toISOString(),
+      _onayKullanici: aktifKullanici.ad,
+    });
+    onayBekleyenleriKaydet();
+    closeModal('musteriForm');
+    showToast('🔁 "' + firma + '" için değişiklik talebi admin onayına gönderildi.');
+    return;
+  }
+
   if(idx===-1){MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); veriKaydet();}
   else{kayit.tarih=MUSTERILER[idx].tarih;MUSTERILER[idx]=kayit;showToast('Müşteri güncellendi!'); veriKaydet();}
   closeModal('musteriForm');
@@ -3896,6 +3916,7 @@ function musteriKaydet() {
 }
 
 function musteriSil(idx) {
+  if (aktifKullanici?.rol === 'satici') { showToast('Müşteri silme yetkiniz yok. Değişiklik için ✏️ ile talep oluşturun.'); return; }
   if(confirm(`"${MUSTERILER[idx].firma}" silinsin mi?`)){MUSTERILER.splice(idx,1);filterMusteriler();showToast('Müşteri silindi.'); veriKaydet();}
 }
 
@@ -3904,6 +3925,7 @@ function filterMusteriler() {
   const durum=document.getElementById('m-durum').value;
   const tbody=document.getElementById('m-tbody');
   tbody.innerHTML=''; let count=0;
+  const isAdmin = aktifKullanici?.rol === 'admin';
   MUSTERILER.forEach((m,idx)=>{
     const yetStr=(m.yetkililer||[]).map(y=>y.ad+' '+y.unvan+' '+y.tel+' '+y.mail).join(' ');
     const text=[m.firma,m.sektor,yetStr,m.adres,m.not].join(' ').toLowerCase();
@@ -3923,8 +3945,8 @@ function filterMusteriler() {
         <td data-label="Not" style="font-size:12px;color:var(--text3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${m.not}">${m.not||'—'}</td>
         <td data-label=""><div style="display:flex;gap:4px;">
           <button class="btn btn-sm" style="padding:4px 8px;" onclick="musteriDetay(${idx})">👁</button>
-          <button class="btn btn-sm" style="padding:4px 8px;" onclick="musteriFormAc(${idx})">✏️</button>
-          <button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="musteriSil(${idx})">🗑</button>
+          <button class="btn btn-sm" style="padding:4px 8px;" title="${isAdmin?'Düzenle':'Değişiklik talebi öner'}" onclick="musteriFormAc(${idx})">${isAdmin?'✏️':'🔁'}</button>
+          ${isAdmin?`<button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="musteriSil(${idx})">🗑</button>`:''}
         </div></td>`;
       tbody.appendChild(tr); count++;
     }
@@ -7393,6 +7415,51 @@ const ROL_IZINLER_VARSAYILAN = {
 // localStorage'dan yükle veya varsayılanı kullan
 let ROL_IZINLER = JSON.parse(localStorage.getItem('emonfast_rol_izinler') || 'null') || JSON.parse(JSON.stringify(ROL_IZINLER_VARSAYILAN));
 
+// Müşteri ödeme şartları özeti (onay kartı için)
+function _musteriOdemeOzet(o) {
+  if (!o) return '—';
+  const p = [];
+  if (o.havale) p.push('Havale');
+  if (o.kk) p.push('KK');
+  if (o.kkkom) p.push('KK Kom' + (o.kkkomOran ? ' %' + o.kkkomOran : ''));
+  if (o.vadeli) p.push('Vadeli' + (o.vadeGun ? ' ' + o.vadeGun + 'g' : ''));
+  return p.length ? p.join(', ') : '—';
+}
+
+// Yeni müşteri onay kartı — tam detay
+function musteriOnayDetayHtml(k) {
+  const yet = (k.yetkililer || []).map(y =>
+    '<div style="font-size:12px;color:var(--text2);">• ' + (y.ad || '—') + (y.unvan ? ' (' + y.unvan + ')' : '') + (y.tel ? ' · ' + y.tel : '') + (y.mail ? ' · ' + y.mail : '') + '</div>'
+  ).join('') || '<div style="font-size:12px;color:var(--text3);">Yetkili yok</div>';
+  return '<div style="margin-top:6px;border-top:1px dashed var(--border);padding-top:6px;">'
+    + (k.sektor ? '<div style="font-size:12px;color:var(--text2);">Sektör: ' + k.sektor + '</div>' : '')
+    + '<div style="font-size:12px;color:var(--text2);margin-top:2px;">Yetkililer:</div>' + yet
+    + '<div style="font-size:12px;color:var(--text2);margin-top:2px;">Ödeme: ' + _musteriOdemeOzet(k.odeme) + '</div>'
+    + (k.fiyatgrup ? '<div style="font-size:12px;color:var(--text2);">Fiyat grubu: ' + k.fiyatgrup + '</div>' : '')
+    + (k.adres ? '<div style="font-size:12px;color:var(--text2);">Adres: ' + k.adres + '</div>' : '')
+    + ((k.vergino || k.vergidaire) ? '<div style="font-size:12px;color:var(--text2);">Vergi: ' + (k.vergidaire || '') + ' ' + (k.vergino || '') + '</div>' : '')
+    + ((k.ozelSartlar || []).length ? '<div style="font-size:12px;color:var(--text2);margin-top:2px;">Özel şartlar: ' + k.ozelSartlar.join('; ') + '</div>' : '')
+    + (k.not ? '<div style="font-size:12px;color:var(--text3);margin-top:2px;">Not: ' + k.not + '</div>' : '')
+    + '</div>';
+}
+
+// Müşteri değişiklik talebi — öncesi→sonrası diff
+function musteriDiffHtml(eski, yeni) {
+  const diff = [];
+  const cmp = (label, a, b) => { if ((a || '') !== (b || '')) diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">' + label + ':</span> <span style="text-decoration:line-through;color:var(--red);">' + (a || '—') + '</span> → <span style="color:var(--green);">' + (b || '—') + '</span></div>'); };
+  cmp('Firma', eski?.firma, yeni?.firma);
+  cmp('Sektör', eski?.sektor, yeni?.sektor);
+  cmp('Adres', eski?.adres, yeni?.adres);
+  cmp('Vergi No', eski?.vergino, yeni?.vergino);
+  cmp('Vergi Dairesi', eski?.vergidaire, yeni?.vergidaire);
+  cmp('Durum', eski?.durum, yeni?.durum);
+  cmp('Not', eski?.not, yeni?.not);
+  if (JSON.stringify(eski?.yetkililer) !== JSON.stringify(yeni?.yetkililer)) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Yetkili kişiler değişti</div>');
+  if (JSON.stringify(eski?.odeme) !== JSON.stringify(yeni?.odeme)) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Ödeme şartları: ' + _musteriOdemeOzet(eski?.odeme) + ' → ' + _musteriOdemeOzet(yeni?.odeme) + '</div>');
+  if (JSON.stringify(eski?.ozelSartlar || []) !== JSON.stringify(yeni?.ozelSartlar || [])) diff.push('<div style="font-size:12px;margin-top:2px;color:var(--amber);">• Özel şartlar değişti</div>');
+  return '<div style="margin-top:6px;">' + (diff.length ? diff.join('') : '<span style="font-size:12px;color:var(--text3);">Değişiklik tespit edilmedi.</span>') + '</div>';
+}
+
 function onayModalAc() {
   const el = document.getElementById('onay-modal-icerik');
   const m  = ONAY_BEKLEYENLER.musteriler;
@@ -7407,18 +7474,22 @@ function onayModalAc() {
 
   if (m.length > 0) {
     html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:10px;">🏢 Müşteri Kayıtları (' + m.length + ')</div>';
-    html += m.map((k, i) =>
-      '<div style="border:1px solid var(--amber);border-left:3px solid var(--amber);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;background:rgba(251,191,36,0.05);">'
-      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-      + '<div style="flex:1;">'
-      + '<div style="font-size:13px;font-weight:600;">' + k.firma + '</div>'
-      + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Ekleyen: ' + (k._onayKullanici||'—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
-      + '<div style="font-size:12px;color:var(--text2);margin-top:3px;">' + (k.sektor||'') + (k.yetkililer?.[0]?.ad ? ' · ' + k.yetkililer[0].ad : '') + '</div>'
-      + '</div>'
-      + '<button class="btn btn-sm btn-primary" onclick="onayMusteriKabul(' + i + ')" style="font-size:11px;">✅ Onayla</button>'
-      + '<button class="btn btn-sm" onclick="onayMusteriReddet(' + i + ')" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);">❌ Reddet</button>'
-      + '</div></div>'
-    ).join('');
+    html += m.map((k, i) => {
+      const duzenleMi = k._tip === 'duzenle';
+      const ozet = duzenleMi
+        ? '<div style="font-size:13px;font-weight:600;">🔁 Müşteri Değişiklik Talebi — ' + (k.firma || '—') + '</div>'
+          + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Talep eden: ' + (k._onayKullanici || '—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
+          + musteriDiffHtml(k.eskiMusteri, k)
+        : '<div style="font-size:13px;font-weight:600;">➕ Yeni Müşteri — ' + (k.firma || '—') + '</div>'
+          + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Ekleyen: ' + (k._onayKullanici || '—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
+          + musteriOnayDetayHtml(k);
+      return '<div style="border:1px solid var(--amber);border-left:3px solid var(--amber);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;background:rgba(251,191,36,0.05);">'
+        + '<div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;">'
+        + '<div style="flex:1;min-width:220px;">' + ozet + '</div>'
+        + '<button class="btn btn-sm btn-primary" onclick="onayMusteriKabul(' + i + ')" style="font-size:11px;">✅ Onayla</button>'
+        + '<button class="btn btn-sm" onclick="onayMusteriReddet(' + i + ')" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);">❌ Reddet</button>'
+        + '</div></div>';
+    }).join('');
   }
 
   if (t.length > 0) {
@@ -7460,6 +7531,29 @@ function onayModalAc() {
 function onayMusteriKabul(i) {
   const kayit = ONAY_BEKLEYENLER.musteriler[i];
   if (!kayit) return;
+
+  // Değişiklik talebi → mevcut müşteriyi bulup doğrudan uygula
+  if (kayit._tip === 'duzenle') {
+    let hedef = MUSTERILER.findIndex(mm => mm.firma === (kayit.eskiMusteri?.firma));
+    if (hedef < 0) hedef = MUSTERILER.findIndex(mm => mm.firma === kayit.firma);
+    if (hedef < 0) {
+      showToast('⚠ Hedef müşteri bulunamadı (silinmiş olabilir). Talep kaldırıldı.');
+      ONAY_BEKLEYENLER.musteriler.splice(i, 1);
+      onayBekleyenleriKaydet(); onayModalAc();
+      return;
+    }
+    const { _tip, eskiMusteri, _onayDurumu, _onayTarih, _onayKullanici, ...musteriVeri } = kayit;
+    musteriVeri.tarih = MUSTERILER[hedef].tarih; // orijinal kayıt tarihini koru
+    // Ticari alanları (marj/fiyat grubu) satıcı değiştiremez — mevcut değeri koru
+    if (MUSTERILER[hedef].fpKurallari && !musteriVeri.fpKurallari) musteriVeri.fpKurallari = MUSTERILER[hedef].fpKurallari;
+    if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
+    MUSTERILER[hedef] = musteriVeri;
+    ONAY_BEKLEYENLER.musteriler.splice(i, 1);
+    onayBekleyenleriKaydet(); veriKaydet(); filterMusteriler();
+    onayModalAc();
+    showToast('✅ Müşteri değişikliği onaylandı ve uygulandı!');
+    return;
+  }
 
   // Onay modalını kapat, müşteri formunu doldurarak aç
   closeModal('onayBekleyenler');
