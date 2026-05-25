@@ -516,7 +516,7 @@
       <span class="icon">✅</span> Fiyat Onayları
       <span id="onay-bekleyen-badge" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
     </div>
-    <div class="nav-item" onclick="goPage('ayarlar',this)">
+    <div class="nav-item" onclick="goPage('ayarlar',this)" id="nav-ayarlar" data-admin-only>
       <span class="icon">⚙</span> Ayarlar
     </div>
   </nav>
@@ -3536,7 +3536,13 @@ document.addEventListener('touchend', e => {
 }, { passive: true });
 
 // NAVİGASYON
+// Sadece admin'in erişebileceği sayfalar — satıcı doğrudan çağırsa bile engellenir
+const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari'];
 function goPage(id, el) {
+  if (ADMIN_ONLY_SAYFALAR.includes(id) && aktifKullanici?.rol !== 'admin') {
+    showToast('Bu sayfaya erişim yetkiniz yok.');
+    return;
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
