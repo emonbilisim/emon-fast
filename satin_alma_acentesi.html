@@ -562,7 +562,31 @@
       <div id="panel-stz-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
     </div>
 
-    <!-- Aktif Talepler -->
+    <!-- 2) Satıcılardan gelen fiyat onay talepleri (sadece admin) -->
+    <div class="card" id="panel-fiyat-onay-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--accent2);">
+      <div class="card-header">
+        <div>
+          <div class="card-title">💰 Fiyat Onay Talepleri</div>
+          <div class="card-sub">Satıcılardan gelen, onay bekleyen fiyatlar</div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="goPage('fiyatOnaylari', document.getElementById('nav-fiyat-onaylari'))">İncele</button>
+      </div>
+      <div id="panel-fiyat-onay-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
+
+    <!-- 3) Yeni tedarikçi/müşteri kayıt & değişiklik onayları (sadece admin) -->
+    <div class="card" id="panel-onay-card" style="display:none;border-left:3px solid var(--amber);margin-bottom:20px;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">⏳ Kayıt & Değişiklik Onayları</div>
+          <div class="card-sub">Satıcıların eklediği/değiştirdiği müşteri & tedarikçi kayıtları onay bekliyor</div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="onayModalAc()">İncele</button>
+      </div>
+      <div id="panel-onay-ozet" style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;"></div>
+    </div>
+
+    <!-- 4) Aktif Talepler -->
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header">
         <div class="card-title">Aktif Talepler</div>
@@ -623,18 +647,6 @@
           <div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Yükleniyor...</div>
         </div>
       </div>
-    </div>
-
-    <!-- Onay Bekleyenler (sadece admin) -->
-    <div class="card" id="panel-onay-card" style="display:none;border-left:3px solid var(--amber);margin-bottom:20px;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">⏳ Onay Bekleyenler</div>
-          <div class="card-sub">Satıcıların eklediği kayıtlar admin onayı bekliyor</div>
-        </div>
-        <button class="btn btn-sm btn-primary" onclick="onayModalAc()">İncele</button>
-      </div>
-      <div id="panel-onay-ozet" style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;"></div>
     </div>
 
     <!-- 💱 DÖVİZ KURLARI (en altta) -->
@@ -9740,6 +9752,29 @@ document.addEventListener('DOMContentLoaded', () => {
 // ═══════════════════════════════════════
 // PANEL METRİKLER — GERÇEK VERİ
 // ═══════════════════════════════════════
+// Panelde satıcılardan gelen, onay bekleyen fiyat taleplerini göster (sadece admin)
+function renderPanelFiyatOnaylari() {
+  const kart   = document.getElementById('panel-fiyat-onay-card');
+  const icerik = document.getElementById('panel-fiyat-onay-icerik');
+  if (!kart || !icerik) return;
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  const bekleyen = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor');
+  if (!isAdmin || bekleyen.length === 0) { kart.style.display = 'none'; return; }
+  kart.style.display = 'block';
+  icerik.innerHTML = bekleyen.map(t => {
+    const satici = t.fiyatOnayTalep?.satici || 'Satıcı';
+    const toplam = t.fiyatOnayTalep?.toplamStr || '';
+    const tarih  = t.fiyatOnayTalep?.tarih ? tarihFmt(t.fiyatOnayTalep.tarih) : '';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);cursor:pointer;" onclick="talepDetayAc(${TALEPLER.indexOf(t)})">
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:600;">#${t.no} — ${t.musteri || '—'}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${satici}${tarih ? ' · ' + tarih : ''}${toplam ? ' · ' + toplam : ''}</div>
+      </div>
+      <span class="btn btn-sm btn-primary" style="font-size:11px;">İncele →</span>
+    </div>`;
+  }).join('');
+}
+
 function renderPanelMetrikler() {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   const setHTML = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
@@ -9887,6 +9922,8 @@ function renderPanelMetrikler() {
 
   // ─── SON TEKLİF ZAMANI UYARILARI ───
   sonTeklifUyarilariGoster();
+  // Satıcılardan gelen fiyat onay talepleri (sadece admin)
+  renderPanelFiyatOnaylari();
   // Onay bekleyenler (sadece admin)
   if (aktifKullanici?.rol === 'admin') {
     onayBadgeGuncelle();
