@@ -11035,7 +11035,7 @@ async function outlookTumMaillerGoster() {
       for (const { mail: rfqMail, firma } of rfqMailler) {
         try {
           const resp = await fetch(
-            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="from:${rfqMail}"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview`,
+            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="from:${rfqMail}"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments`,
             { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
           );
           if (resp.ok) {
@@ -11053,7 +11053,7 @@ async function outlookTumMaillerGoster() {
       if (tumMailler.length === 0 && t.no) {
         try {
           const resp = await fetch(
-            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview`,
+            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments`,
             { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
           );
           if (resp.ok) {
@@ -11068,7 +11068,7 @@ async function outlookTumMaillerGoster() {
       // RFQ gönderilmemişse sadece talep no ile ara
       try {
         const resp = await fetch(
-          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview`,
+          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments`,
           { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
         );
         if (resp.ok) {
