@@ -1601,9 +1601,18 @@
 
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin:14px 0 10px;">Logo</div>
           <div class="form-group">
-            <label class="form-label">Logo URL</label>
-            <input type="text" id="imza-logo-url" placeholder="https://emon.com.tr/logo.png" oninput="imzaOnizlemeGuncelle()">
-            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Logo URL'sini girin — mail içinde resim olarak görünür</div>
+            <label class="form-label">Logo Dosyası Yükle</label>
+            <input type="file" id="imza-logo-dosya" accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp" onchange="imzaLogoYukle(this)" style="font-size:12px;">
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">PNG / JPG / SVG · önerilen yükseklik ~50px, maks. ~500 KB. Yüklenen logo RFQ ve teklif maillerinin imzasında kullanılır.</div>
+            <div id="imza-logo-onizleme-wrap" style="display:none;align-items:center;gap:10px;margin-top:8px;">
+              <img id="imza-logo-onizleme-img" src="" alt="logo" style="height:40px;max-width:170px;object-fit:contain;background:#fff;border-radius:4px;padding:4px;">
+              <button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="imzaLogoKaldir()">Logoyu kaldır</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">veya Logo URL</label>
+            <input type="text" id="imza-logo-url" placeholder="https://emon.com.tr/logo.png" oninput="imzaOnizlemeGuncelle();imzaLogoOnizlemeGuncelle()">
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Dosya yüklemek yerine bir logo bağlantısı da girebilirsiniz.</div>
           </div>
 
           <button class="btn btn-primary" style="margin-top:4px;" onclick="imzaKaydet()">💾 İmzayı Kaydet</button>
@@ -9950,6 +9959,42 @@ function imzaOnizlemeGuncelle() {
   el.innerHTML = html;
 }
 
+// Logo dosyasını base64'e çevirip imza logo alanına gömer (RFQ/teklif maillerinde kullanılır)
+function imzaLogoYukle(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { showToast('Lütfen bir görsel dosyası seçin.'); input.value = ''; return; }
+  if (file.size > 600 * 1024) { showToast('Logo çok büyük (maks ~500 KB). Daha küçük/optimize bir dosya seçin.'); input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const urlEl = document.getElementById('imza-logo-url');
+    if (urlEl) urlEl.value = e.target.result; // data:image/...;base64,...
+    imzaLogoOnizlemeGuncelle();
+    imzaKaydet();
+    showToast('✅ Logo yüklendi ve kaydedildi.');
+  };
+  reader.onerror = () => showToast('Logo okunamadı.');
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function imzaLogoKaldir() {
+  const urlEl = document.getElementById('imza-logo-url');
+  if (urlEl) urlEl.value = '';
+  imzaLogoOnizlemeGuncelle();
+  imzaKaydet();
+  showToast('Logo kaldırıldı.');
+}
+
+function imzaLogoOnizlemeGuncelle() {
+  const url  = document.getElementById('imza-logo-url')?.value || '';
+  const wrap = document.getElementById('imza-logo-onizleme-wrap');
+  const img  = document.getElementById('imza-logo-onizleme-img');
+  if (!wrap || !img) return;
+  if (url) { img.src = url; wrap.style.display = 'flex'; }
+  else { img.removeAttribute('src'); wrap.style.display = 'none'; }
+}
+
 function imzaKaydet() {
   const g = id => document.getElementById(id)?.value || '';
   AYARLAR.imza = {
@@ -10054,6 +10099,7 @@ function ayarlariYukle() {
   setVal('imza-adres',    i.adres);
   setVal('imza-web',      i.web);
   setVal('imza-logo-url', i.logoUrl);
+  imzaLogoOnizlemeGuncelle();
   imzaOnizlemeGuncelle();
   // MS bağlantı durumu
   const msBadge = document.getElementById('ms-baglanti-badge');
