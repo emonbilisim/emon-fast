@@ -6557,11 +6557,14 @@ function teklifiFiyataAktar(tkIdx) {
 // TEKLİF PDF OLUŞTURUCU
 // ═══════════════════════════════════════
 
-// Satış tablosu satırından (cells[4] = Birim Satış) gerçek birim fiyatı ve para birimini oku.
+// Satış tablosu satırından "Birim Satış" hücresinden gerçek birim fiyatı ve para birimini oku.
 // Değer <input> içinde tutulur; cell.textContent yalnızca kıyas notu / alt-TL metnini içerir
 // (input value'su textContent'e dahil DEĞİLDİR) — bu yüzden textContent okumak yanlış fiyat verir.
+// Hücre, sabit index yerine dataset.label='Birim Satış' ile bulunur: araya yeni sütun
+// (Kargo, Müşteri Hedef) eklenince index kayıyor ve yanlış hücre (ör. hedef fiyat) okunuyordu.
 function satisSatirBirim(row) {
-  const cell = row?.cells?.[4];
+  const cells = row?.cells ? Array.from(row.cells) : [];
+  const cell = cells.find(c => c.dataset?.label === 'Birim Satış') || cells[6] || cells[4];
   if (!cell) return { birim: 0, para: 'TRY', sembol: '₺' };
   const inp    = cell.querySelector('input');
   const symRaw = (cell.querySelector('span')?.textContent || '').trim();
@@ -6570,6 +6573,33 @@ function satisSatirBirim(row) {
   const raw    = inp ? String(inp.value) : (cell.textContent || '');
   const birim  = parseFloat(raw.replace(/[^\d,.-]/g,'').replace(/\.(?=.*\.)/g,'').replace(',','.')) || 0;
   return { birim, para, sembol };
+}
+
+// Müşteriye gidecek teklif satırlarını TEK kaynaktan üret.
+// Öncelik: ekranda açık satış tablosundaki gerçek girilen birim fiyatlar (yalnızca aktif talep için
+// orada). Tablo yoksa (arşiv vb.) ya da bir satır boşsa, talebe kayıtlı musteriTeklifFiyatlar'a düşer.
+// Mail gövdesi, mail PDF eki ve "PDF İndir" hep bu fonksiyonu kullanır → tutarlı fiyatlar.
+function musteriTeklifSatirlari(talepIdx) {
+  const idx = talepIdx != null ? talepIdx : aktifTalepIdx;
+  const t = TALEPLER[idx];
+  if (!t) return [];
+  const urunler = t.urunler && t.urunler.length > 0
+    ? t.urunler
+    : [{ aciklama: t.urun, adet: t.miktar||1, birim:'Adet', kod:'' }];
+  const tbody = (idx === aktifTalepIdx) ? document.getElementById('satis-urun-tbody') : null;
+  const satirlar = tbody ? Array.from(tbody.rows) : [];
+  const semboller = { TRY:'₺', USD:'$', EUR:'€' };
+  return urunler.map((u, i) => {
+    let birimFiyat = 0, para = 'TRY';
+    if (satirlar[i]) { const r = satisSatirBirim(satirlar[i]); birimFiyat = r.birim; para = r.para; }
+    if (!(birimFiyat > 0)) {
+      const k = t.musteriTeklifFiyatlar?.[i];
+      if (k) { birimFiyat = k.birimFiyat || 0; para = k.para || para; }
+    }
+    const adet = parseFloat(u.adet) || 1;
+    return { aciklama: u.aciklama||'', kod: u.kod||'', adet, birim: u.birim||'Adet',
+             birimFiyat, para, sembol: semboller[para] || '₺', toplam: birimFiyat * adet };
+  });
 }
 
 function teklifPdfIndir() {
@@ -6856,19 +6886,10 @@ async function musteriTeklifMaili() {
   const kdv = parseFloat(document.getElementById('satis-kdv')?.value) || 0;
   const paraSembolu = { TRY:'₺', USD:'$', EUR:'€' };
 
-  // Satış tablosundan fiyatları al
-  const satirlar = Array.from(document.getElementById('satis-urun-tbody')?.rows || []);
-  let toplamTutar = 0;
-  let toplamPara  = 'TRY';
-
-  const urunSatirlari = urunler.map((u, uIdx) => {
-    const { birim: birimSayi, para, sembol } = satisSatirBirim(satirlar[uIdx]);
-    if (uIdx === 0) toplamPara = para;
-    const adet    = parseFloat(u.adet) || 1;
-    const toplam  = birimSayi * adet;
-    toplamTutar  += toplam;
-    return { aciklama: u.aciklama||'', kod: u.kod||'', adet, birim: u.birim||'Adet', birimFiyat: birimSayi, toplam, sembol, para };
-  });
+  // Teklif satırları — tek kaynak (satış tablosu, yoksa kayıtlı fiyatlar)
+  const urunSatirlari = musteriTeklifSatirlari(aktifTalepIdx);
+  const toplamTutar = urunSatirlari.reduce((s, u) => s + u.toplam, 0);
+  const toplamPara  = urunSatirlari[0]?.para || 'TRY';
 
   const sembol = paraSembolu[toplamPara] || '₺';
   const fmt    = n => sembol + n.toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -9093,11 +9114,7 @@ async function teklifPdfBase64(talepIdx, urunSatirlariParam, toplamTutarParam, t
   if (!t || typeof window.jspdf === 'undefined') return null;
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-  const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama:t.urun, adet:t.miktar||1, birim:'Adet', kod:'' }];
-  const urunSatirlari = urunSatirlariParam || urunler.map((u,i) => {
-    const k = t.musteriTeklifFiyatlar?.[i];
-    return { ...u, birimFiyat:k?.birimFiyat||0, para:k?.para||'TRY', toplam:(k?.birimFiyat||0)*(parseFloat(u.adet)||1) };
-  });
+  const urunSatirlari = urunSatirlariParam || musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx);
   const toplamTutar = toplamTutarParam != null ? toplamTutarParam : urunSatirlari.reduce((s,u)=>s+u.toplam,0);
   const toplamPara  = toplamParaParam || urunSatirlari[0]?.para || 'TRY';
   await _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara);
@@ -9114,11 +9131,7 @@ async function teklifPdfIndir(talepIdx) {
   }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-  const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama:t.urun, adet:t.miktar||1, birim:'Adet', kod:'' }];
-  const urunSatirlari = urunler.map((u,i) => {
-    const k = t.musteriTeklifFiyatlar?.[i];
-    return { ...u, birimFiyat:k?.birimFiyat||0, para:k?.para||'TRY', toplam:(k?.birimFiyat||0)*(parseFloat(u.adet)||1) };
-  });
+  const urunSatirlari = musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx);
   const toplamTutar = urunSatirlari.reduce((s,u)=>s+u.toplam,0);
   const toplamPara  = urunSatirlari[0]?.para || 'TRY';
   await _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara);
