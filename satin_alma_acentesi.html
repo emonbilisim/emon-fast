@@ -6557,6 +6557,21 @@ function teklifiFiyataAktar(tkIdx) {
 // TEKLİF PDF OLUŞTURUCU
 // ═══════════════════════════════════════
 
+// Satış tablosu satırından (cells[4] = Birim Satış) gerçek birim fiyatı ve para birimini oku.
+// Değer <input> içinde tutulur; cell.textContent yalnızca kıyas notu / alt-TL metnini içerir
+// (input value'su textContent'e dahil DEĞİLDİR) — bu yüzden textContent okumak yanlış fiyat verir.
+function satisSatirBirim(row) {
+  const cell = row?.cells?.[4];
+  if (!cell) return { birim: 0, para: 'TRY', sembol: '₺' };
+  const inp    = cell.querySelector('input');
+  const symRaw = (cell.querySelector('span')?.textContent || '').trim();
+  const para   = ({ '₺':'TRY', '$':'USD', '€':'EUR' })[symRaw] || 'TRY';
+  const sembol = ({ TRY:'₺', USD:'$', EUR:'€' })[para];
+  const raw    = inp ? String(inp.value) : (cell.textContent || '');
+  const birim  = parseFloat(raw.replace(/[^\d,.-]/g,'').replace(/\.(?=.*\.)/g,'').replace(',','.')) || 0;
+  return { birim, para, sembol };
+}
+
 function teklifPdfIndir() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -6575,12 +6590,8 @@ function teklifPdfIndir() {
   let toplamTutar = 0, toplamPara = 'TRY';
 
   const urunSatirlari = urunler.map((u, uIdx) => {
-    const row = satirlar[uIdx];
-    const birimStr = row?.cells?.[4]?.textContent?.trim() || '';
-    const paraMatch = birimStr.match(/^([₺$€])/);
-    const para = paraMatch ? ({ '₺':'TRY','$':'USD','€':'EUR' }[paraMatch[1]] || 'TRY') : 'TRY';
+    const { birim: birimSayi, para } = satisSatirBirim(satirlar[uIdx]);
     if (uIdx === 0) toplamPara = para;
-    const birimSayi = parseFloat(birimStr.replace(/[^\d,.]/g,'').replace(/\.(?=.*\.)/g,'').replace(',','.')) || 0;
     const adet = parseFloat(u.adet) || 1;
     const toplam = birimSayi * adet;
     toplamTutar += toplam;
@@ -6851,14 +6862,8 @@ async function musteriTeklifMaili() {
   let toplamPara  = 'TRY';
 
   const urunSatirlari = urunler.map((u, uIdx) => {
-    const row = satirlar[uIdx];
-    const birimStr = row?.cells?.[4]?.textContent?.trim() || '';
-    const paraMatch = birimStr.match(/^([₺$€])/);
-    const para   = paraMatch ? ({ '₺':'TRY','$':'USD','€':'EUR' }[paraMatch[1]] || 'TRY') : 'TRY';
+    const { birim: birimSayi, para, sembol } = satisSatirBirim(satirlar[uIdx]);
     if (uIdx === 0) toplamPara = para;
-    const sembol  = paraSembolu[para] || '₺';
-    // Sayısal değer — nokta/virgül normalize et
-    const birimSayi = parseFloat(birimStr.replace(/[^\d,.]/g,'').replace(/\.(?=.*\.)/g,'').replace(',','.')) || 0;
     const adet    = parseFloat(u.adet) || 1;
     const toplam  = birimSayi * adet;
     toplamTutar  += toplam;
