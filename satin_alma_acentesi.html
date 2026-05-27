@@ -4469,22 +4469,36 @@ function talepTarihFmt(iso) {
 
 let _taleplerRefreshInterval = null;
 let _taleplerRefreshSure = 60; // saniye
+const OTO_YENILE_KEY = 'emonfast_oto_yenile'; // tercih kalıcı (cihaz bazlı)
 
-function taleplerAutoRefreshToggle() {
+// Verilen duruma göre interval'i başlat/durdur + buton görünümünü güncelle
+function _taleplerAutoRefreshUygula(acik) {
   const btn = document.getElementById('btn-auto-refresh');
-  if (_taleplerRefreshInterval) {
-    clearInterval(_taleplerRefreshInterval);
-    _taleplerRefreshInterval = null;
-    if (btn) { btn.textContent = '🔄 Oto-Yenile: Kapalı'; btn.style.color = 'var(--text3)'; btn.style.borderColor = ''; }
-  } else {
+  if (_taleplerRefreshInterval) { clearInterval(_taleplerRefreshInterval); _taleplerRefreshInterval = null; }
+  if (acik) {
     _taleplerRefreshInterval = setInterval(() => {
       renderTalepler();
       sonTeklifUyarilariGoster();
-      const btn2 = document.getElementById('btn-auto-refresh');
-      if (btn2) btn2.textContent = '🔄 Oto-Yenile: ' + _taleplerRefreshSure + 's ✓';
+      const b = document.getElementById('btn-auto-refresh');
+      if (b) b.textContent = '🔄 Oto-Yenile: ' + _taleplerRefreshSure + 's ✓';
     }, _taleplerRefreshSure * 1000);
     if (btn) { btn.textContent = '🔄 Oto-Yenile: ' + _taleplerRefreshSure + 's ✓'; btn.style.color = 'var(--green)'; btn.style.borderColor = 'rgba(62,207,142,0.4)'; }
+  } else {
+    if (btn) { btn.textContent = '🔄 Oto-Yenile: Kapalı'; btn.style.color = 'var(--text3)'; btn.style.borderColor = ''; }
   }
+}
+
+function taleplerAutoRefreshToggle() {
+  const acik = !_taleplerRefreshInterval; // yeni durum: şu an kapalıysa aç
+  try { localStorage.setItem(OTO_YENILE_KEY, acik ? '1' : '0'); } catch {}
+  _taleplerAutoRefreshUygula(acik);
+}
+
+// Açılışta kayıtlı tercihi geri yükle (sayfa yenilense de durum korunur)
+function taleplerAutoRefreshDurumYukle() {
+  let acik = false;
+  try { acik = localStorage.getItem(OTO_YENILE_KEY) === '1'; } catch {}
+  _taleplerAutoRefreshUygula(acik);
 }
 
 // 07:00-12:00 → aynı gün 16:45
@@ -13054,6 +13068,7 @@ veriYukle();
 filterMusteriler();
 filterTedarikciler();
 renderTalepler();
+taleplerAutoRefreshDurumYukle();
 fpInit();
 setTimeout(ayarlariYukle, 100);
 setTimeout(renderPanelMetrikler, 200);
