@@ -1659,10 +1659,45 @@
           <button class="btn btn-sm" onclick="claudeKeyTemizle()" type="button" style="flex-shrink:0;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑</button>
         </div>
       </div>
+
+      <!-- 📥 Gelen Maillerden Otomatik Talep (Faz 1: manuel tarama + onay) -->
+      <div style="margin-top:14px;padding:14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:500;">📥 Gelen Maillerden Otomatik Talep</div>
+            <div style="font-size:12px;color:var(--text3);">Kayıtlı müşterilerden gelen mailleri AI ile okuyup <b>onay bekleyen taslak talepler</b> üretir. Microsoft 365 girişi ve Claude API key gerekir.</div>
+          </div>
+          <label style="display:inline-flex;align-items:center;cursor:pointer;flex-shrink:0;">
+            <input type="checkbox" id="oto-talep-aktif" onchange="otoTalepToggle(this)" style="width:18px;height:18px;cursor:pointer;">
+          </label>
+        </div>
+        <div id="oto-talep-panel" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" id="oto-talep-tara-btn" onclick="otoTalepTara(false)" style="font-size:12px;">🔄 Şimdi Tara</button>
+            <button class="btn btn-sm" onclick="otoTalepModalAc()" style="font-size:12px;">📋 Taslakları Gözden Geçir (<span id="oto-talep-taslak-rozet">0</span>)</button>
+            <span id="oto-talep-durum" style="font-size:11px;color:var(--text3);"></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
 </div><!-- /main -->
+
+<!-- MODAL: Gelen Maillerden Talep Taslakları -->
+<div class="modal-overlay" id="modal-oto-talep">
+  <div class="modal" style="width:min(96vw,820px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">📥 Gelen Maillerden Talep Taslakları</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">AI'nın gelen müşteri maillerinden çıkardığı taslaklar. Kontrol edip düzenleyin, ardından <b>Talep Oluştur</b> ile gerçek talebe dönüştürün. Yanlış olanları <b>Yoksay</b> ile kaldırın.</div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+      <button class="btn btn-primary btn-sm" id="oto-talep-tara-btn-modal" onclick="otoTalepTara(false)" style="font-size:12px;">🔄 Şimdi Tara</button>
+    </div>
+    <div id="oto-talep-taslak-liste"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button class="btn" onclick="closeModal('oto-talep')">Kapat</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL: Veri Yedekleme -->
 <div class="modal-overlay" id="modal-yedek">
@@ -3781,7 +3816,7 @@ function goPage(id, el) {
   if (id === 'teklifler') renderMusteriTeklifleri();
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); }
-  if (id === 'ayarlar') claudeKeyDurumGuncelle();
+  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); }
   if (id === 'crm') renderCRM();
 }
 
@@ -11699,6 +11734,354 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
     showToast('⚠ AI bağlantı hatası: ' + (e.message || 'bilinmeyen'));
     return { _err: 'network' };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 📥 GELEN MAİLDEN OTOMATİK TALEP (Faz 1: manuel tarama + onay)
+//   Çekirdek tarama fonksiyonu otoTalepTara() Faz 2'de setInterval ile
+//   periyodik çağrılacak şekilde tasarlandı (sessiz=true ile).
+//   Tüm durum AYARLAR.otoTalep altında tutulur → ek persistence gerekmez.
+// ═══════════════════════════════════════════════════════════════════
+
+function otoTalepCfg() {
+  if (!AYARLAR.otoTalep) {
+    AYARLAR.otoTalep = { aktif: false, taslaklar: [], islenenMailIdler: [], sonTarama: null };
+  }
+  const c = AYARLAR.otoTalep;
+  if (!Array.isArray(c.taslaklar)) c.taslaklar = [];
+  if (!Array.isArray(c.islenenMailIdler)) c.islenenMailIdler = [];
+  return c;
+}
+
+// Kayıtlı müşterilerin tüm yetkili mail adresleri (küçük harf) → Set
+function musteriMailSet() {
+  const s = new Set();
+  MUSTERILER.forEach(m => (m.yetkililer || []).forEach(y => {
+    const adr = (y.mail || '').trim().toLowerCase();
+    if (adr) s.add(adr);
+  }));
+  return s;
+}
+
+// Bir mail adresine sahip müşterinin firma adını bul
+function musteriBulByMail(mail) {
+  const adr = (mail || '').trim().toLowerCase();
+  if (!adr) return '';
+  const m = MUSTERILER.find(x => (x.yetkililer || []).some(y => (y.mail || '').trim().toLowerCase() === adr));
+  return m ? m.firma : '';
+}
+
+// Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
+async function maildenTalepCikar(mailIcerik, pdfler) {
+  const apiKey = claudeKeyGetir();
+  if (!apiKey) return { _err: 'no-key' };
+  try {
+    const promptMetin =
+      'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele.\n' +
+      'Görevin: bu bir SATIN ALMA / FİYAT TEKLİFİ TALEBİ mi belirlemek ve öyleyse talep edilen ürünleri çıkarmak.\n\n' +
+      'KURALLAR:\n' +
+      '- Sadece ürün/hizmet fiyatı veya teklif isteyen mailler "talep"tir. Teşekkür, bilgi, fatura, otomatik yanıt, satış/pazarlama maili, bizim gönderdiğimiz teklife cevap → talep DEĞİL (talepMi:false).\n' +
+      '- Ürünleri olabildiğince ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet").\n' +
+      '- Müşterinin kendi talep/referans numarası varsa musteriNo alanına yaz.\n' +
+      '- ozet: tek cümlelik kısa Türkçe özet.\n' +
+      '- talepMi:false ise urunler boş dizi olsun.\n\n' +
+      'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
+      'SADECE şu JSON ile cevap ver (markdown/açıklama yok):\n' +
+      '{"talepMi":true,"ozet":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":""}';
+
+    const contentBlocks = [];
+    if (pdfler && pdfler.length) {
+      pdfler.forEach(p => contentBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.data } }));
+    }
+    contentBlocks.push({ type: 'text', text: promptMetin });
+
+    const model = (pdfler && pdfler.length) ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1200,
+        system: 'Sen Türkçe konuşan bir satın alma asistanısın. Gelen müşteri mailini analiz edip SADECE geçerli düz JSON dön. Açıklama, markdown veya ```json bloğu kullanma.',
+        messages: [{ role: 'user', content: contentBlocks }]
+      })
+    });
+    if (!response.ok) {
+      if (response.status === 401) return { _err: 'unauthorized' };
+      if (response.status === 429) return { _err: 'rate-limit' };
+      return { _err: 'http-' + response.status };
+    }
+    const data = await response.json();
+    const metin = data.content?.find(b => b.type === 'text')?.text || '';
+    const jsonMatch = metin.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    return JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    console.warn('Talep parse hatasi:', e);
+    return { _err: 'network' };
+  }
+}
+
+// ── Çekirdek tarama (Faz 1: manuel buton; Faz 2: interval, sessiz=true) ──
+async function otoTalepTara(sessiz = false) {
+  const cfg = otoTalepCfg();
+  if (!cfg.aktif) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
+  if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
+  if (!claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
+  const mailSet = musteriMailSet();
+  if (mailSet.size === 0) { if (!sessiz) showToast('⚠ Kayıtlı müşteri e-postası yok.'); return; }
+
+  const btn = document.getElementById('oto-talep-tara-btn');
+  if (btn) { btn.disabled = true; btn.dataset.eski = btn.textContent; btn.textContent = '⏳ Taranıyor...'; }
+  if (!sessiz) showToast('📥 Gelen kutusu taranıyor...');
+
+  try {
+    await msTokenYenile(aktifKullanici.msAccount).catch(() => {});
+
+    let mesajlar = [];
+    const resp = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$top=40&$orderby=receivedDateTime%20desc&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments',
+      { headers: { Authorization: 'Bearer ' + msGraphToken } });
+    if (!resp.ok) { if (!sessiz) showToast('⚠ Gelen kutusu okunamadı: ' + resp.status); return; }
+    mesajlar = (await resp.json()).value || [];
+
+    const islenen = new Set(cfg.islenenMailIdler);
+    const adaylar = mesajlar.filter(m => {
+      const from = (m.from?.emailAddress?.address || '').toLowerCase();
+      return from && mailSet.has(from) && !islenen.has(m.id);
+    }).slice(0, 10); // çağrı başına en fazla 10 mail (maliyet/limit koruması)
+
+    if (adaylar.length === 0) {
+      cfg.sonTarama = new Date().toISOString();
+      veriKaydet(); otoTalepDurumGuncelle();
+      if (!sessiz) showToast('✅ Kayıtlı müşterilerden yeni mail yok.');
+      return;
+    }
+
+    let yeniTaslak = 0;
+    for (const m of adaylar) {
+      // Tam gövde
+      let govde = m.bodyPreview || '';
+      try {
+        const r = await fetch(GRAPH_API + '/me/messages/' + m.id + '?$select=body', { headers: { Authorization: 'Bearer ' + msGraphToken } });
+        if (r.ok) { const d = await r.json(); if (d.body?.content) govde = d.body.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
+      } catch {}
+      // PDF ekleri (en fazla 3, <5MB)
+      let pdfler = [];
+      if (m.hasAttachments) {
+        try {
+          const r = await fetch(GRAPH_API + '/me/messages/' + m.id + '/attachments', { headers: { Authorization: 'Bearer ' + msGraphToken } });
+          if (r.ok) {
+            (await r.json()).value
+              .filter(e => (e.contentType || '').includes('pdf') || (e.name || '').toLowerCase().endsWith('.pdf'))
+              .slice(0, 3)
+              .forEach(e => { if (e.contentBytes && (e.size || 0) < 5 * 1024 * 1024) pdfler.push({ name: e.name, data: e.contentBytes }); });
+          }
+        } catch {}
+      }
+
+      const icerik = 'KONU: ' + (m.subject || '') + '\n\n' + govde;
+      const sonuc = await maildenTalepCikar(icerik, pdfler);
+      if (sonuc && sonuc._err) continue; // geçici hata → işaretleme, sonraki taramada tekrar denenir
+
+      cfg.islenenMailIdler.push(m.id); // başarılı analiz → tekrar işlenmesin
+      if (sonuc && sonuc.talepMi && Array.isArray(sonuc.urunler) && sonuc.urunler.some(u => u && u.aciklama)) {
+        const from = m.from?.emailAddress?.address || '';
+        cfg.taslaklar.unshift({
+          id: 'OTT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          mailId: m.id,
+          musteri: musteriBulByMail(from) || '',
+          gonderen: from,
+          gonderenAd: m.from?.emailAddress?.name || from,
+          konu: m.subject || '',
+          ozet: sonuc.ozet || '',
+          tarih: m.receivedDateTime,
+          urunler: sonuc.urunler.filter(u => u && u.aciklama).map(u => ({
+            aciklama: String(u.aciklama || ''), kod: String(u.kod || ''),
+            adet: String(u.adet || '1'), birim: String(u.birim || 'Adet'),
+          })),
+          musteriNo: sonuc.musteriNo || '',
+          not: sonuc.not || '',
+          olusturma: new Date().toISOString(),
+        });
+        yeniTaslak++;
+      }
+    }
+
+    if (cfg.islenenMailIdler.length > 500) cfg.islenenMailIdler = cfg.islenenMailIdler.slice(-500);
+    cfg.sonTarama = new Date().toISOString();
+    veriKaydet(); otoTalepDurumGuncelle();
+
+    if (!sessiz) {
+      showToast(yeniTaslak > 0 ? `✅ ${yeniTaslak} yeni taslak talep oluşturuldu.` : '✅ Tarama bitti — talep maili bulunamadı.');
+      if (yeniTaslak > 0) otoTalepModalAc();
+    }
+  } catch (e) {
+    if (!sessiz) showToast('⚠ Tarama hatası: ' + (e.message || 'bilinmeyen'));
+  } finally {
+    const b = document.getElementById('oto-talep-tara-btn');
+    if (b) { b.disabled = false; if (b.dataset.eski) b.textContent = b.dataset.eski; }
+  }
+}
+
+// ── Ayarlar ekranı toggle + durum ──
+function otoTalepToggle(cb) {
+  const cfg = otoTalepCfg();
+  cfg.aktif = !!cb.checked;
+  veriKaydet();
+  otoTalepDurumGuncelle();
+  showToast(cfg.aktif ? '📥 Gelen maillerden talep: AÇIK' : 'Gelen maillerden talep: KAPALI');
+}
+
+function otoTalepDurumGuncelle() {
+  const cfg = otoTalepCfg();
+  const cb = document.getElementById('oto-talep-aktif');
+  if (cb) cb.checked = !!cfg.aktif;
+  const panel = document.getElementById('oto-talep-panel');
+  if (panel) panel.style.display = cfg.aktif ? 'block' : 'none';
+  const durum = document.getElementById('oto-talep-durum');
+  if (durum) {
+    const son = cfg.sonTarama ? new Date(cfg.sonTarama).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    durum.textContent = `Bekleyen taslak: ${cfg.taslaklar.length} · Son tarama: ${son}`;
+  }
+  const rozet = document.getElementById('oto-talep-taslak-rozet');
+  if (rozet) rozet.textContent = cfg.taslaklar.length;
+}
+
+// ── Onay modalı ──
+function otoTalepModalAc() {
+  otoTalepTaslakRender();
+  openModal('oto-talep');
+}
+
+function otoTalepTaslakRender() {
+  const cfg = otoTalepCfg();
+  const liste = document.getElementById('oto-talep-taslak-liste');
+  if (!liste) return;
+  if (cfg.taslaklar.length === 0) {
+    liste.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);"><div style="font-size:28px;margin-bottom:10px;">📭</div><div style="font-size:14px;">Bekleyen taslak talep yok.</div><div style="font-size:12px;margin-top:6px;">"Şimdi Tara" ile kayıtlı müşterilerden gelen yeni mailleri kontrol edin.</div></div>';
+    return;
+  }
+  const musteriOpsiyon = (secili) => '<option value="">— Müşteri seç —</option>' +
+    MUSTERILER.map(m => `<option value="${m.firma.replace(/"/g, '&quot;')}"${m.firma === secili ? ' selected' : ''}>${m.firma}</option>`).join('');
+
+  liste.innerHTML = cfg.taslaklar.map(ts => {
+    const tarih = ts.tarih ? new Date(ts.tarih).toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    const eslesmeUyari = ts.musteri ? '' : '<span style="font-size:11px;color:var(--amber);margin-left:6px;">⚠ Gönderen bir müşteriyle eşleşmedi — seçin</span>';
+    const urunRows = ts.urunler.map((u, i) => `
+      <div style="display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;align-items:center;margin-bottom:5px;" data-urun-row="${i}">
+        <input type="text" id="ott-${ts.id}-${i}-aciklama" value="${(u.aciklama || '').replace(/"/g, '&quot;')}" placeholder="Ürün açıklaması" style="padding:5px 8px;font-size:12px;">
+        <input type="text" id="ott-${ts.id}-${i}-kod" value="${(u.kod || '').replace(/"/g, '&quot;')}" placeholder="Kod" style="padding:5px 8px;font-size:12px;">
+        <input type="text" id="ott-${ts.id}-${i}-adet" value="${(u.adet || '1').replace(/"/g, '&quot;')}" placeholder="Adet" style="padding:5px 8px;font-size:12px;text-align:center;">
+        <input type="text" id="ott-${ts.id}-${i}-birim" value="${(u.birim || 'Adet').replace(/"/g, '&quot;')}" placeholder="Birim" style="padding:5px 8px;font-size:12px;">
+        <button class="btn btn-sm" onclick="this.closest('[data-urun-row]').remove()" title="Satırı sil" style="padding:4px 6px;font-size:12px;color:var(--red);">✕</button>
+      </div>`).join('');
+    return `
+      <div id="ott-card-${ts.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+          <div style="min-width:0;flex:1;">
+            <div style="font-size:13px;font-weight:600;">${ts.konu || '(konu yok)'}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${ts.gonderenAd || ''} &lt;${ts.gonderen || ''}&gt; · ${tarih}</div>
+            ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${ts.ozet}</div>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--text3);">Müşteri:</span>
+          <select id="ott-musteri-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:200px;">${musteriOpsiyon(ts.musteri)}</select>
+          ${eslesmeUyari}
+          ${ts.musteriNo ? `<span style="font-size:11px;color:var(--text3);">Müşteri Talep No: <b>${ts.musteriNo}</b></span>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">
+          <div>Ürün</div><div>Kod</div><div>Adet</div><div>Birim</div><div></div>
+        </div>
+        <div id="ott-urunler-${ts.id}">${urunRows}</div>
+        <button class="btn btn-sm" onclick="otoTalepUrunEkle('${ts.id}')" style="font-size:11px;margin-top:6px;">+ Satır Ekle</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
+          <button class="btn btn-primary btn-sm" onclick="otoTalepOnayla('${ts.id}')" style="font-size:12px;">✅ Talep Oluştur</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function otoTalepUrunEkle(taslakId) {
+  const kap = document.getElementById('ott-urunler-' + taslakId);
+  if (!kap) return;
+  const i = kap.querySelectorAll('[data-urun-row]').length;
+  const div = document.createElement('div');
+  div.style.cssText = 'display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;align-items:center;margin-bottom:5px;';
+  div.setAttribute('data-urun-row', i);
+  div.innerHTML = `
+    <input type="text" id="ott-${taslakId}-${i}-aciklama" placeholder="Ürün açıklaması" style="padding:5px 8px;font-size:12px;">
+    <input type="text" id="ott-${taslakId}-${i}-kod" placeholder="Kod" style="padding:5px 8px;font-size:12px;">
+    <input type="text" id="ott-${taslakId}-${i}-adet" value="1" placeholder="Adet" style="padding:5px 8px;font-size:12px;text-align:center;">
+    <input type="text" id="ott-${taslakId}-${i}-birim" value="Adet" placeholder="Birim" style="padding:5px 8px;font-size:12px;">
+    <button class="btn btn-sm" onclick="this.closest('[data-urun-row]').remove()" title="Satırı sil" style="padding:4px 6px;font-size:12px;color:var(--red);">✕</button>`;
+  kap.appendChild(div);
+}
+
+function otoTalepSil(taslakId) {
+  const cfg = otoTalepCfg();
+  const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
+  if (ix < 0) return;
+  cfg.taslaklar.splice(ix, 1);
+  veriKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  showToast('Taslak yoksayıldı.');
+}
+
+function otoTalepOnayla(taslakId) {
+  const cfg = otoTalepCfg();
+  const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
+  if (ix < 0) return;
+  const ts = cfg.taslaklar[ix];
+
+  const musteriAd = (document.getElementById('ott-musteri-' + taslakId)?.value || '').trim();
+  if (!musteriAd) { showToast('⚠ Lütfen bir müşteri seçin.'); return; }
+
+  const kap = document.getElementById('ott-urunler-' + taslakId);
+  const urunler = [];
+  kap?.querySelectorAll('[data-urun-row]').forEach(row => {
+    const g = sel => row.querySelector(sel)?.value.trim() || '';
+    const aciklama = g('[id$="-aciklama"]');
+    if (aciklama) urunler.push({ aciklama, kod: g('[id$="-kod"]'), adet: g('[id$="-adet"]') || '1', birim: g('[id$="-birim"]') || 'Adet' });
+  });
+  if (urunler.length === 0) { showToast('⚠ En az bir ürün satırı gerekli.'); return; }
+
+  const urunOzet = urunler.length === 1
+    ? `${urunler[0].aciklama}${urunler[0].kod ? ' (' + urunler[0].kod + ')' : ''}`
+    : `${urunler[0].aciklama} +${urunler.length - 1} ürün daha`;
+  const toplamAdet = urunler.length === 1
+    ? `${urunler[0].adet} ${urunler[0].birim}`
+    : `${urunler.reduce((s, u) => s + (parseInt(u.adet) || 1), 0)} kalem toplam`;
+
+  talepSayac++;
+  const no = 'TLB-' + String(talepSayac).padStart(3, '0');
+  const stz = stzOtomatikHesapla(new Date());
+  TALEPLER.unshift({
+    no,
+    musteri: musteriAd,
+    urun: urunOzet,
+    urunler,
+    miktar: toplamAdet,
+    durum: 'Yeni',
+    tarih: new Date().toISOString().slice(0, 10),
+    termin: '',
+    sonTeklifTarih: stz.tarih,
+    sonTeklifSaat: stz.saat,
+    musteriNo: ts.musteriNo || '',
+    not: (ts.not ? ts.not + '\n' : '') + '📥 Gelen mailden otomatik oluşturuldu — "' + (ts.konu || '') + '" (' + (ts.gonderen || '') + ')',
+    oncelik: 'Normal',
+    portalTalebi: false,
+    _kaynak: 'oto-mail',
+  });
+
+  cfg.taslaklar.splice(ix, 1);
+  renderTalepler(); veriKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  showToast(`✅ #${no} talebi oluşturuldu (${musteriAd}).`);
 }
 
 async function seciliOutlookTeklifleriEkle() {
