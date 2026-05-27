@@ -5526,8 +5526,9 @@ async function rfqTekrarGonder(firma) {
         body: JSON.stringify({
           message: {
             subject,
-            body: { contentType: 'HTML', content: htmlBody },
-            toRecipients: f.mailler.map(m => ({ emailAddress: { address: m } }))
+            body: { contentType: 'HTML', content: mailGovdeLogoInline(htmlBody).content },
+            toRecipients: f.mailler.map(m => ({ emailAddress: { address: m } })),
+            attachments: mailGovdeLogoInline(htmlBody).ekler
           },
           saveToSentItems: true
         })
@@ -7007,19 +7008,21 @@ async function musteriTeklifMaili() {
   if (msGirisYapildi) {
     try {
       await msTokenYenile(aktifKullanici.msAccount);
+      const _li = mailGovdeLogoInline(htmlBody);
       const mesaj = {
         subject,
-        body: { contentType: 'HTML', content: htmlBody },
+        body: { contentType: 'HTML', content: _li.content },
         toRecipients: [{ emailAddress: { address: mail, name: adSoyad } }],
+        attachments: [..._li.ekler],
       };
       if (pdfBase64) {
         const pdfAdi = 'EMON_Teklif_' + (t.no||'').replace(/[^A-Z0-9]/gi,'_') + '.pdf';
-        mesaj.attachments = [{
+        mesaj.attachments.push({
           '@odata.type': '#microsoft.graph.fileAttachment',
           name: pdfAdi,
           contentType: 'application/pdf',
           contentBytes: pdfBase64,
-        }];
+        });
       }
       const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
         method: 'POST',
@@ -9583,8 +9586,8 @@ async function teklifHatirlatGonder(idx) {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: { subject, body: { contentType: 'HTML', content: htmlBody },
-            toRecipients: [{ emailAddress: { address: mail, name: adSoyad } }] },
+          message: { subject, body: { contentType: 'HTML', content: mailGovdeLogoInline(htmlBody).content },
+            toRecipients: [{ emailAddress: { address: mail, name: adSoyad } }], attachments: mailGovdeLogoInline(htmlBody).ekler },
           saveToSentItems: true
         })
       });
@@ -9908,6 +9911,28 @@ function mailHtmlOlustur(bodyText, urunler) {
   </body></html>`;
 }
 
+// Gmail gelen maillerde data: URI gömülü görselleri göstermez (güvenlik).
+// Graph ile gönderirken imza logosunu (data:...base64) cid: inline ekine çevirir
+// → Gmail dahil tüm istemcilerde görünür. Dönüş: { content, ekler:[graph inline attachment] }
+function mailGovdeLogoInline(htmlContent) {
+  const sonuc = { content: htmlContent, ekler: [] };
+  const logo = getEmonLogo() || '';
+  if (!logo.startsWith('data:') || !htmlContent || htmlContent.indexOf(logo) === -1) return sonuc;
+  const m = logo.match(/^data:([^;]+);base64,(.*)$/);
+  if (!m) return sonuc;
+  const cid = 'emonlogo';
+  sonuc.content = htmlContent.split(logo).join('cid:' + cid);
+  sonuc.ekler = [{
+    '@odata.type': '#microsoft.graph.fileAttachment',
+    name: (m[1] || '').includes('png') ? 'logo.png' : 'logo.jpg',
+    contentType: m[1] || 'image/jpeg',
+    contentBytes: m[2] || '',
+    contentId: cid,
+    isInline: true,
+  }];
+  return sonuc;
+}
+
 async function outlookMailGonder(toList, subject, bodyText) {
   try {
     // Token yenile
@@ -9929,6 +9954,7 @@ async function outlookMailGonder(toList, subject, bodyText) {
 
     if (!msGraphToken) return false;
 
+    const _li = mailGovdeLogoInline(mailHtmlOlustur(bodyText, window._rfqUrunler));
     const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
       method: 'POST',
       headers: {
@@ -9938,8 +9964,9 @@ async function outlookMailGonder(toList, subject, bodyText) {
       body: JSON.stringify({
         message: {
           subject: subject,
-          body: { contentType: 'HTML', content: mailHtmlOlustur(bodyText, window._rfqUrunler) },
-          toRecipients: toList.map(addr => ({ emailAddress: { address: addr } }))
+          body: { contentType: 'HTML', content: _li.content },
+          toRecipients: toList.map(addr => ({ emailAddress: { address: addr } })),
+          attachments: _li.ekler
         },
         saveToSentItems: true
       })
@@ -10753,8 +10780,9 @@ async function revizeTalebiGonderVeKaydet() {
         body: JSON.stringify({
           message: {
             subject,
-            body: { contentType: 'HTML', content: htmlBody },
-            toRecipients: [{ emailAddress: { address: mailTo } }]
+            body: { contentType: 'HTML', content: mailGovdeLogoInline(htmlBody).content },
+            toRecipients: [{ emailAddress: { address: mailTo } }],
+            attachments: mailGovdeLogoInline(htmlBody).ekler
           },
           saveToSentItems: true
         })
