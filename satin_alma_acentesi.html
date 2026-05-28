@@ -538,6 +538,7 @@
     </div>
     <div class="nav-item" onclick="goPage('teklifler',this)">
       <span class="icon">💬</span> Teklifler
+      <span class="nav-badge" id="badge-teklifler" style="display:none;">0</span>
     </div>
     <div class="nav-item" onclick="goPage('arsiv',this)">
       <span class="icon">🗂</span> Arşiv
@@ -4654,6 +4655,7 @@ function renderTalepler() {
   const badge = document.getElementById('badge-talepler');
   if (badge) badge.textContent = TALEPLER.filter(t=>t.durum==='Yeni').length||'';
   if (typeof otoTalepHatirlatGuncelle === 'function') otoTalepHatirlatGuncelle();
+  if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
 }
 
 function filterTalepler() { renderTalepler(); }
@@ -9283,80 +9285,41 @@ function renderArsiv() {
     const idx     = TALEPLER.indexOf(t);
     const kapanisTarih = t.siparisTarih || t.tarih;
     const gecen   = kapanisTarih ? sureFmt(simdi - new Date(kapanisTarih)) : '—';
-    const talepTarih = t.tarih ? tarihFmt(t.tarih) : '—';
-    const kapTarih   = kapanisTarih ? tarihFmt(kapanisTarih) : '—';
 
-    // Durum badge
+    // Durum rozet bilgisi
     let durumIkon, durumEtiket, durumRenk, durumBg, durumBrd;
     if (t.durum === 'Tamamlandı') {
       durumIkon='✅'; durumEtiket='Tamamlandı'; durumRenk='var(--green)';
       durumBg='rgba(62,207,142,0.08)'; durumBrd='rgba(62,207,142,0.25)';
     } else if (t.teklifDurumu === 'red') {
-      durumIkon='❌'; durumEtiket='Teklif Reddedildi'; durumRenk='var(--red)';
+      durumIkon='❌'; durumEtiket='Reddedildi'; durumRenk='var(--red)';
       durumBg='rgba(240,96,96,0.08)'; durumBrd='rgba(240,96,96,0.25)';
     } else {
-      durumIkon='🚫'; durumEtiket='İptal Edildi'; durumRenk='var(--text3)';
+      durumIkon='🚫'; durumEtiket='İptal'; durumRenk='var(--text3)';
       durumBg='var(--bg2)'; durumBrd='var(--border)';
     }
 
-    // Sipariş edilen ürünler
-    const siparisHtml = t.siparis?.length > 0
-      ? '<div style="margin-top:8px;padding:8px 12px;background:rgba(62,207,142,0.06);border-radius:6px;border:1px solid rgba(62,207,142,0.15);">'
-        + '<div style="font-size:10px;font-weight:600;color:var(--green);margin-bottom:4px;">SİPARİŞ VERİLDİ</div>'
-        + t.siparis.map(s=>`<div style="font-size:12px;color:var(--text2);">• ${s.aciklama} — <b>${s.adet} ${s.birim}</b></div>`).join('')
-        + '</div>'
-      : '';
-
-    // Red neden
-    const redNedenHtml = t.teklifDurumu === 'red' && t.teklifRedNeden
-      ? `<div style="font-size:12px;color:var(--red);margin-top:6px;padding:6px 10px;background:rgba(240,96,96,0.06);border-radius:6px;">Red Nedeni: ${t.teklifRedNeden}</div>`
-      : '';
-
-    // Teklif tutarı
+    // Teklif tutarı (kısa)
     const fiyatlar = t.musteriTeklifFiyatlar;
     const urunler  = t.urunler?.length > 0 ? t.urunler : [{adet:t.miktar||1}];
-    let toplamHtml = '';
+    let tutarHtml = '<span style="color:var(--text3);">—</span>';
     if (fiyatlar?.length > 0) {
       const toplam = fiyatlar.reduce((s,f,i) => s + (f.birimFiyat||0)*(parseFloat(urunler[i]?.adet||1)), 0);
       const para   = fiyatlar[0]?.para || 'TRY';
       const sym    = {TRY:'₺',USD:'$',EUR:'€'}[para]||'';
-      toplamHtml   = `<div style="font-size:13px;font-weight:700;color:var(--accent2);">${sym}${toplam.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>`;
+      tutarHtml    = `${sym}${toplam.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
     }
 
-    return `<div style="border:1px solid ${durumBrd};border-radius:var(--radius);overflow:hidden;background:${durumBg};">
-      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);">
-        <span style="font-size:18px;">${durumIkon}</span>
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span style="font-size:14px;font-weight:600;">${t.musteri}</span>
-            <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${durumBg};color:${durumRenk};border:1px solid ${durumBrd};font-weight:600;">${durumEtiket}</span>
-            <span style="font-size:11px;color:var(--text3);">#${t.no}</span>
-          </div>
-          <div style="font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.urun}</div>
-        </div>
-        <div style="text-align:right;flex-shrink:0;">
-          ${toplamHtml}
-          <div style="font-size:11px;color:var(--text3);">${gecen}</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);">
-        <div style="background:var(--bg2);padding:8px 14px;">
-          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Talep Tarihi</div>
-          <div style="font-size:12px;font-weight:500;">${talepTarih}</div>
-        </div>
-        <div style="background:var(--bg2);padding:8px 14px;">
-          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Kapanış Tarihi</div>
-          <div style="font-size:12px;font-weight:500;">${kapTarih}</div>
-        </div>
-        <div style="background:var(--bg2);padding:8px 14px;">
-          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">Miktar</div>
-          <div style="font-size:12px;font-weight:500;">${t.miktar||'—'}</div>
-        </div>
-      </div>
-      ${siparisHtml}${redNedenHtml}
-      <div style="padding:8px 16px;">
-        <button class="btn btn-sm" onclick="talepDetayAc(${idx})" style="font-size:11px;">📋 Detay</button>
-      </div>
+    // Tek satır — tıklayınca talep detayına git
+    return `<div onclick="talepDetayAc(${idx})" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);transition:background 0.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
+      <span style="font-size:16px;flex-shrink:0;">${durumIkon}</span>
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--text3);flex-shrink:0;min-width:78px;">#${t.no}</span>
+      <span style="font-weight:600;font-size:13px;flex:0 0 160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.musteri}">${t.musteri}</span>
+      <span style="flex:1;min-width:0;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.urun}">${t.urun}</span>
+      <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${durumBg};color:${durumRenk};border:1px solid ${durumBrd};font-weight:600;flex-shrink:0;">${durumEtiket}</span>
+      <span style="font-size:13px;font-weight:700;color:var(--accent2);min-width:100px;text-align:right;flex-shrink:0;">${tutarHtml}</span>
+      <span style="font-size:11px;color:var(--text3);min-width:84px;text-align:right;flex-shrink:0;">${gecen}</span>
+      <span style="color:var(--text3);font-size:18px;flex-shrink:0;">›</span>
     </div>`;
   }).join('');
 }
@@ -9364,6 +9327,23 @@ function renderArsiv() {
 // ═══════════════════════════════════════
 // MÜŞTERİ TEKLİFLERİ SAYFASI
 // ═══════════════════════════════════════
+
+// "Açık teklif": müşteriye iletilmiş ya da gönderildiği işaretli, henüz reddedilmemiş,
+// tamamlanmamış ve iptal edilmemiş talepler — Müşteri Teklifleri sayfasında görünenler.
+function acikTeklifMi(t) {
+  if (!t) return false;
+  if (t.teklifDurumu === 'red') return false;
+  if (t.durum === 'Tamamlandı' || t.durum === 'İptal') return false;
+  return t.durum === 'Müşteriye İletildi' || t.musteriTeklifGonderildi;
+}
+function acikTeklifSayisi() { return TALEPLER.filter(acikTeklifMi).length; }
+function acikTeklifBadgeGuncelle() {
+  const el = document.getElementById('badge-teklifler');
+  if (!el) return;
+  const n = acikTeklifSayisi();
+  el.textContent = n;
+  el.style.display = n > 0 ? '' : 'none';
+}
 
 function renderMusteriTeklifleri() {
   const q = (document.getElementById('tof-search')?.value || '').toLowerCase();
@@ -9374,11 +9354,7 @@ function renderMusteriTeklifleri() {
 
   // Sadece AKTİF teklifler: kargo girilerek tamamlanan (durum='Tamamlandı'),
   // müşteri tarafından reddedilen (teklifDurumu='red') ve iptal edilenler ARŞİV'de gösterilir.
-  const teklifTalepler = TALEPLER.filter(t => {
-    if (t.teklifDurumu === 'red') return false;
-    if (t.durum === 'Tamamlandı' || t.durum === 'İptal') return false;
-    return t.durum === 'Müşteriye İletildi' || t.musteriTeklifGonderildi;
-  });
+  const teklifTalepler = TALEPLER.filter(t => acikTeklifMi(t));
   const simdi = new Date();
 
   const filtrelenmis = teklifTalepler.filter(t => {
@@ -9397,6 +9373,7 @@ function renderMusteriTeklifleri() {
   setEl('tof-toplam', teklifTalepler.length);
   setEl('tof-bekliyor', bekliyor);
   setEl('tof-kabul', kabul);
+  acikTeklifBadgeGuncelle();
 
   if (filtrelenmis.length === 0) {
     liste.innerHTML = '';
