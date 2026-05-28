@@ -12013,10 +12013,11 @@ async function maildenTalepCikar(mailIcerik, pdfler) {
       '- Mailde bizim teklif numaramız geçiyorsa (örn. TLB-024 biçiminde) teklifNo alanına yaz.\n' +
       '- Müşterinin kendi talep/referans numarası varsa musteriNo alanına yaz.\n' +
       '- onay/revizyon ise: müşterinin asıl söylediğini (neyi onayladığı / hangi değişikliği istediği) not alanına kısaca yaz.\n' +
+      '- Mailde "son teklif tarihi/zamanı/saati", "tekliflerinizi … kadar gönderin", "deadline" gibi bir SON TEKLİF ZAMANI bilgisi varsa: sonTeklifTarih (YYYY-MM-DD) ve sonTeklifSaat (HH:MM) alanlarını doldur. Yoksa boş bırak. Türkçe tarih ifadelerini (30 Mayıs 2026 / 30.05.2026 / 30/05/2026) ISO formata çevir. Saat verilmemişse sonTeklifSaat\'i boş bırak.\n' +
       '- ozet: tek cümlelik kısa Türkçe özet.\n\n' +
       'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON ile cevap ver (markdown/açıklama yok):\n' +
-      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":""}';
+      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":""}';
 
     const contentBlocks = [];
     if (pdfler && pdfler.length) {
@@ -12137,6 +12138,8 @@ async function otoTalepTara(sessiz = false) {
         teklifNo: sonuc?.teklifNo || '',
         musteriNo: sonuc?.musteriNo || '',
         not: sonuc?.not || '',
+        sonTeklifTarih: (sonuc?.sonTeklifTarih || '').trim(), // mailden algılanan STZ
+        sonTeklifSaat:  (sonuc?.sonTeklifSaat  || '').trim(),
         olusturma: new Date().toISOString(),
       };
       if (tip === 'talep' && Array.isArray(sonuc.urunler) && sonuc.urunler.some(u => u && u.aciklama)) {
@@ -12320,6 +12323,12 @@ function otoTalepTaslakRender() {
           ${eslesmeUyari}
           ${ts.musteriNo ? `<span style="font-size:11px;color:var(--text3);">Müşteri Talep No: <b>${ts.musteriNo}</b></span>` : ''}
         </div>
+        <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--text3);">⏰ Son Teklif Zamanı:</span>
+          <input type="date" id="ott-stz-tarih-${ts.id}" value="${ts.sonTeklifTarih || ''}" style="font-size:12px;padding:5px 8px;">
+          <input type="time" id="ott-stz-saat-${ts.id}"  value="${ts.sonTeklifSaat  || ''}" style="font-size:12px;padding:5px 8px;">
+          <span style="font-size:11px;color:${(ts.sonTeklifTarih||ts.sonTeklifSaat) ? 'var(--green)' : 'var(--text3)'};">${(ts.sonTeklifTarih||ts.sonTeklifSaat) ? '✓ mailden algılandı' : '(boşsa otomatik atanır)'}</span>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">
           <div>Ürün</div><div>Kod</div><div>Adet</div><div>Birim</div><div></div>
         </div>
@@ -12495,6 +12504,9 @@ function otoTalepOnayla(taslakId) {
   talepSayac++;
   const no = 'TLB-' + String(talepSayac).padStart(3, '0');
   const stz = stzOtomatikHesapla(new Date());
+  // STZ inputları: önce kullanıcının girdiği (varsa mailden algılanan ön-doldurulu) değer, yoksa otomatik
+  const stzInpTarih = (document.getElementById('ott-stz-tarih-' + taslakId)?.value || '').trim();
+  const stzInpSaat  = (document.getElementById('ott-stz-saat-'  + taslakId)?.value || '').trim();
   TALEPLER.unshift({
     no,
     musteri: musteriAd,
@@ -12504,8 +12516,8 @@ function otoTalepOnayla(taslakId) {
     durum: 'Yeni',
     tarih: new Date().toISOString().slice(0, 10),
     termin: '',
-    sonTeklifTarih: stz.tarih,
-    sonTeklifSaat: stz.saat,
+    sonTeklifTarih: stzInpTarih || stz.tarih,
+    sonTeklifSaat:  stzInpSaat  || stz.saat,
     musteriNo: ts.musteriNo || '',
     not: (ts.not ? ts.not + '\n' : '') + '📥 Gelen mailden otomatik oluşturuldu — "' + (ts.konu || '') + '" (' + (ts.gonderen || '') + ')',
     oncelik: 'Normal',
