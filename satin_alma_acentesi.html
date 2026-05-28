@@ -7105,11 +7105,34 @@ async function musteriTeklifMaili() {
           contentBytes: pdfBase64,
         });
       }
-      const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: mesaj, saveToSentItems: true })
-      });
+      // mailId varsa (talep oto-mail'den geldiyse) → reply: In-Reply-To/References
+      // otomatik gelir, Gmail/Outlook'ta orijinal müşteri mailinin THREAD'inde görünür.
+      const reqHeaders = { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' };
+      let resp, yanitOlarak = false;
+      if (t.mailId) {
+        // Reply API kendi "Re: <orijinal konu>" başlığını kullanır — subject'imizi gönderme
+        const replyMesaj = { ...mesaj }; delete replyMesaj.subject;
+        resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(t.mailId) + '/reply', {
+          method: 'POST', headers: reqHeaders,
+          body: JSON.stringify({ comment: '', message: replyMesaj })
+        });
+        if (resp.ok || resp.status === 202) {
+          yanitOlarak = true;
+        } else if (resp.status === 404 || resp.status === 410) {
+          // Orijinal mail silinmiş/erişilemiyor → yeni mail olarak gönder
+          console.warn('Reply hedef mail bulunamadı, sendMail ile gönderiliyor');
+          resp = await fetch(GRAPH_API + '/me/sendMail', {
+            method: 'POST', headers: reqHeaders,
+            body: JSON.stringify({ message: mesaj, saveToSentItems: true })
+          });
+        }
+      } else {
+        resp = await fetch(GRAPH_API + '/me/sendMail', {
+          method: 'POST', headers: reqHeaders,
+          body: JSON.stringify({ message: mesaj, saveToSentItems: true })
+        });
+      }
+
       if (resp.ok || resp.status === 202) {
         TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
         TALEPLER[aktifTalepIdx].musteriTeklifGonderildi = true;
@@ -7120,7 +7143,9 @@ async function musteriTeklifMaili() {
         renderWorkflow('Müşteriye İletildi');
         document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Müşteriye İletildi');
         renderTalepler(); veriKaydet();
-        showToast('Teklif maili ' + mail + ' adresine gonderildi!');
+        showToast(yanitOlarak
+          ? '↩️ Müşterinin orijinal mailine YANIT olarak gönderildi: ' + mail
+          : 'Teklif maili ' + mail + ' adresine gönderildi!');
         return;
       }
       const err = await resp.text();
