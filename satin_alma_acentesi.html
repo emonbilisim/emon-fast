@@ -12243,7 +12243,9 @@ function otoTalepTaslakRender() {
   const basligi = (ts, tarih) => `
     <div style="font-size:13px;font-weight:600;">${ts.konu || '(konu yok)'}</div>
     <div style="font-size:11px;color:var(--text3);margin-top:2px;">${ts.gonderenAd || ''} &lt;${ts.gonderen || ''}&gt; · ${tarih}</div>
-    ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${ts.ozet}</div>` : ''}`;
+    ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${ts.ozet}</div>` : ''}
+    ${ts.mailId ? `<button class="btn btn-sm" onclick="otoTalepMailGoster('${ts.id}')" style="font-size:11px;margin-top:6px;">📧 Maili Görüntüle</button>` : ''}
+    <div id="ott-mail-${ts.id}" style="display:none;"></div>`;
 
   liste.innerHTML = cfg.taslaklar.map(ts => {
     const tip = ts.tip || 'talep';
@@ -12304,6 +12306,86 @@ function otoTalepTaslakRender() {
         </div>
       </div>`;
   }).join('');
+}
+
+// Taslak kartı için "📧 Maili Görüntüle" — Graph'tan tam gövde + ekleri çek, iframe'de göster.
+// İlk tıklamada yükler, sonraki tıklamalarda aç/kapa. mailEkIndir/pdfInlineToggle ile aynı altyapı.
+async function otoTalepMailGoster(taslakId) {
+  const cfg = otoTalepCfg();
+  const ts = cfg.taslaklar.find(x => x.id === taslakId);
+  if (!ts) return;
+  const kap = document.getElementById('ott-mail-' + taslakId);
+  if (!kap) return;
+
+  // Zaten yüklendiyse aç/kapa
+  if (kap.dataset.yuklendi === '1') {
+    kap.style.display = (kap.style.display === 'none') ? 'block' : 'none';
+    return;
+  }
+
+  kap.style.display = 'block';
+  if (!ts.mailId) { kap.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px;">Mail kimliği yok — eski kayıt.</div>'; kap.dataset.yuklendi='1'; return; }
+  if (!(aktifKullanici?.msAccount && msGraphToken)) { kap.innerHTML = '<div style="padding:10px;color:var(--red);font-size:12px;">⚠ Microsoft 365 girişi gerekli (topbar göstergesinden bağlanın).</div>'; return; }
+
+  kap.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text3);">📩 Mail içeriği yükleniyor…</div>';
+  try {
+    await msTokenYenile(aktifKullanici.msAccount).catch(()=>{});
+    const [r1, r2] = await Promise.all([
+      fetch(GRAPH_API + '/me/messages/' + ts.mailId + '?$select=id,body,subject,from,receivedDateTime,hasAttachments', { headers:{ Authorization:'Bearer '+msGraphToken }}),
+      fetch(GRAPH_API + '/me/messages/' + ts.mailId + '/attachments',                                                  { headers:{ Authorization:'Bearer '+msGraphToken }}),
+    ]);
+    if (!r1.ok) throw new Error('Mail okunamadı: ' + r1.status);
+    const m = await r1.json();
+    const ekler = r2.ok ? ((await r2.json()).value || []) : [];
+
+    const tarih = m.receivedDateTime ? new Date(m.receivedDateTime).toLocaleString('tr-TR') : '';
+    const gad   = m.from?.emailAddress?.name || '';
+    const gadr  = m.from?.emailAddress?.address || '';
+    const isHtml = m.body?.contentType === 'html';
+    let onizleme;
+    if (isHtml) {
+      // Light sanitize: script + harici stylesheet tagları temizle (iframe sandbox zaten çalıştırmaz, çift güvence)
+      const doc = new DOMParser().parseFromString(m.body.content || '', 'text/html');
+      doc.querySelectorAll('script, link[rel="stylesheet"]').forEach(n => n.remove());
+      onizleme = '<base target="_blank">' + (doc.body ? doc.body.innerHTML : (m.body.content || ''));
+    } else {
+      const esc = s => String(s||'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+      onizleme = '<pre style="white-space:pre-wrap;font-family:Calibri,Arial,sans-serif;font-size:13px;color:#212121;margin:0;padding:12px;">' + esc(m.body?.content || '') + '</pre>';
+    }
+
+    const mid = m.id || ts.mailId;
+    const ekHtml = ekler.length ? ekler.map((ek, ei) => {
+      const isPdf = (ek.contentType||'').includes('pdf') || (ek.name||'').toLowerCase().endsWith('.pdf');
+      const previewId = 'ott-pdf-' + taslakId + '-' + ei;
+      return `<div style="background:var(--bg2);border-radius:6px;padding:8px 10px;margin-top:6px;border:1px solid var(--border);">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="flex-shrink:0;">${isPdf ? '📄' : '📎'}</span>
+          <div style="flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(ek.name||'').replace(/"/g,'&quot;')}">${ek.name || ''}</div>
+          <span style="font-size:11px;color:var(--text3);flex-shrink:0;">${Math.round((ek.size||0)/1024)} KB</span>
+          <button class="btn btn-sm" onclick="mailEkIndir('${mid}','${ek.id}','${encodeURIComponent(ek.name||'')}','${ek.contentType||''}')" style="font-size:11px;flex-shrink:0;">⬇ İndir</button>
+          ${isPdf ? `<button class="btn btn-sm" onclick="pdfInlineToggle('${previewId}','${mid}','${ek.id}')" style="font-size:11px;flex-shrink:0;">👁 Görüntüle</button>` : ''}
+        </div>
+        <div id="${previewId}" style="display:none;"></div>
+      </div>`;
+    }).join('') : '<div style="font-size:11px;color:var(--text3);font-style:italic;padding:6px 0;">Ek yok.</div>';
+
+    kap.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:10px;">
+        <div style="margin-bottom:8px;">
+          <div style="font-size:13px;font-weight:600;">${m.subject || '(konu yok)'}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">${gad} &lt;${gadr}&gt; · ${tarih}</div>
+        </div>
+        <div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;margin:8px 0 4px;letter-spacing:0.06em;">📩 İçerik</div>
+        <iframe class="ott-mail-iframe" sandbox="" style="width:100%;height:360px;border:1px solid var(--border);border-radius:6px;background:#fff;"></iframe>
+        <div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;margin:10px 0 4px;letter-spacing:0.06em;">📎 Ekler (${ekler.length})</div>
+        ${ekHtml}
+      </div>`;
+    const ifr = kap.querySelector('iframe.ott-mail-iframe');
+    if (ifr) ifr.srcdoc = onizleme;
+    kap.dataset.yuklendi = '1';
+  } catch (e) {
+    kap.innerHTML = '<div style="padding:10px;color:var(--red);font-size:12px;">Hata: ' + (e.message || e) + '</div>';
+  }
 }
 
 // Onay/revizyon taslağını ilgili teklife uygula
