@@ -1155,9 +1155,8 @@
         <option value="revize">Revize İstendi</option>
         <option value="revize_gonderildi">Revize Gönderildi</option>
         <option value="kabul">Kabul Edildi</option>
-        <option value="red">Reddedildi</option>
-        <option value="Tamamlandı">Tamamlandı</option>
       </select>
+      <span style="font-size:11px;color:var(--text3);">Tamamlanan / reddedilen teklifler <b>Arşiv</b>'de görünür.</span>
       <button class="btn btn-sm" onclick="anlikGuncelle('teklifler')" style="font-size:12px;" title="Listeyi yenile + gelen mailleri tara">🔄 Güncelle</button>
     </div>
 
@@ -7164,7 +7163,7 @@ function kargoKaydetVeTamamla() {
   veriKaydet();
   renderTalepler();
   renderKargoTakip();
-  showToast('📦 Kargo bilgisi kaydedildi. Talep tamamlandı!');
+  showToast('📦 Kargo bilgisi kaydedildi. Talep tamamlandı → Arşiv\'e taşındı.');
 }
 
 function renderKargoTakip() {
@@ -9373,9 +9372,13 @@ function renderMusteriTeklifleri() {
   const empty = document.getElementById('musteri-teklifler-empty');
   if (!liste) return;
 
-  const teklifTalepler = TALEPLER.filter(t =>
-    ['Müşteriye İletildi','Tamamlandı'].includes(t.durum) || t.musteriTeklifGonderildi
-  );
+  // Sadece AKTİF teklifler: kargo girilerek tamamlanan (durum='Tamamlandı'),
+  // müşteri tarafından reddedilen (teklifDurumu='red') ve iptal edilenler ARŞİV'de gösterilir.
+  const teklifTalepler = TALEPLER.filter(t => {
+    if (t.teklifDurumu === 'red') return false;
+    if (t.durum === 'Tamamlandı' || t.durum === 'İptal') return false;
+    return t.durum === 'Müşteriye İletildi' || t.musteriTeklifGonderildi;
+  });
   const simdi = new Date();
 
   const filtrelenmis = teklifTalepler.filter(t => {
@@ -9384,9 +9387,7 @@ function renderMusteriTeklifleri() {
       (df === 'bekliyor' && (!t.teklifDurumu || t.teklifDurumu === 'bekliyor')) ||
       (df === 'revize' && t.teklifDurumu === 'revize') ||
       (df === 'revize_gonderildi' && t.teklifDurumu === 'revize_gonderildi') ||
-      (df === 'kabul' && t.teklifDurumu === 'kabul') ||
-      (df === 'red' && t.teklifDurumu === 'red') ||
-      (df === 'Tamamlandı' && t.durum === 'Tamamlandı');
+      (df === 'kabul' && t.teklifDurumu === 'kabul');
     return (q === '' || text.includes(q)) && durumEsles;
   });
 
@@ -9539,7 +9540,7 @@ function teklifReddet(idx) {
   t.teklifRedTarih = new Date().toISOString();
   veriKaydet();
   renderMusteriTeklifleri();
-  showToast('Teklif reddedildi olarak işaretlendi.');
+  showToast('❌ Teklif reddedildi olarak işaretlendi → Arşiv\'e taşındı.');
 }
 
 async function teklifHatirlatGonder(idx) {
