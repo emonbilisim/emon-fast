@@ -803,6 +803,7 @@
         <option value="durum">📊 Duruma Göre</option>
       </select>
       <button class="btn btn-sm" id="btn-auto-refresh" onclick="taleplerAutoRefreshToggle()" style="font-size:12px;color:var(--text3);">🔄 Oto-Yenile: Kapalı</button>
+      <button class="btn btn-sm" onclick="anlikGuncelle('talepler')" style="font-size:12px;" title="Listeyi yenile + gelen mailleri tara">🔄 Güncelle</button>
       <button class="btn btn-primary" onclick="talepModalAc()">+ Yeni Talep</button>
     </div>
 
@@ -1147,6 +1148,7 @@
         <option value="red">Reddedildi</option>
         <option value="Tamamlandı">Tamamlandı</option>
       </select>
+      <button class="btn btn-sm" onclick="anlikGuncelle('teklifler')" style="font-size:12px;" title="Listeyi yenile + gelen mailleri tara">🔄 Güncelle</button>
     </div>
 
     <!-- Teklif listesi -->
@@ -1675,8 +1677,18 @@
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <button class="btn btn-primary btn-sm" id="oto-talep-tara-btn" onclick="otoTalepTara(false)" style="font-size:12px;">🔄 Şimdi Tara</button>
             <button class="btn btn-sm" onclick="otoTalepModalAc()" style="font-size:12px;">📋 Taslakları Gözden Geçir (<span id="oto-talep-taslak-rozet">0</span>)</button>
+            <label style="font-size:12px;color:var(--text3);display:inline-flex;align-items:center;gap:6px;">Otomatik tarama:
+              <select id="oto-talep-aralik" onchange="otoTalepAralikGuncelle(this.value)" style="font-size:12px;padding:4px 6px;">
+                <option value="5">5 dk</option>
+                <option value="10">10 dk</option>
+                <option value="15">15 dk</option>
+                <option value="30">30 dk</option>
+                <option value="60">60 dk</option>
+              </select>
+            </label>
             <span id="oto-talep-durum" style="font-size:11px;color:var(--text3);"></span>
           </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px;">ℹ Otomatik tarama yalnızca uygulama açıkken çalışır. Talepler ve Teklifler ekranlarındaki <b>🔄 Güncelle</b> ile anlık tarama yapabilirsiniz.</div>
         </div>
       </div>
     </div>
@@ -11787,12 +11799,34 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
 
 function otoTalepCfg() {
   if (!AYARLAR.otoTalep) {
-    AYARLAR.otoTalep = { aktif: false, taslaklar: [], islenenMailIdler: [], sonTarama: null };
+    AYARLAR.otoTalep = { aktif: false, taslaklar: [], islenenMailIdler: [], sonTarama: null, aralikDk: 10 };
   }
   const c = AYARLAR.otoTalep;
   if (!Array.isArray(c.taslaklar)) c.taslaklar = [];
   if (!Array.isArray(c.islenenMailIdler)) c.islenenMailIdler = [];
+  if (!(c.aralikDk > 0)) c.aralikDk = 10; // dakika (Faz 2 periyodik tarama)
   return c;
+}
+
+// ── Faz 2: periyodik otomatik tarama ──
+// NOT: client-side; yalnızca uygulama açıkken çalışır. 7/24 için backend gerekir.
+let _otoTalepPollTimer = null;
+function otoTalepPollingKur() {
+  if (_otoTalepPollTimer) { clearInterval(_otoTalepPollTimer); _otoTalepPollTimer = null; }
+  const cfg = otoTalepCfg();
+  if (!cfg.aktif) return;
+  const ms = Math.max(1, cfg.aralikDk) * 60000;
+  _otoTalepPollTimer = setInterval(() => { otoTalepTara(true); }, ms);
+}
+
+// Ayarlardan tarama aralığını değiştir
+function otoTalepAralikGuncelle(val) {
+  const dk = parseInt(val);
+  const cfg = otoTalepCfg();
+  cfg.aralikDk = (dk > 0) ? dk : 10;
+  veriKaydet();
+  otoTalepPollingKur();
+  showToast('⏱ Tarama aralığı: ' + cfg.aralikDk + ' dakika');
 }
 
 // Kayıtlı müşterilerin tüm yetkili mail adresleri (küçük harf) → Set
@@ -11975,8 +12009,9 @@ function otoTalepToggle(cb) {
   const cfg = otoTalepCfg();
   cfg.aktif = !!cb.checked;
   veriKaydet();
+  otoTalepPollingKur(); // açıldıysa periyodik taramayı başlat, kapandıysa durdur
   otoTalepDurumGuncelle();
-  showToast(cfg.aktif ? '📥 Gelen maillerden talep: AÇIK' : 'Gelen maillerden talep: KAPALI');
+  showToast(cfg.aktif ? '📥 Gelen maillerden talep: AÇIK (her ' + cfg.aralikDk + ' dk taranır)' : 'Gelen maillerden talep: KAPALI');
 }
 
 function otoTalepDurumGuncelle() {
@@ -11985,6 +12020,8 @@ function otoTalepDurumGuncelle() {
   if (cb) cb.checked = !!cfg.aktif;
   const panel = document.getElementById('oto-talep-panel');
   if (panel) panel.style.display = cfg.aktif ? 'block' : 'none';
+  const aralikInp = document.getElementById('oto-talep-aralik');
+  if (aralikInp) aralikInp.value = cfg.aralikDk;
   const durum = document.getElementById('oto-talep-durum');
   if (durum) {
     const son = cfg.sonTarama ? new Date(cfg.sonTarama).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -11992,6 +12029,18 @@ function otoTalepDurumGuncelle() {
   }
   const rozet = document.getElementById('oto-talep-taslak-rozet');
   if (rozet) rozet.textContent = cfg.taslaklar.length;
+}
+
+// Talepler / Teklifler alanlarındaki "🔄 Güncelle" — listeyi yeniler; özellik açıksa anlık mail taraması yapar
+async function anlikGuncelle(hangi) {
+  const yenile = () => { if (hangi === 'teklifler') renderMusteriTeklifleri(); else renderTalepler(); };
+  yenile();
+  if (otoTalepCfg().aktif) {
+    await otoTalepTara(false);
+    yenile();
+  } else {
+    showToast('🔄 Liste güncellendi.');
+  }
 }
 
 // ── Onay modalı ──
@@ -13069,6 +13118,7 @@ filterMusteriler();
 filterTedarikciler();
 renderTalepler();
 taleplerAutoRefreshDurumYukle();
+otoTalepPollingKur(); // Faz 2: özellik açıksa periyodik mail taramasını başlat
 fpInit();
 setTimeout(ayarlariYukle, 100);
 setTimeout(renderPanelMetrikler, 200);
