@@ -11865,6 +11865,48 @@ function claudeKeyDurumGuncelle() {
 
 // Gelen maili Claude API ile parse et — ürün fiyatlarını otomatik çıkar
 // pdfler: [{name, data(base64)}] — varsa Claude'a document block olarak gönderilir
+// ── AI çağrı helper'ları (maliyet azaltma) ──
+// Tek HTTP çağrısı; başarıda parse edilmiş JSON, başarısızlıkta {_err:...} veya null (parse edilemedi)
+async function _claudeAiCagir(model, systemMsg, contentBlocks, maxTokens) {
+  const apiKey = claudeKeyGetir();
+  if (!apiKey) return { _err: 'no-key' };
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemMsg, messages: [{ role:'user', content: contentBlocks }] })
+    });
+    if (!r.ok) {
+      if (r.status === 401) return { _err: 'unauthorized' };
+      if (r.status === 429) return { _err: 'rate-limit' };
+      return { _err: 'http-' + r.status };
+    }
+    const d = await r.json();
+    const metin = d.content?.find(b => b.type === 'text')?.text || '';
+    const jsonMatch = metin.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    try { return JSON.parse(jsonMatch[0]); } catch { return null; }
+  } catch (e) {
+    return { _err: 'network' };
+  }
+}
+
+// Haiku-first stratejisi: önce ucuz Haiku ile dene; sadece PDF varsa ve Haiku parse edemediyse
+// (null döndü) Sonnet ile yeniden dene. Diğer hatalar (401/429/network) doğrudan döner.
+async function _claudeAiCagirAkilli(systemMsg, contentBlocks, maxTokens, pdfVar) {
+  let r = await _claudeAiCagir('claude-haiku-4-5-20251001', systemMsg, contentBlocks, maxTokens);
+  if (r === null && pdfVar) {
+    // Haiku PDF'i ayrıştıramadı — Sonnet ile retry (yalnız bu özel başarısızlıkta maliyetli model)
+    r = await _claudeAiCagir('claude-sonnet-4-6', systemMsg, contentBlocks, maxTokens);
+  }
+  return r;
+}
+
 async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
   const apiKey = claudeKeyGetir();
   if (!apiKey) {
@@ -11902,43 +11944,16 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
     }
     contentBlocks.push({ type: 'text', text: promptMetin });
 
-    // PDF varsa Sonnet (PDF desteği daha güvenilir), yoksa Haiku
-    const model = (pdfler && pdfler.length) ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1000,
-        system: 'Sen Türkçe konuşan bir satın alma asistanısın. Tedarikçi teklif mailini ve eklerini analiz edip SADECE geçerli JSON dön. Açıklama yazma, markdown kullanma, ```json bloğu kullanma — sadece düz JSON.',
-        messages: [{ role: 'user', content: contentBlocks }]
-      })
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      console.warn('AI API hata:', response.status, err);
-      if (response.status === 401) {
-        showToast('⚠ Claude API key geçersiz (401). Ayarlar\'dan kontrol edin.');
-        return { _err: 'unauthorized' };
-      }
-      if (response.status === 429) {
-        showToast('⚠ Claude API limit aşıldı (429). Bir süre bekleyip tekrar deneyin.');
-        return { _err: 'rate-limit' };
-      }
-      showToast('⚠ AI API hatası: ' + response.status);
-      return { _err: 'http-' + response.status };
+    const sistem = 'Sen Türkçe konuşan bir satın alma asistanısın. Tedarikçi teklif mailini ve eklerini analiz edip SADECE geçerli JSON dön. Açıklama yazma, markdown kullanma, ```json bloğu kullanma — sadece düz JSON.';
+    // Haiku-first, PDF'te Sonnet fallback (maliyet ↓)
+    const sonuc = await _claudeAiCagirAkilli(sistem, contentBlocks, 500, !!(pdfler && pdfler.length));
+    if (sonuc && sonuc._err) {
+      if (sonuc._err === 'unauthorized') showToast('⚠ Claude API key geçersiz (401). Ayarlar\'dan kontrol edin.');
+      else if (sonuc._err === 'rate-limit') showToast('⚠ Claude API limit aşıldı (429). Bir süre bekleyip tekrar deneyin.');
+      else if (sonuc._err === 'network') showToast('⚠ AI bağlantı hatası');
+      else if (sonuc._err.startsWith('http-')) showToast('⚠ AI API hatası: ' + sonuc._err.slice(5));
     }
-    const data = await response.json();
-    const metin = data.content?.find(b => b.type === 'text')?.text || '';
-    const jsonMatch = metin.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
+    return sonuc;
   } catch (e) {
     console.warn('Mail parse hatasi:', e);
     showToast('⚠ AI bağlantı hatası: ' + (e.message || 'bilinmeyen'));
@@ -12000,6 +12015,52 @@ function otoEslesenTalepBul(teklifNo, musteri) {
   return '';
 }
 
+// Maliyet azaltma: AI'ya gitmeden önce ucuz heuristikle açık otomatik/sistem mailleri elenir.
+// Yalnız KESİN olarak alakasız olanlar atlanır (yanlış pozitiften kaçınmak için lenient).
+function maildenAdayMi(m) {
+  const t = ((m?.subject || '') + ' ' + (m?.bodyPreview || '')).toLowerCase();
+  if (!t.trim()) return true;
+  const sistemPatternleri = [
+    'out of office', 'automatic reply', 'auto-reply', 'autoreply', 'otomatik yanıt',
+    'undeliverable', 'delivery failed', 'delivery status notification', 'mail delivery',
+    'failure notice', 'returned mail', 'mailer-daemon', 'postmaster',
+    'unsubscribe', 'abonelikten çık', 'newsletter',
+    'no-reply', 'noreply', 'do not reply', 'cevap vermeyin',
+  ];
+  if (sistemPatternleri.some(p => t.includes(p))) return false;
+  return true;
+}
+
+// Maliyet azaltma: mail gövdesinden quoted-thread, imza, disclaimer kırpılır.
+// Tipik olarak içerik ilk 1-2K karakterde; geri kalan kuyruk AI token'larını boşa harcar.
+function mailGovdeKirp(text, maxChars) {
+  if (!text) return '';
+  maxChars = maxChars || 2500;
+  let s = text;
+
+  // Quoted reply'ın başladığı en erken noktayı bul
+  const kesicilerRegex = [
+    /\bOn\s+.{1,80}\bwrote:/i,
+    /^From:\s/m, /^Kimden:\s/m, /^Gönderen:\s/m,
+    /\b-{2,}\s*(Original Message|İletilen Mesaj|Orijinal Mesaj|Forwarded message)\s*-{2,}/i,
+    /^>+\s/m,
+    /^_{6,}$/m, // imza ayracı
+  ];
+  let kesIdx = s.length;
+  for (const re of kesicilerRegex) {
+    const mm = s.match(re);
+    if (mm && mm.index != null && mm.index < kesIdx) kesIdx = mm.index;
+  }
+  s = s.slice(0, kesIdx).trim();
+
+  // Disclaimer / yasal uyarı bloğu
+  const disclaimerIdx = s.search(/(BU E-?POSTA|This e-?mail|DISCLAIMER|YASAL UYARI|Confidentiality Notice|gizlidir ve sadece|may contain confidential)/i);
+  if (disclaimerIdx > 0) s = s.slice(0, disclaimerIdx).trim();
+
+  if (s.length > maxChars) s = s.slice(0, maxChars) + ' …[kırpıldı]';
+  return s;
+}
+
 // Kayıtlı müşterilerin tüm yetkili mail adresleri (küçük harf) → Set
 function musteriMailSet() {
   const s = new Set();
@@ -12047,32 +12108,9 @@ async function maildenTalepCikar(mailIcerik, pdfler) {
     }
     contentBlocks.push({ type: 'text', text: promptMetin });
 
-    const model = (pdfler && pdfler.length) ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1200,
-        system: 'Sen Türkçe konuşan bir satın alma asistanısın. Gelen müşteri mailini analiz edip SADECE geçerli düz JSON dön. Açıklama, markdown veya ```json bloğu kullanma.',
-        messages: [{ role: 'user', content: contentBlocks }]
-      })
-    });
-    if (!response.ok) {
-      if (response.status === 401) return { _err: 'unauthorized' };
-      if (response.status === 429) return { _err: 'rate-limit' };
-      return { _err: 'http-' + response.status };
-    }
-    const data = await response.json();
-    const metin = data.content?.find(b => b.type === 'text')?.text || '';
-    const jsonMatch = metin.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
+    const sistem = 'Sen Türkçe konuşan bir satın alma asistanısın. Gelen müşteri mailini analiz edip SADECE geçerli düz JSON dön. Açıklama, markdown veya ```json bloğu kullanma.';
+    // Haiku-first, PDF'te Sonnet fallback (maliyet ↓); output küçük → max_tokens 500
+    return await _claudeAiCagirAkilli(sistem, contentBlocks, 500, !!(pdfler && pdfler.length));
   } catch (e) {
     console.warn('Talep parse hatasi:', e);
     return { _err: 'network' };
@@ -12109,7 +12147,8 @@ async function otoTalepTara(sessiz = false) {
     ]);
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
-      return from && mailSet.has(from) && !haricMailIdler.has(m.id);
+      // AI'ya gitmeden önce: kayıtlı müşteri + işlenmemiş + ucuz heuristik (oto-reply/sistem mailleri ele)
+      return from && mailSet.has(from) && !haricMailIdler.has(m.id) && maildenAdayMi(m);
     }).slice(0, 10); // çağrı başına en fazla 10 mail (maliyet/limit koruması)
 
     if (adaylar.length === 0) {
@@ -12121,12 +12160,13 @@ async function otoTalepTara(sessiz = false) {
 
     let yeniTaslak = 0;
     for (const m of adaylar) {
-      // Tam gövde
+      // Tam gövde — AI maliyeti için quoted-thread/imza/disclaimer kırpılır (maks ~2500 karakter)
       let govde = m.bodyPreview || '';
       try {
         const r = await fetch(GRAPH_API + '/me/messages/' + m.id + '?$select=body', { headers: { Authorization: 'Bearer ' + msGraphToken } });
         if (r.ok) { const d = await r.json(); if (d.body?.content) govde = d.body.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
       } catch {}
+      govde = mailGovdeKirp(govde, 2500);
       // PDF ekleri (en fazla 3, <5MB)
       let pdfler = [];
       if (m.hasAttachments) {
