@@ -800,7 +800,6 @@
         <option value="Teklifler Bekleniyor">Teklifler Bekleniyor</option>
         <option value="Teklif Hazır">Teklif Hazır</option>
         <option value="Müşteriye İletildi">Müşteriye İletildi</option>
-        <option value="Tamamlandı">Tamamlandı</option>
       </select>
       <select id="talepler-siralama" style="width:160px;" onchange="renderTalepler()">
         <option value="tarih">📅 Yeniden Eskiye</option>
@@ -4611,8 +4610,8 @@ function renderTalepler() {
   };
   const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','İptal'];
 
-  // Satıcı izolasyonu: admin tümünü, satıcı kendi + sahibi atanmamış eski kayıtları görür
-  const gorunurTalepler = TALEPLER.filter(talepGorunur);
+  // Satıcı izolasyonu + kapanmış işleri ele: Tamamlandı talepler yalnızca Arşiv'de gösterilir.
+  const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı');
   const siraliTalepler = [...gorunurTalepler].sort((a,b) => {
     if (srt === 'stz') {
       const fa = sttFarki(a), fb = sttFarki(b);
