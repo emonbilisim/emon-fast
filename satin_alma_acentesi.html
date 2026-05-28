@@ -595,6 +595,10 @@
     <button class="hamburger" onclick="sidebarAc()" aria-label="Menü">☰</button>
     <div><div class="topbar-title" id="page-title">Panel</div></div>
     <div style="flex:1"></div>
+    <div id="ms-status-indikator" onclick="msIndikatorTiklandi()" style="display:none;cursor:pointer;font-size:12px;font-weight:500;padding:4px 10px;margin-right:12px;border-radius:999px;border:1px solid;align-items:center;gap:6px;">
+      <span id="ms-status-nokta" style="font-size:9px;line-height:1;color:var(--red);">●</span>
+      <span id="ms-status-metin">365 Yok</span>
+    </div>
     <div style="font-size:12px;color:var(--text3);" id="topbar-date"></div>
   </div>
 
@@ -8320,11 +8324,14 @@ function hakkindaGoster() {
 function cikisYap() {
   if (!confirm('Çıkış yapmak istiyor musunuz?')) return;
   aktifKullanici = null;
+  msGraphToken = null;
+  if (_msTokenRefreshTimer) { clearInterval(_msTokenRefreshTimer); _msTokenRefreshTimer = null; }
   localStorage.removeItem('emonfast_aktifkullanici');
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-user').value = '';
   document.getElementById('login-pass').value = '';
   document.getElementById('login-hata').style.display = 'none';
+  msStatusGuncelle();
 }
 
 // ROL BAZLI ERİŞİM KONTROLÜ
@@ -9734,7 +9741,10 @@ function msalBaslat() {
         authority:   `https://login.microsoftonline.com/${AZURE_CONFIG.tenantId}`,
         redirectUri: window.location.origin + '/',
       },
-      cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false },
+      // localStorage: tarayıcı/sekme kapansa bile oturum saklanır → her açılışta tekrar
+      // giriş yapmaya gerek kalmaz. offline_access scope'u + MSAL refresh token cache
+      // sessiz token yenilemesini sağlar.
+      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false },
     });
   } catch (e) { console.warn('MSAL:', e.message); }
 }
@@ -9846,13 +9856,82 @@ async function _msalGirisisle(result) {
   if (bilgi) bilgi.style.display = 'block';
   rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
   ayarlariYukle();
+  msStatusGuncelle(); msTokenAutoRefreshKur();
   showToast(`Hoşgeldiniz, ${msUser.ad.split(' ')[0]}!`);
 }
 
 async function msTokenYenile(account) {
-  if (!msalInstance) return;
-  try { const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account }); msGraphToken = r.accessToken; }
-  catch { msGraphToken = null; }
+  if (!msalInstance || !account) return;
+  // İlk çağrıda MSAL henüz initialize edilmemişse hazırla (açılışta sessiz yenileme için)
+  if (!msalInitialized) {
+    try { await msalInstance.initialize(); msalInitialized = true; } catch {}
+    try { await msalInstance.handleRedirectPromise(); } catch {}
+  }
+  try {
+    const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+    msGraphToken = r.accessToken;
+  } catch (e) {
+    // Yalnızca etkileşim gerekiyorsa token'ı sıfırla — kullanıcı yeniden giriş yapmalı.
+    // Ağ/geçici hatalarda mevcut token korunur (token henüz expire olmamış olabilir).
+    const ad  = e?.name || '';
+    const mes = String(e?.errorCode || e?.message || '').toLowerCase();
+    if (ad === 'InteractionRequiredAuthError' || /interaction_required|login_required|consent_required|invalid_grant/.test(mes)) {
+      msGraphToken = null;
+    }
+  }
+  msStatusGuncelle();
+}
+
+// Topbar + Ayarlar kartındaki MS 365 bağlantı göstergelerini güncelle
+function msStatusGuncelle() {
+  const bagli = !!(aktifKullanici?.msAccount && msGraphToken);
+  const ad    = aktifKullanici?.email || aktifKullanici?.ad || '';
+  // Topbar göstergesi (global — her sayfada görünür)
+  const tb  = document.getElementById('ms-status-indikator');
+  const tbm = document.getElementById('ms-status-metin');
+  const tbd = document.getElementById('ms-status-nokta');
+  if (tb && tbm) {
+    tb.style.display = aktifKullanici ? 'inline-flex' : 'none';
+    tb.title = bagli
+      ? 'Microsoft 365 bağlı: ' + ad
+      : (aktifKullanici?.msAccount ? 'Oturum yenileniyor — tıklayarak yeniden bağlanın' : 'Microsoft 365 bağlı değil — bağlanmak için tıklayın');
+    tb.style.background   = bagli ? 'rgba(62,207,142,0.10)' : 'rgba(240,96,96,0.10)';
+    tb.style.borderColor  = bagli ? 'rgba(62,207,142,0.35)' : 'rgba(240,96,96,0.35)';
+    tbm.textContent = bagli ? '365 Bağlı' : '365 Yok';
+    tbm.style.color = bagli ? 'var(--green)' : 'var(--red)';
+    if (tbd) tbd.style.color = bagli ? 'var(--green)' : 'var(--red)';
+  }
+  // Ayarlar > Entegrasyonlar kartındaki rozet (mevcut)
+  const msBadge = document.getElementById('ms-baglanti-badge');
+  const msDurum = document.getElementById('ms-baglanti-durum');
+  if (msBadge) { msBadge.textContent = bagli ? 'Bağlı' : 'Bağlı Değil'; msBadge.className = 'badge ' + (bagli ? 'badge-green' : 'badge-gray'); }
+  if (msDurum) msDurum.textContent = bagli ? ad : (aktifKullanici?.msAccount ? 'Yenileniyor…' : 'Giriş yapılmadı');
+}
+
+function msIndikatorTiklandi() {
+  if (!aktifKullanici?.msAccount || !msGraphToken) {
+    microsoftIleGiris();
+  } else {
+    showToast('✓ Microsoft 365 bağlı: ' + (aktifKullanici.email || aktifKullanici.ad));
+  }
+}
+
+// Periyodik sessiz yenileme — token ~60 dk'da expire olur; 30 dk'da bir taze tut
+let _msTokenRefreshTimer = null;
+function msTokenAutoRefreshKur() {
+  if (_msTokenRefreshTimer) clearInterval(_msTokenRefreshTimer);
+  _msTokenRefreshTimer = setInterval(() => {
+    if (aktifKullanici?.msAccount) msTokenYenile(aktifKullanici.msAccount);
+  }, 30 * 60 * 1000);
+}
+
+// Açılışta saklı MS hesabıyla sessiz token al + periyodik yenileyiciyi başlat
+async function msOturumGeriYukle() {
+  msStatusGuncelle();
+  if (!aktifKullanici?.msAccount) return;
+  try { await msalHazirla(); } catch {}
+  await msTokenYenile(aktifKullanici.msAccount);
+  msTokenAutoRefreshKur();
 }
 
 async function graphGet(endpoint) {
@@ -10219,16 +10298,8 @@ function ayarlariYukle() {
   setVal('imza-logo-url', i.logoUrl);
   imzaLogoOnizlemeGuncelle();
   imzaOnizlemeGuncelle();
-  // MS bağlantı durumu
-  const msBadge = document.getElementById('ms-baglanti-badge');
-  const msDurum = document.getElementById('ms-baglanti-durum');
-  if (aktifKullanici?.msAccount) {
-    if(msBadge) { msBadge.textContent='Bağlı'; msBadge.className='badge badge-green'; }
-    if(msDurum) msDurum.textContent = aktifKullanici.email;
-  } else {
-    if(msBadge) { msBadge.textContent='Bağlı Değil'; msBadge.className='badge badge-gray'; }
-    if(msDurum) msDurum.textContent = 'Giriş yapılmadı';
-  }
+  // MS 365 bağlantı durumu — tek kaynak: msStatusGuncelle hem topbar hem bu kartı günceller
+  if (typeof msStatusGuncelle === 'function') msStatusGuncelle();
 }
 
 function imzaMetni() {
@@ -13282,6 +13353,7 @@ msalBaslat();
         aktifOturumGoster();
         stzUyariBaslat();
         onayBadgeGuncelle();
+        msOturumGeriYukle(); // MS 365 oturumunu sessiz geri yükle + periyodik yenileme
         // Sunucudan taze veri çek — yeni onay istekleri ve diğer
         // cihazlardan gelen değişiklikler için
         if (apiTokenAl()) {
