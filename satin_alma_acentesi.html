@@ -534,6 +534,7 @@
     <div class="nav-item" onclick="goPage('talepler',this)">
       <span class="icon">📋</span> Talepler
       <span class="nav-badge" id="badge-talepler">3</span>
+      <span class="nav-badge" id="badge-oto-taslak" title="Gelen maillerden bekleyen taslak" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
     </div>
     <div class="nav-item" onclick="goPage('teklifler',this)">
       <span class="icon">💬</span> Teklifler
@@ -793,7 +794,7 @@
         <option value="RFQ Gönderildi">RFQ Gönderildi</option>
         <option value="Teklifler Bekleniyor">Teklifler Bekleniyor</option>
         <option value="Teklif Hazır">Teklif Hazır</option>
-        <option value="Onay Bekliyor">Onay Bekliyor</option>
+        <option value="Müşteriye İletildi">Müşteriye İletildi</option>
         <option value="Tamamlandı">Tamamlandı</option>
       </select>
       <select id="talepler-siralama" style="width:160px;" onchange="renderTalepler()">
@@ -805,6 +806,11 @@
       <button class="btn btn-sm" id="btn-auto-refresh" onclick="taleplerAutoRefreshToggle()" style="font-size:12px;color:var(--text3);">🔄 Oto-Yenile: Kapalı</button>
       <button class="btn btn-sm" onclick="anlikGuncelle('talepler')" style="font-size:12px;" title="Listeyi yenile + gelen mailleri tara">🔄 Güncelle</button>
       <button class="btn btn-primary" onclick="talepModalAc()">+ Yeni Talep</button>
+    </div>
+
+    <div id="oto-talep-hatirlatma" onclick="otoTalepModalAc()" style="display:none;cursor:pointer;margin-bottom:14px;padding:12px 16px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.35);border-left:4px solid var(--amber);border-radius:var(--radius);align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div style="font-size:13px;color:var(--text);"><span style="font-size:16px;">📥</span> <span id="oto-talep-hatirlatma-metin" style="font-weight:500;"></span></div>
+      <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();otoTalepModalAc()" style="font-size:12px;flex-shrink:0;">Gözden Geçir →</button>
     </div>
 
     <div class="card" id="talepler-card" style="padding:0;overflow:hidden;">
@@ -4279,7 +4285,7 @@ function crmRender() {
   }
   // Özet
   const talepler   = TALEPLER.filter(t => t.musteri === m.firma);
-  const teklifVer  = talepler.filter(t => ['Teklif Hazır','Onay Bekliyor','Sipariş Verildi','Tamamlandı'].includes(t.durum));
+  const teklifVer  = talepler.filter(t => ['Teklif Hazır','Müşteriye İletildi','Sipariş Verildi','Tamamlandı'].includes(t.durum));
   const tamamlanan = talepler.filter(t => t.durum === 'Tamamlandı');
   const akt = crmMusteriAktiviteleri(m.firma);
   const satir = (l,v) => `<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:var(--text3);">${l}</span><span style="font-weight:600;">${v}</span></div>`;
@@ -4456,13 +4462,18 @@ let TALEPLER = [
   { no:'TLB-023', musteri:'BuildCo', urun:'A4 Tech A121 Mouse', miktar:'10 adet', durum:'RFQ Gönderildi', tarih:'2026-04-28', termin:'2026-05-05', not:'' },
   { no:'TLB-022', musteri:'IndTech', urun:'Emniyet Valfi × 50', miktar:'50 adet', durum:'Yeni', tarih:'2026-04-27', termin:'2026-05-10', not:'' },
   { no:'TLB-021', musteri:'TechCo', urun:'Logitech Klavye + Mouse Set', miktar:'5 set', durum:'Teklif Hazır', tarih:'2026-04-26', termin:'2026-05-08', not:'' },
-  { no:'TLB-020', musteri:'Sigma AŞ', urun:'Zebra Barkod Okuyucu', miktar:'3 adet', durum:'Onay Bekliyor', tarih:'2026-04-25', termin:'2026-05-12', not:'' },
+  { no:'TLB-020', musteri:'Sigma AŞ', urun:'Zebra Barkod Okuyucu', miktar:'3 adet', durum:'Müşteriye İletildi', tarih:'2026-04-25', termin:'2026-05-12', not:'' },
   { no:'TLB-019', musteri:'Mega Corp', urun:'Lenovo ThinkPad E14', miktar:'5 adet', durum:'Teklif Hazır', tarih:'2026-04-24', termin:'2026-05-15', not:'' },
 ];
 let talepSayac = 24;
 
+// Eski kayıtlardaki 'Onay Bekliyor' statüsünü 'Müşteriye İletildi' olarak güncelle
+function taleplerDurumMigrate() {
+  TALEPLER.forEach(t => { if (t.durum === 'Onay Bekliyor') t.durum = 'Müşteriye İletildi'; });
+}
+
 function durumTalepBadge(d) {
-  const m = { 'Yeni':'badge-red','RFQ Gönderildi':'badge-amber','Teklifler Bekleniyor':'badge-blue','Teklif Hazır':'badge-green','Onay Bekliyor':'badge-purple','Sipariş Verildi':'badge-blue','Tamamlandı':'badge-gray' };
+  const m = { 'Yeni':'badge-red','RFQ Gönderildi':'badge-amber','Teklifler Bekleniyor':'badge-blue','Teklif Hazır':'badge-green','Müşteriye İletildi':'badge-purple','Sipariş Verildi':'badge-blue','Tamamlandı':'badge-gray' };
   return `<span class="badge ${m[d]||'badge-gray'}">${d}</span>`;
 }
 function talepTarihFmt(iso) {
@@ -4558,7 +4569,7 @@ function renderTalepler() {
     if (!t.sonTeklifTarih) return Infinity;
     return new Date(t.sonTeklifTarih+'T'+(t.sonTeklifSaat||'17:00')) - new Date();
   };
-  const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Onay Bekliyor','Tamamlandı','İptal'];
+  const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','İptal'];
 
   const siraliTalepler = [...TALEPLER].sort((a,b) => {
     if (srt === 'stz') {
@@ -4639,12 +4650,13 @@ function renderTalepler() {
   if (mEl) mEl.textContent = acik;
   const badge = document.getElementById('badge-talepler');
   if (badge) badge.textContent = TALEPLER.filter(t=>t.durum==='Yeni').length||'';
+  if (typeof otoTalepHatirlatGuncelle === 'function') otoTalepHatirlatGuncelle();
 }
 
 function filterTalepler() { renderTalepler(); }
 
 function talepDurumDegistir(idx) {
-  const durumlar = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Onay Bekliyor','Tamamlandı'];
+  const durumlar = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı'];
   const mevcut = TALEPLER[idx].durum;
   const durumMetin = durumlar.map((d,i) => (i+1)+'. '+d+(d===mevcut?' ✓':'')).join('\n');
   const yeni = prompt('Durum değiştir:\n' + durumMetin + '\nNumara girin:', '');
@@ -4813,7 +4825,7 @@ function talepDetayAc(idx) {
 function renderWorkflow(mevcutDurum) {
   const durumSira = {
     'Yeni':0,'RFQ Gönderildi':1,'Teklifler Bekleniyor':2,
-    'Teklif Hazır':3,'Onay Bekliyor':4,'Sipariş Verildi':5,'Tamamlandı':6
+    'Teklif Hazır':3,'Müşteriye İletildi':4,'Sipariş Verildi':5,'Tamamlandı':6
   };
   const simdiki = durumSira[mevcutDurum] ?? 0;
   const html = WORKFLOW_ADIMLARI.map((a,i) => {
@@ -7056,14 +7068,14 @@ async function musteriTeklifMaili() {
         body: JSON.stringify({ message: mesaj, saveToSentItems: true })
       });
       if (resp.ok || resp.status === 202) {
-        TALEPLER[aktifTalepIdx].durum = 'Onay Bekliyor';
+        TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
         TALEPLER[aktifTalepIdx].musteriTeklifGonderildi = true;
         TALEPLER[aktifTalepIdx].musteriTeklifTarih = new Date().toISOString();
         TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({ birimFiyat: u.birimFiyat, para: u.para }));
         TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
         TALEPLER[aktifTalepIdx].teklifGonderimSayisi = (TALEPLER[aktifTalepIdx].teklifGonderimSayisi || 0) + 1;
-        renderWorkflow('Onay Bekliyor');
-        document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Onay Bekliyor');
+        renderWorkflow('Müşteriye İletildi');
+        document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Müşteriye İletildi');
         renderTalepler(); veriKaydet();
         showToast('Teklif maili ' + mail + ' adresine gonderildi!');
         return;
@@ -7081,14 +7093,14 @@ async function musteriTeklifMaili() {
     + '\nTum Turkiye\'ye lojistik bedel teklife dahildir.'
     + '\n\nGecerlilik: '+gecerlilik+'\n\nSaygilarimizla,\n'+(iz.ad||'')+'\n'+(iz.firma||AYARLAR.sirket||'');
   window.open('mailto:'+mail+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(bodyText));
-  TALEPLER[aktifTalepIdx].durum = 'Onay Bekliyor';
+  TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
   TALEPLER[aktifTalepIdx].musteriTeklifGonderildi = true;
   TALEPLER[aktifTalepIdx].musteriTeklifTarih = new Date().toISOString();
   TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({ birimFiyat: u.birimFiyat, para: u.para }));
   TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
   TALEPLER[aktifTalepIdx].teklifGonderimSayisi = (TALEPLER[aktifTalepIdx].teklifGonderimSayisi || 0) + 1;
-  renderWorkflow('Onay Bekliyor');
-  document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Onay Bekliyor');
+  renderWorkflow('Müşteriye İletildi');
+  document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Müşteriye İletildi');
   renderTalepler(); veriKaydet();
   showToast('Teklif maili hazirlandi!');
 }
@@ -9355,7 +9367,7 @@ function renderMusteriTeklifleri() {
   if (!liste) return;
 
   const teklifTalepler = TALEPLER.filter(t =>
-    ['Onay Bekliyor','Tamamlandı'].includes(t.durum) || t.musteriTeklifGonderildi
+    ['Müşteriye İletildi','Tamamlandı'].includes(t.durum) || t.musteriTeklifGonderildi
   );
   const simdi = new Date();
 
@@ -11829,6 +11841,21 @@ function otoTalepAralikGuncelle(val) {
   showToast('⏱ Tarama aralığı: ' + cfg.aralikDk + ' dakika');
 }
 
+// Onay/revizyon maili için ilgili gönderilmiş teklifi (TALEP no) bul:
+// önce mailde geçen teklif no'su, yoksa müşteriye ait en güncel gönderilmiş teklif
+function otoEslesenTalepBul(teklifNo, musteri) {
+  if (teklifNo) {
+    const norm = String(teklifNo).toUpperCase();
+    const t = TALEPLER.find(x => x.no && norm.includes(x.no.toUpperCase()));
+    if (t) return t.no;
+  }
+  if (musteri) {
+    const aday = TALEPLER.find(x => x.musteri === musteri && (x.musteriTeklifGonderildi || x.durum === 'Müşteriye İletildi'));
+    if (aday) return aday.no;
+  }
+  return '';
+}
+
 // Kayıtlı müşterilerin tüm yetkili mail adresleri (küçük harf) → Set
 function musteriMailSet() {
   const s = new Set();
@@ -11853,17 +11880,21 @@ async function maildenTalepCikar(mailIcerik, pdfler) {
   if (!apiKey) return { _err: 'no-key' };
   try {
     const promptMetin =
-      'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele.\n' +
-      'Görevin: bu bir SATIN ALMA / FİYAT TEKLİFİ TALEBİ mi belirlemek ve öyleyse talep edilen ürünleri çıkarmak.\n\n' +
+      'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele ve TÜRÜNÜ (tip) belirle.\n\n' +
+      'TÜRLER:\n' +
+      '- "talep": Müşteri yeni ürün/hizmet için fiyat teklifi istiyor.\n' +
+      '- "onay": Müşteri bizim gönderdiğimiz teklifi KABUL/ONAY ediyor, sipariş veriyor.\n' +
+      '- "revizyon": Müşteri gönderdiğimiz teklifte DEĞİŞİKLİK/revizyon istiyor (fiyat, adet, koşul, indirim vb.).\n' +
+      '- "diger": Teşekkür, bilgi, fatura, otomatik yanıt, pazarlama, alakasız mail → işlenmeyecek.\n\n' +
       'KURALLAR:\n' +
-      '- Sadece ürün/hizmet fiyatı veya teklif isteyen mailler "talep"tir. Teşekkür, bilgi, fatura, otomatik yanıt, satış/pazarlama maili, bizim gönderdiğimiz teklife cevap → talep DEĞİL (talepMi:false).\n' +
-      '- Ürünleri olabildiğince ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet").\n' +
+      '- tip "talep" ise ürünleri ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet"). Diğer tiplerde urunler boş dizi.\n' +
+      '- Mailde bizim teklif numaramız geçiyorsa (örn. TLB-024 biçiminde) teklifNo alanına yaz.\n' +
       '- Müşterinin kendi talep/referans numarası varsa musteriNo alanına yaz.\n' +
-      '- ozet: tek cümlelik kısa Türkçe özet.\n' +
-      '- talepMi:false ise urunler boş dizi olsun.\n\n' +
+      '- onay/revizyon ise: müşterinin asıl söylediğini (neyi onayladığı / hangi değişikliği istediği) not alanına kısaca yaz.\n' +
+      '- ozet: tek cümlelik kısa Türkçe özet.\n\n' +
       'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON ile cevap ver (markdown/açıklama yok):\n' +
-      '{"talepMi":true,"ozet":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":""}';
+      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":""}';
 
     const contentBlocks = [];
     if (pdfler && pdfler.length) {
@@ -11925,10 +11956,15 @@ async function otoTalepTara(sessiz = false) {
     if (!resp.ok) { if (!sessiz) showToast('⚠ Gelen kutusu okunamadı: ' + resp.status); return; }
     mesajlar = (await resp.json()).value || [];
 
-    const islenen = new Set(cfg.islenenMailIdler);
+    // Hariç tut: daha önce analiz edilen + bekleyen taslağı olan + zaten talebe dönüşmüş mailler
+    const haricMailIdler = new Set([
+      ...cfg.islenenMailIdler,
+      ...cfg.taslaklar.map(x => x.mailId).filter(Boolean),
+      ...TALEPLER.map(x => x.mailId).filter(Boolean),
+    ]);
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
-      return from && mailSet.has(from) && !islenen.has(m.id);
+      return from && mailSet.has(from) && !haricMailIdler.has(m.id);
     }).slice(0, 10); // çağrı başına en fazla 10 mail (maliyet/limit koruması)
 
     if (adaylar.length === 0) {
@@ -11965,25 +12001,32 @@ async function otoTalepTara(sessiz = false) {
       if (sonuc && sonuc._err) continue; // geçici hata → işaretleme, sonraki taramada tekrar denenir
 
       cfg.islenenMailIdler.push(m.id); // başarılı analiz → tekrar işlenmesin
-      if (sonuc && sonuc.talepMi && Array.isArray(sonuc.urunler) && sonuc.urunler.some(u => u && u.aciklama)) {
-        const from = m.from?.emailAddress?.address || '';
-        cfg.taslaklar.unshift({
-          id: 'OTT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-          mailId: m.id,
-          musteri: musteriBulByMail(from) || '',
-          gonderen: from,
-          gonderenAd: m.from?.emailAddress?.name || from,
-          konu: m.subject || '',
-          ozet: sonuc.ozet || '',
-          tarih: m.receivedDateTime,
+      const tip = sonuc && sonuc.tip;
+      const from = m.from?.emailAddress?.address || '';
+      const ortak = {
+        id: 'OTT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        mailId: m.id,
+        musteri: musteriBulByMail(from) || '',
+        gonderen: from,
+        gonderenAd: m.from?.emailAddress?.name || from,
+        konu: m.subject || '',
+        ozet: sonuc?.ozet || '',
+        tarih: m.receivedDateTime,
+        teklifNo: sonuc?.teklifNo || '',
+        musteriNo: sonuc?.musteriNo || '',
+        not: sonuc?.not || '',
+        olusturma: new Date().toISOString(),
+      };
+      if (tip === 'talep' && Array.isArray(sonuc.urunler) && sonuc.urunler.some(u => u && u.aciklama)) {
+        cfg.taslaklar.unshift({ ...ortak, tip: 'talep',
           urunler: sonuc.urunler.filter(u => u && u.aciklama).map(u => ({
             aciklama: String(u.aciklama || ''), kod: String(u.kod || ''),
             adet: String(u.adet || '1'), birim: String(u.birim || 'Adet'),
           })),
-          musteriNo: sonuc.musteriNo || '',
-          not: sonuc.not || '',
-          olusturma: new Date().toISOString(),
         });
+        yeniTaslak++;
+      } else if (tip === 'onay' || tip === 'revizyon') {
+        cfg.taslaklar.unshift({ ...ortak, tip, eslesenTalepNo: otoEslesenTalepBul(ortak.teklifNo, ortak.musteri) });
         yeniTaslak++;
       }
     }
@@ -12029,6 +12072,40 @@ function otoTalepDurumGuncelle() {
   }
   const rozet = document.getElementById('oto-talep-taslak-rozet');
   if (rozet) rozet.textContent = cfg.taslaklar.length;
+  otoTalepHatirlatGuncelle();
+}
+
+// Bekleyen taslakları sol menü rozetinde ve Talepler sayfası bandında hatırlat
+function otoTalepHatirlatGuncelle() {
+  const cfg = otoTalepCfg();
+  const ts = cfg.taslaklar;
+  const toplam = ts.length;
+  const talepN  = ts.filter(x => (x.tip || 'talep') === 'talep').length;
+  const onayN   = ts.filter(x => x.tip === 'onay').length;
+  const revizeN = ts.filter(x => x.tip === 'revizyon').length;
+
+  // Sol menü rozeti
+  const navRozet = document.getElementById('badge-oto-taslak');
+  if (navRozet) {
+    navRozet.textContent = toplam;
+    navRozet.style.display = toplam > 0 ? '' : 'none';
+  }
+
+  // Talepler sayfası hatırlatma bandı
+  const band = document.getElementById('oto-talep-hatirlatma');
+  const metin = document.getElementById('oto-talep-hatirlatma-metin');
+  if (band && metin) {
+    if (toplam > 0) {
+      const parcalar = [];
+      if (talepN)  parcalar.push(talepN + ' yeni talep');
+      if (onayN)   parcalar.push(onayN + ' teklif onayı');
+      if (revizeN) parcalar.push(revizeN + ' revizyon');
+      metin.textContent = `Gelen maillerden ${toplam} öğe işlem bekliyor (${parcalar.join(' · ')}).`;
+      band.style.display = 'flex';
+    } else {
+      band.style.display = 'none';
+    }
+  }
 }
 
 // Talepler / Teklifler alanlarındaki "🔄 Güncelle" — listeyi yeniler; özellik açıksa anlık mail taraması yapar
@@ -12054,33 +12131,66 @@ function otoTalepTaslakRender() {
   const liste = document.getElementById('oto-talep-taslak-liste');
   if (!liste) return;
   if (cfg.taslaklar.length === 0) {
-    liste.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);"><div style="font-size:28px;margin-bottom:10px;">📭</div><div style="font-size:14px;">Bekleyen taslak talep yok.</div><div style="font-size:12px;margin-top:6px;">"Şimdi Tara" ile kayıtlı müşterilerden gelen yeni mailleri kontrol edin.</div></div>';
+    liste.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);"><div style="font-size:28px;margin-bottom:10px;">📭</div><div style="font-size:14px;">Bekleyen taslak yok.</div><div style="font-size:12px;margin-top:6px;">"Şimdi Tara" ile kayıtlı müşterilerden gelen yeni mailleri kontrol edin.</div></div>';
     return;
   }
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
   const musteriOpsiyon = (secili) => '<option value="">— Müşteri seç —</option>' +
-    MUSTERILER.map(m => `<option value="${m.firma.replace(/"/g, '&quot;')}"${m.firma === secili ? ' selected' : ''}>${m.firma}</option>`).join('');
+    MUSTERILER.map(m => `<option value="${esc(m.firma)}"${m.firma === secili ? ' selected' : ''}>${m.firma}</option>`).join('');
+  const teklifOpsiyon = (secili, musteri) => {
+    const aday = TALEPLER.filter(x => x.musteriTeklifGonderildi || x.durum === 'Müşteriye İletildi');
+    const sirali = aday.filter(x => x.musteri === musteri).concat(aday.filter(x => x.musteri !== musteri));
+    return '<option value="">— İlgili teklif seç —</option>' +
+      sirali.map(x => `<option value="${esc(x.no)}"${x.no === secili ? ' selected' : ''}>${x.no} · ${x.musteri}</option>`).join('');
+  };
+  const basligi = (ts, tarih) => `
+    <div style="font-size:13px;font-weight:600;">${ts.konu || '(konu yok)'}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:2px;">${ts.gonderenAd || ''} &lt;${ts.gonderen || ''}&gt; · ${tarih}</div>
+    ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${ts.ozet}</div>` : ''}`;
 
   liste.innerHTML = cfg.taslaklar.map(ts => {
+    const tip = ts.tip || 'talep';
     const tarih = ts.tarih ? new Date(ts.tarih).toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+
+    // ── Onay / Revizyon kartı ──
+    if (tip === 'onay' || tip === 'revizyon') {
+      const revize = tip === 'revizyon';
+      const renk   = revize ? 'var(--accent2)' : 'var(--green)';
+      const etiket = revize ? '✏️ Müşteri REVİZYON istiyor' : '✅ Müşteri teklifi ONAYLADI';
+      return `
+        <div id="ott-card-${ts.id}" style="background:var(--bg3);border:1px solid ${renk};border-radius:var(--radius);padding:14px;margin-bottom:12px;">
+          <div style="font-size:12px;font-weight:700;color:${renk};margin-bottom:8px;">${etiket}</div>
+          ${basligi(ts, tarih)}
+          ${ts.not ? `<div style="font-size:12px;color:var(--text2);background:var(--bg2);border-radius:var(--radius);padding:8px 10px;margin:8px 0;">📝 ${ts.not}</div>` : ''}
+          <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap;">
+            <span style="font-size:12px;color:var(--text3);">İlgili teklif:</span>
+            <select id="ott-teklif-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:220px;">${teklifOpsiyon(ts.eslesenTalepNo, ts.musteri)}</select>
+            ${ts.eslesenTalepNo ? '' : '<span style="font-size:11px;color:var(--amber);">⚠ Eşleşen teklif bulunamadı — seçin</span>'}
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
+            ${revize
+              ? `<button class="btn btn-primary btn-sm" onclick="otoRevizeUygula('${ts.id}')" style="font-size:12px;">✏️ Revize İstendi İşaretle</button>`
+              : `<button class="btn btn-primary btn-sm" onclick="otoOnayUygula('${ts.id}')" style="font-size:12px;">✅ Kabul İşaretle</button>`}
+          </div>
+        </div>`;
+    }
+
+    // ── Yeni talep kartı (düzenlenebilir) ──
     const eslesmeUyari = ts.musteri ? '' : '<span style="font-size:11px;color:var(--amber);margin-left:6px;">⚠ Gönderen bir müşteriyle eşleşmedi — seçin</span>';
-    const urunRows = ts.urunler.map((u, i) => `
+    const urunRows = (ts.urunler || []).map((u, i) => `
       <div style="display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;align-items:center;margin-bottom:5px;" data-urun-row="${i}">
-        <input type="text" id="ott-${ts.id}-${i}-aciklama" value="${(u.aciklama || '').replace(/"/g, '&quot;')}" placeholder="Ürün açıklaması" style="padding:5px 8px;font-size:12px;">
-        <input type="text" id="ott-${ts.id}-${i}-kod" value="${(u.kod || '').replace(/"/g, '&quot;')}" placeholder="Kod" style="padding:5px 8px;font-size:12px;">
-        <input type="text" id="ott-${ts.id}-${i}-adet" value="${(u.adet || '1').replace(/"/g, '&quot;')}" placeholder="Adet" style="padding:5px 8px;font-size:12px;text-align:center;">
-        <input type="text" id="ott-${ts.id}-${i}-birim" value="${(u.birim || 'Adet').replace(/"/g, '&quot;')}" placeholder="Birim" style="padding:5px 8px;font-size:12px;">
+        <input type="text" id="ott-${ts.id}-${i}-aciklama" value="${esc(u.aciklama)}" placeholder="Ürün açıklaması" style="padding:5px 8px;font-size:12px;">
+        <input type="text" id="ott-${ts.id}-${i}-kod" value="${esc(u.kod)}" placeholder="Kod" style="padding:5px 8px;font-size:12px;">
+        <input type="text" id="ott-${ts.id}-${i}-adet" value="${esc(u.adet || '1')}" placeholder="Adet" style="padding:5px 8px;font-size:12px;text-align:center;">
+        <input type="text" id="ott-${ts.id}-${i}-birim" value="${esc(u.birim || 'Adet')}" placeholder="Birim" style="padding:5px 8px;font-size:12px;">
         <button class="btn btn-sm" onclick="this.closest('[data-urun-row]').remove()" title="Satırı sil" style="padding:4px 6px;font-size:12px;color:var(--red);">✕</button>
       </div>`).join('');
     return `
       <div id="ott-card-${ts.id}" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-          <div style="min-width:0;flex:1;">
-            <div style="font-size:13px;font-weight:600;">${ts.konu || '(konu yok)'}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${ts.gonderenAd || ''} &lt;${ts.gonderen || ''}&gt; · ${tarih}</div>
-            ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${ts.ozet}</div>` : ''}
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="font-size:12px;font-weight:700;color:var(--accent2);margin-bottom:8px;">📥 Yeni teklif talebi</div>
+        ${basligi(ts, tarih)}
+        <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap;">
           <span style="font-size:12px;color:var(--text3);">Müşteri:</span>
           <select id="ott-musteri-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:200px;">${musteriOpsiyon(ts.musteri)}</select>
           ${eslesmeUyari}
@@ -12098,6 +12208,35 @@ function otoTalepTaslakRender() {
       </div>`;
   }).join('');
 }
+
+// Onay/revizyon taslağını ilgili teklife uygula
+function otoOnayRevizeUygula(taslakId, revize) {
+  const cfg = otoTalepCfg();
+  const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
+  if (ix < 0) return;
+  const ts = cfg.taslaklar[ix];
+  const no = (document.getElementById('ott-teklif-' + taslakId)?.value || ts.eslesenTalepNo || '').trim();
+  if (!no) { showToast('⚠ Lütfen ilgili teklifi seçin.'); return; }
+  const t = TALEPLER.find(x => x.no === no);
+  if (!t) { showToast('⚠ Teklif bulunamadı: ' + no); return; }
+  if (revize) {
+    t.teklifDurumu = 'revize';
+    t.teklifRevizeNot = ts.not || '';
+    t.teklifRevizeTarih = new Date().toISOString();
+  } else {
+    t.teklifDurumu = 'kabul';
+    t.teklifKabulTarih = new Date().toISOString();
+  }
+  cfg.taslaklar.splice(ix, 1);
+  veriKaydet();
+  if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
+  otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  showToast(revize
+    ? `✏️ #${no} için revize istendi olarak işaretlendi.`
+    : `✅ #${no} teklifi kabul olarak işaretlendi. Teklifler ekranından sipariş oluşturabilirsiniz.`);
+}
+function otoOnayUygula(taslakId)   { otoOnayRevizeUygula(taslakId, false); }
+function otoRevizeUygula(taslakId) { otoOnayRevizeUygula(taslakId, true); }
 
 function otoTalepUrunEkle(taslakId) {
   const kap = document.getElementById('ott-urunler-' + taslakId);
@@ -12168,6 +12307,7 @@ function otoTalepOnayla(taslakId) {
     oncelik: 'Normal',
     portalTalebi: false,
     _kaynak: 'oto-mail',
+    mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
   });
 
   cfg.taslaklar.splice(ix, 1);
@@ -12494,7 +12634,7 @@ async function apiVeriYukle() {
       return false;
     }
     const veri = await r.json();
-    if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); }
+    if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
@@ -12584,7 +12724,7 @@ function veriYukle() {
     if (!raw) return false;
     const veri = JSON.parse(raw);
 
-    if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); }
+    if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
