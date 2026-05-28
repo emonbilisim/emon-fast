@@ -4575,7 +4575,9 @@ function renderTalepler() {
   };
   const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','İptal'];
 
-  const siraliTalepler = [...TALEPLER].sort((a,b) => {
+  // Satıcı izolasyonu: admin tümünü, satıcı kendi + sahibi atanmamış eski kayıtları görür
+  const gorunurTalepler = TALEPLER.filter(talepGorunur);
+  const siraliTalepler = [...gorunurTalepler].sort((a,b) => {
     if (srt === 'stz') {
       const fa = sttFarki(a), fb = sttFarki(b);
       if (fa === Infinity && fb === Infinity) return 0;
@@ -4648,12 +4650,12 @@ function renderTalepler() {
   if (empty) empty.style.display = count===0&&tbody?'block':'none';
   if (panelEmpty) panelEmpty.style.display = TALEPLER.length===0?'block':'none';
 
-  // Panel metrikleri güncelle
-  const acik = TALEPLER.filter(t=>t.durum!=='Tamamlandı').length;
+  // Panel metrikleri — yalnızca görünür talepler üzerinden say
+  const acik = gorunurTalepler.filter(t=>t.durum!=='Tamamlandı').length;
   const mEl = document.getElementById('m-talepler');
   if (mEl) mEl.textContent = acik;
   const badge = document.getElementById('badge-talepler');
-  if (badge) badge.textContent = TALEPLER.filter(t=>t.durum==='Yeni').length||'';
+  if (badge) badge.textContent = gorunurTalepler.filter(t=>t.durum==='Yeni').length||'';
   if (typeof otoTalepHatirlatGuncelle === 'function') otoTalepHatirlatGuncelle();
   if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
 }
@@ -7869,6 +7871,7 @@ function talepKaydet() {
     not: document.getElementById('talep-not').value.trim(),
     oncelik: document.getElementById('talep-oncelik').value,
     portalTalebi: !!document.getElementById('talep-portal')?.checked,
+    satici: aktifKullanici?.id, // sahibi — yalnızca kendi taleplerini görsün
   });
   renderTalepler();
   showToast(`"${musteriAd}" için #${no} numaralı talep oluşturuldu!`); veriKaydet();
@@ -9241,8 +9244,9 @@ function renderArsiv() {
   const simdi   = new Date();
   const sinirTarih = sureFlt ? new Date(simdi - sureFlt*86400000) : null;
 
-  // Kapanan talepler: Tamamlandı + teklifDurumu=red + İptal
-  const kapaliTalepler = TALEPLER.filter(t => {
+  // Kapanan talepler: Tamamlandı + teklifDurumu=red + İptal (yalnızca görünür)
+  const gorunurTalepler = TALEPLER.filter(talepGorunur);
+  const kapaliTalepler = gorunurTalepler.filter(t => {
     const kapali = t.durum === 'Tamamlandı' || t.durum === 'İptal' || t.teklifDurumu === 'red';
     if (!kapali) return false;
     if (sinirTarih) {
@@ -9252,11 +9256,11 @@ function renderArsiv() {
     return true;
   });
 
-  // Özet kartlar
+  // Özet kartlar — yalnızca görünür talepler üzerinden say
   const setEl = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
-  setEl('arsiv-k-tamamlandi', TALEPLER.filter(t=>t.durum==='Tamamlandı').length);
-  setEl('arsiv-k-red',        TALEPLER.filter(t=>t.teklifDurumu==='red').length);
-  setEl('arsiv-k-iptal',      TALEPLER.filter(t=>t.durum==='İptal').length);
+  setEl('arsiv-k-tamamlandi', gorunurTalepler.filter(t=>t.durum==='Tamamlandı').length);
+  setEl('arsiv-k-red',        gorunurTalepler.filter(t=>t.teklifDurumu==='red').length);
+  setEl('arsiv-k-iptal',      gorunurTalepler.filter(t=>t.durum==='İptal').length);
 
   // Filtrele
   const filtrelenmis = kapaliTalepler.filter(t => {
@@ -9328,6 +9332,15 @@ function renderArsiv() {
 // MÜŞTERİ TEKLİFLERİ SAYFASI
 // ═══════════════════════════════════════
 
+// Talep görünürlüğü — Admin tümünü görür. Satıcı yalnızca kendi oluşturduklarını
+// (t.satici === aktifKullanici.id) ve sahibi atanmamış eski kayıtları görür (geri uyum).
+function talepGorunur(t) {
+  if (!aktifKullanici) return false;
+  if (aktifKullanici.rol === 'admin') return true;
+  if (!t || t.satici == null || t.satici === '') return true; // eski kayıtlar: paylaşımlı
+  return t.satici === aktifKullanici.id;
+}
+
 // "Açık teklif": müşteriye iletilmiş ya da gönderildiği işaretli, henüz reddedilmemiş,
 // tamamlanmamış ve iptal edilmemiş talepler — Müşteri Teklifleri sayfasında görünenler.
 function acikTeklifMi(t) {
@@ -9336,7 +9349,7 @@ function acikTeklifMi(t) {
   if (t.durum === 'Tamamlandı' || t.durum === 'İptal') return false;
   return t.durum === 'Müşteriye İletildi' || t.musteriTeklifGonderildi;
 }
-function acikTeklifSayisi() { return TALEPLER.filter(acikTeklifMi).length; }
+function acikTeklifSayisi() { return TALEPLER.filter(t => talepGorunur(t) && acikTeklifMi(t)).length; }
 function acikTeklifBadgeGuncelle() {
   const el = document.getElementById('badge-teklifler');
   if (!el) return;
@@ -9352,9 +9365,8 @@ function renderMusteriTeklifleri() {
   const empty = document.getElementById('musteri-teklifler-empty');
   if (!liste) return;
 
-  // Sadece AKTİF teklifler: kargo girilerek tamamlanan (durum='Tamamlandı'),
-  // müşteri tarafından reddedilen (teklifDurumu='red') ve iptal edilenler ARŞİV'de gösterilir.
-  const teklifTalepler = TALEPLER.filter(t => acikTeklifMi(t));
+  // Sadece AKTİF + kullanıcının görebileceği teklifler.
+  const teklifTalepler = TALEPLER.filter(t => talepGorunur(t) && acikTeklifMi(t));
   const simdi = new Date();
 
   const filtrelenmis = teklifTalepler.filter(t => {
@@ -12357,6 +12369,7 @@ function otoTalepOnayla(taslakId) {
     portalTalebi: false,
     _kaynak: 'oto-mail',
     mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
+    satici: aktifKullanici?.id, // sahibi — yalnızca kendi taleplerini görsün
   });
 
   cfg.taslaklar.splice(ix, 1);
