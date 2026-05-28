@@ -6987,6 +6987,20 @@ async function musteriTeklifMaili() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
 
+  // Gönderim yetkisi: Admin her zaman gönderebilir.
+  // Satıcı: yalnızca admin away modda VE talep oto-talep (gelen mail) akışından gelmişse.
+  // Diğer her durumda mail admin tarafından gönderilmelidir.
+  if (aktifKullanici?.rol !== 'admin') {
+    if (!AYARLAR.awayMode) {
+      showToast('⚠ Teklif mailini gönderme yetkisi admindedir.');
+      return;
+    }
+    if (!t.mailId) {
+      showToast('⚠ Away modda yalnızca oto-talep (gelen mailden oluşan) taleplerde gönderim yetkiniz vardır.');
+      return;
+    }
+  }
+
   const m       = MUSTERILER.find(x => x.firma === t.musteri);
   const yetkili = m?.yetkililer?.[0];
   const mail    = yetkili?.mail || '';
@@ -8493,11 +8507,19 @@ function satisBolumunuGuncelle() {
           + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti — tablodaki değerler admin\'in onayladığı değerlerdir.</span>' : '')
           + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Admin notu: ' + t.fiyatOnayTalep.adminNot + '</span>' : '');
       }
+      // Satıcı yalnızca admin uzaktayken (away mode) ve talep oto-mail kaynağıysa gönderebilir.
+      // Diğer durumlarda mail admin tarafından gönderilir.
+      const saticiGonderebilir = !!(AYARLAR.awayMode && t.mailId);
       const gonder = document.getElementById('btn-satici-gonder');
-      if (gonder) gonder.style.display = 'flex';
+      if (gonder) gonder.style.display = saticiGonderebilir ? 'flex' : 'none';
       const pdfBtnS = document.getElementById('btn-pdf-indir-satici');
-      if (pdfBtnS) pdfBtnS.style.display = 'flex';
-      if (subEl) subEl.textContent = '✅ Admin onayladı';
+      if (pdfBtnS) pdfBtnS.style.display = saticiGonderebilir ? 'flex' : 'none';
+      if (!saticiGonderebilir && bandi) {
+        bandi.innerHTML += '<br><span style="font-size:12px;color:var(--text2);font-weight:500;">📤 Mailin müşteriye gönderimi <b>admin tarafından</b> yapılacak'
+          + (AYARLAR.awayMode ? ' (manuel talep — oto-talepten gelmediği için satıcı gönderemez).' : '.')
+          + '</span>';
+      }
+      if (subEl) subEl.textContent = saticiGonderebilir ? '✅ Admin onayladı — gönderebilirsiniz' : '✅ Admin onayladı — admin gönderecek';
 
     } else if (onayDurumu === 'bekliyor') {
       // Onay bekliyor — sadece izle
