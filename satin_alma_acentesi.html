@@ -2378,6 +2378,10 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
         </select>
       </div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Sorumlu Satıcı <span id="mf-satici-yetki-uyari" style="font-size:11px;color:var(--text3);font-weight:400;display:none;">(yalnızca admin değiştirebilir)</span></label>
+      <select id="mf-satici"></select>
+    </div>
     <div class="form-group"><label class="form-label">Genel Not</label><textarea id="mf-not" placeholder="Müşteri hakkında özel notlar..." style="min-height:60px;"></textarea></div>
 
     <!-- ── FİYATLANDIRMA KURALLARI (sadece admin) ── -->
@@ -3937,10 +3941,25 @@ function musteriFormAc(idx) {
   document.getElementById('mf-yetkililer-list').innerHTML = '';
   document.getElementById('mf-ozel-list').innerHTML = '';
   document.getElementById('mf-hata').style.display = 'none';
+
+  // Sorumlu Satıcı dropdown — KULLANICILAR (admin + satıcı). Sadece admin değiştirebilir.
+  const saticiSel = document.getElementById('mf-satici');
+  if (saticiSel) {
+    const isAdmin = aktifKullanici?.rol === 'admin';
+    const aktifKls = KULLANICILAR.filter(k => k.durum !== 'pasif' && (k.rol === 'admin' || k.rol === 'satici'));
+    saticiSel.innerHTML = '<option value="">— Atanmamış —</option>' +
+      aktifKls.map(k => `<option value="${k.id}">${k.ad}${k.rol==='admin' ? ' (admin)' : ''}</option>`).join('');
+    saticiSel.disabled = !isAdmin;
+    const uyari = document.getElementById('mf-satici-yetki-uyari');
+    if (uyari) uyari.style.display = isAdmin ? 'none' : 'inline';
+  }
+
   if (idx === -1) {
     document.getElementById('mf-baslik').textContent = '👥 Yeni Müşteri Ekle';
     ['mf-firma','mf-vergino','mf-vergidaire','mf-adres','mf-not'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
+    // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
+    if (saticiSel) saticiSel.value = String(aktifKullanici?.id || '');
     ['mf-odeme-havale','mf-odeme-kk','mf-odeme-kkkom','mf-odeme-vadeli'].forEach(id=>document.getElementById(id).checked=false);
     document.getElementById('mf-kkkom-oran').value=''; document.getElementById('mf-kkkom-oran').disabled=true;
     document.getElementById('mf-vade-gun').value=''; document.getElementById('mf-vade-gun').disabled=true;
@@ -3954,6 +3973,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-vergino').value=m.vergino||''; document.getElementById('mf-vergidaire').value=m.vergidaire||'';
     document.getElementById('mf-adres').value=m.adres||''; document.getElementById('mf-fiyatgrup').value=m.fiyatgrup||'';
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
+    if (saticiSel) saticiSel.value = String(m.satici ?? '');
     const o=m.odeme||{};
     document.getElementById('mf-odeme-havale').checked=!!o.havale; document.getElementById('mf-odeme-kk').checked=!!o.kk;
     document.getElementById('mf-odeme-kkkom').checked=!!o.kkkom; document.getElementById('mf-kkkom-oran').value=o.kkkomOran||''; document.getElementById('mf-kkkom-oran').disabled=!o.kkkom;
@@ -4076,6 +4096,18 @@ function musteriKaydet() {
   const idx=parseInt(document.getElementById('mf-index').value);
   const onayIdx = document.getElementById('mf-index').dataset.onayIdx;
 
+  // Sorumlu satıcı atama yetkisi: yalnızca admin değiştirir.
+  // Satıcı kullanıcı düzenliyorsa mevcut atamayı (varsa) korur; yeni oluşturuyorsa kendisi sahiplenir.
+  {
+    const isAdmin = aktifKullanici?.rol === 'admin';
+    const sv = document.getElementById('mf-satici')?.value || '';
+    if (isAdmin) {
+      kayit.satici = sv ? (parseInt(sv) || sv) : '';
+    } else {
+      kayit.satici = (idx >= 0 ? (MUSTERILER[idx]?.satici ?? '') : (aktifKullanici?.id ?? ''));
+    }
+  }
+
   // Satıcı yeni kayıt ekliyorsa onaya gönder
   if (aktifKullanici?.rol === 'satici' && idx === -1 && !onayIdx) {
     kayit._onayDurumu = 'bekliyor';
@@ -4191,9 +4223,13 @@ function filterMusteriler() {
     if((q===''||text.includes(q))&&(durum===''||m.durum===durum)){
       const ilk=m.yetkililer&&m.yetkililer[0]||{};
       const ek=m.yetkililer&&m.yetkililer.length>1?`<span style="font-size:10px;color:var(--text3);"> +${m.yetkililer.length-1} kişi</span>`:'';
+      const saticiAd = (m.satici != null && m.satici !== '') ? (KULLANICILAR.find(k => k.id === m.satici)?.ad || '') : '';
+      const saticiSatir = saticiAd
+        ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;">👤 ${saticiAd}</div>`
+        : `<div style="font-size:10px;color:var(--amber);margin-top:2px;">👤 Atanmamış</div>`;
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}</td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${saticiSatir}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
