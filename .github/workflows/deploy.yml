@@ -29,6 +29,29 @@ jobs:
           target: "/var/www/emonfast/public/"
           strip_components: 0
 
+      - name: Patch backend (bos dizi tablo silme korumasi)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cat > /tmp/emon-patch.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            if (s.includes('if (MUSTERILER) {') || s.includes('if (TEDARIKCILER) {')) {
+            fs.writeFileSync(f + '.bak.ci', s);
+            s = s.replace('if (MUSTERILER) {', 'if (Array.isArray(MUSTERILER) && MUSTERILER.length) {');
+            s = s.replace('if (TEDARIKCILER) {', 'if (Array.isArray(TEDARIKCILER) && TEDARIKCILER.length) {');
+            fs.writeFileSync(f, s);
+            console.log('server.js patched');
+            } else {
+            console.log('server.js already patched');
+            }
+            PATCH
+            node /tmp/emon-patch.js
+
       - name: Rename and restart
         uses: appleboy/ssh-action@master
         with:
