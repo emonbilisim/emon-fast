@@ -2999,15 +2999,6 @@ function filterTedarikciler() {
   const bulkBar = document.getElementById('ted-bulk-bar');
   if (bulkBar) bulkBar.style.display = isAdmin ? 'flex' : 'none';
 
-  // Satıcı: tedarikçiler liste halinde gösterilmez — sadece arama yapınca sonuç gelir
-  if (!isAdmin && q === '') {
-    document.getElementById('t-count').textContent = '';
-    const tEmpty = document.getElementById('t-empty');
-    tEmpty.innerHTML = '<div class="empty-icon">🔍</div>Tedarikçileri görmek için yukarıdan arama yapın.';
-    tEmpty.style.display = 'block';
-    return;
-  }
-
   TEDARIKCILER.forEach((r, idx) => {
     const kat = kategori(r[1]);
     if ((q === '' || aramaKucult(r.slice(0,5).join(' ')).includes(q)) && (cat === '' || kat === cat)) {
