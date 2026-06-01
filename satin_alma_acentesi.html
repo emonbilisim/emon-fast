@@ -8102,6 +8102,7 @@ async function loginYap() {
   // API ile giriş dene
   const apiSonuc = await apiGiris(user, pass);
   if (apiSonuc) {
+    _oturumDustuGosterildi = false; // taze token alındı — oturum-düştü uyarısını sıfırla
     const k = { ...apiSonuc.kullanici, sonGiris: new Date().toLocaleString('tr-TR') };
     aktifKullanici = k;
     localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: k.id, username: k.username }));
@@ -12623,10 +12624,28 @@ function apiTokenAl() {
 function apiTokenSet(token) {
   _apiToken = token;
   if (token) localStorage.setItem('emonfast_api_token', token);
+  else localStorage.removeItem('emonfast_api_token'); // geçersiz token'ı temizle (reload'da tekrar denenmesin)
 }
 
 // Sayfa yüklenince token'ı geri yükle
 _apiToken = localStorage.getItem('emonfast_api_token') || null;
+
+// Token süresi dolduğunda (401): sessizce eski/boş localStorage verisine düşmek
+// yerine kullanıcıyı giriş ekranına yönlendir ki taze token alıp sunucuyla senkron olsun.
+let _oturumDustuGosterildi = false;
+function oturumSuresiDoldu() {
+  apiTokenSet(null);
+  if (_oturumDustuGosterildi) return;
+  _oturumDustuGosterildi = true;
+  try {
+    aktifKullanici = null;
+    localStorage.removeItem('emonfast_aktifkullanici');
+    const ls = document.getElementById('login-screen');
+    if (ls) ls.style.display = 'flex';
+    const hata = document.getElementById('login-hata');
+    if (hata) { hata.textContent = 'Oturum süresi doldu. Lütfen tekrar giriş yapın.'; hata.style.display = 'block'; }
+  } catch (_) {}
+}
 
 async function apiGiris(username, sifre) {
   try {
@@ -12655,7 +12674,7 @@ async function apiVeriYukle() {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     if (!r.ok) {
-      if (r.status === 401) { apiTokenSet(null); }
+      if (r.status === 401) { oturumSuresiDoldu(); }
       return false;
     }
     const veri = await r.json();
@@ -12697,6 +12716,7 @@ async function apiVeriKaydet(veri) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify(veri)
     });
+    if (r.status === 401) oturumSuresiDoldu();
     return r.ok;
   } catch (e) {
     console.warn('API kayıt hatası:', e);
@@ -12711,7 +12731,7 @@ async function apiVeriCekHam() {
   if (!token) return null;
   try {
     const r = await fetch(API_URL + '/api/veri', { headers: { 'Authorization': 'Bearer ' + token } });
-    if (!r.ok) return null;
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
     return await r.json();
   } catch (_) { return null; }
 }
