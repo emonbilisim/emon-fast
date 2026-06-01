@@ -52,6 +52,26 @@ jobs:
             PATCH
             node /tmp/emon-patch.js
 
+      - name: Upload seeder
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "tools/seed-tedarikciler.js"
+          target: "/var/www/emonfast/"
+          strip_components: 1
+
+      - name: Seed tedarikciler (yalnizca tablo bossa)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/emonfast
+            node seed-tedarikciler.js
+
       - name: Rename and restart
         uses: appleboy/ssh-action@master
         with:
