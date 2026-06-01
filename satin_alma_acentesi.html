@@ -12679,6 +12679,8 @@ async function apiVeriYukle() {
       set('eur-alis-buyuk', fmt(veri.dovizKurlari.eurAlis)+' ₺');
       set('eur-forex-satis', fmt(veri.dovizKurlari.eurSatis)+' ₺');
     }
+    // Merge temeli = sunucudan az önce gelen durum (in-memory artık buna eşit)
+    _sunucuBaz = JSON.parse(JSON.stringify(veri));
     return true;
   } catch (e) {
     console.warn('API veri yükleme hatası:', e);
@@ -12714,10 +12716,81 @@ async function apiVeriCekHam() {
   } catch (_) { return null; }
 }
 
-// Admin'e ait, satıcının düzenleyemediği koleksiyonlar. Satıcı kaydederken
-// bunlar bayat yerel kopyayla değil sunucunun güncel haliyle gönderilir —
-// böylece satıcının kaydı admin'in (örn. tedarikçi) verisini ezmez.
-const ADMIN_SAHIPLI_KOLEKSIYONLAR = ['TEDARIKCILER', 'KULLANICILAR', 'AYARLAR', 'FP_KURALLAR'];
+/* ──────────────────────────────────────────────────────────────
+   KAYIT-BAZLI BİRLEŞTİRME (MERGE)
+   Sunucu tek ortak blok + son-yazan-kazanır mantığıyla çalıştığı için
+   eskiden bir kullanıcının kaydı diğerlerinin değişikliklerini eziyordu.
+   Artık her kayıttan önce sunucunun güncel hali çekilip kendi
+   değişikliklerimiz onun üstüne uygulanır (baseline-diff):
+     sonuç = sunucu  →  baz'a göre eklediklerim/değiştirdiklerim uygulanır
+                        →  baz'da olup bende olmayanlar (sildiklerim) çıkarılır
+   "Dokunmadığım kayıt" sunucudaki haliyle korunur → eş zamanlı düzenlemeler ezişmez.
+   ────────────────────────────────────────────────────────────── */
+let _sunucuBaz = null; // sunucudan en son senkronlanan durum (merge temeli)
+
+function _mkey(r, keyFn) {
+  try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
+  catch { return JSON.stringify(r); }
+}
+
+// Anahtarlı dizi birleştirme
+function _mergeDizi(base, local, server, keyFn) {
+  base   = Array.isArray(base)   ? base   : [];
+  local  = Array.isArray(local)  ? local  : [];
+  server = Array.isArray(server) ? server : [];
+  const baseMap  = new Map(base.map(r  => [_mkey(r, keyFn), r]));
+  const localMap = new Map(local.map(r => [_mkey(r, keyFn), r]));
+  const sonuc    = new Map(server.map(r => [_mkey(r, keyFn), r]));
+  for (const [k, r] of localMap) {                    // eklediklerim / değiştirdiklerim
+    const b = baseMap.get(k);
+    if (b === undefined || JSON.stringify(b) !== JSON.stringify(r)) sonuc.set(k, r);
+  }
+  for (const k of baseMap.keys()) {                   // sildiklerim (baz'da var, yerelde yok)
+    if (!localMap.has(k)) sonuc.delete(k);
+  }
+  return Array.from(sonuc.values());
+}
+
+// Anahtarlı obje birleştirme (örn. talepTeklifleri: talepNo → teklifler)
+function _mergeObje(base, local, server) {
+  base = base || {}; local = local || {}; server = server || {};
+  const sonuc = { ...server };
+  for (const k of Object.keys(local)) {
+    if (JSON.stringify(local[k]) !== JSON.stringify(base[k])) sonuc[k] = local[k];
+  }
+  for (const k of Object.keys(base)) {
+    if (!(k in local)) delete sonuc[k];
+  }
+  return sonuc;
+}
+
+// Admin-sahipli koleksiyon: admin kaydederse kendi listesi, satıcı kaydederse sunucununki
+function _adminSahipli(local, server) {
+  if (aktifKullanici && aktifKullanici.rol === 'admin') return local;
+  return server !== undefined ? server : local;
+}
+
+// Yerel kaydı sunucunun güncel haliyle birleştir
+function _mergeKaydet(local, server) {
+  const base = _sunucuBaz || {};
+  const ob = base.ONAY_BEKLEYENLER || {}, ol = local.ONAY_BEKLEYENLER || {}, os = server.ONAY_BEKLEYENLER || {};
+  const sonuc = JSON.parse(JSON.stringify(local)); // tüm alanlar yerelden başlasın
+  sonuc.TALEPLER        = _mergeDizi(base.TALEPLER,        local.TALEPLER,        server.TALEPLER,        r => r.no);
+  sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma);
+  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)));
+  sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id);
+  sonuc.ONAY_BEKLEYENLER = {
+    musteriler:   _mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   r => JSON.stringify(r)),
+    tedarikciler: _mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, r => JSON.stringify(r)),
+  };
+  sonuc.talepTeklifleri = _mergeObje(base.talepTeklifleri, local.talepTeklifleri, server.talepTeklifleri);
+  sonuc.KULLANICILAR    = _adminSahipli(local.KULLANICILAR, server.KULLANICILAR);
+  sonuc.AYARLAR         = _adminSahipli(local.AYARLAR,      server.AYARLAR);
+  sonuc.FP_KURALLAR     = _adminSahipli(local.FP_KURALLAR,  server.FP_KURALLAR);
+  sonuc.talepSayac      = Math.max(Number(local.talepSayac) || 0, Number(server.talepSayac) || 0);
+  sonuc.crmSayac        = Math.max(Number(local.crmSayac)   || 0, Number(server.crmSayac)   || 0);
+  return sonuc;
+}
 
 function veriKaydet() {
   try {
@@ -12747,23 +12820,18 @@ function veriKaydet() {
     // Önce localStorage'a yaz (hızlı yedek)
     localStorage.setItem(LS_KEY, JSON.stringify(veri));
 
-    // Sonra API'ye gönder (debounce — 1 saniyede bir)
+    // Sonra API'ye gönder (debounce — 1 saniyede bir) — HER ZAMAN MERGE
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
     _apiKaydetBekliyor = true; // canlı tazeleme bu kaydı ezmesin diye işaretle
     _apiKaydetTimer = setTimeout(async () => {
       try {
         if (!apiTokenAl()) return;
-        // Satıcı (admin değil): admin'e ait koleksiyonları sunucunun güncel
-        // halinden al → bayat yerel kopya tedarikçi/kullanıcı/ayar verisini ezmesin
-        if (aktifKullanici && aktifKullanici.rol !== 'admin') {
-          const sunucu = await apiVeriCekHam();
-          if (sunucu) {
-            ADMIN_SAHIPLI_KOLEKSIYONLAR.forEach(key => {
-              if (sunucu[key] !== undefined) veri[key] = sunucu[key];
-            });
-          }
-        }
-        await apiVeriKaydet(veri);
+        // Kayıt-bazlı birleştirme: sunucunun güncel halini çek, kendi
+        // değişikliklerimi onun üstüne uygula → başka kullanıcıların kayıtları ezilmez
+        const sunucu = await apiVeriCekHam();
+        const gonderilecek = (sunucu && _sunucuBaz) ? _mergeKaydet(veri, sunucu) : veri;
+        const ok = await apiVeriKaydet(gonderilecek);
+        if (ok) _sunucuBaz = JSON.parse(JSON.stringify(veri)); // yeni temel = az önce gönderdiğim yerel durum
       } catch (_) {
       } finally {
         _apiKaydetBekliyor = false;
