@@ -3832,6 +3832,11 @@ function goPage(id, el) {
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); }
   if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); }
   if (id === 'crm') renderCRM();
+  // Liste/özet sayfalarına geçişte sunucudan taze veri çek (başka
+  // kullanıcıların eklediği müşteri/tedarikçi/talepler görünsün)
+  if (id === 'musteriler' || id === 'tedarikciler' || id === 'panel' || id === 'talepler') {
+    sunucudanTazele();
+  }
 }
 
 // MODAL
@@ -12974,9 +12979,12 @@ function veriKaydet() {
 
     // Sonra API'ye gönder (debounce — 1 saniyede bir)
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
+    _apiKaydetBekliyor = true; // canlı tazeleme bu kaydı ezmesin diye işaretle
     _apiKaydetTimer = setTimeout(() => {
       if (apiTokenAl()) {
-        apiVeriKaydet(veri).catch(() => {});
+        apiVeriKaydet(veri).catch(() => {}).finally(() => { _apiKaydetBekliyor = false; });
+      } else {
+        _apiKaydetBekliyor = false;
       }
     }, 1000);
 
@@ -13039,6 +13047,49 @@ async function veriYukleAPI() {
   }
   return veriYukle();
 }
+
+/* ──────────────────────────────────────────────────────────────
+   CANLI TAZELEME — sunucudaki ortak veri (müşteri/tedarikçi/talep)
+   başka kullanıcılarca güncellenmiş olabilir. Eskiden veri yalnızca
+   giriş ve sayfa açılışında çekiliyordu; bu yüzden bir kullanıcı
+   oturum açtıktan sonra admin'in eklediği/değiştirdiği kayıtlar onun
+   ekranına yansımıyordu. Aşağıdaki tetikleyiciler listeleri güncel tutar.
+   Güvenlik: açık form/modal, bekleyen kayıt veya aktif veri girişi
+   varken atlanır — index kayması ve kaydedilmemiş değişiklik kaybı olmasın.
+   ────────────────────────────────────────────────────────────── */
+let _sonTazeleme = 0;
+let _tazelemeTimer = null;
+
+async function sunucudanTazele(zorla = false) {
+  if (!apiTokenAl() || !aktifKullanici) return false;
+  if (!zorla && document.hidden) return false;                       // arka plan sekmesi
+  if (document.querySelector('.modal-overlay.open')) return false;   // açık form/modal
+  if (_apiKaydetBekliyor) return false;                              // bekleyen yerel kayıt
+  const aktifEl = document.activeElement;                            // aktif veri girişi
+  if (aktifEl && (aktifEl.tagName === 'INPUT' || aktifEl.tagName === 'TEXTAREA')) {
+    const id = aktifEl.id || '';
+    // Arama kutuları hariç: bir alana yazılıyorsa tazeleme
+    if (!/(^| )(m-search|t-search)$/.test(id)) return false;
+  }
+  const simdi = Date.now();
+  if (!zorla && simdi - _sonTazeleme < 8000) return false;           // throttle
+  _sonTazeleme = simdi;
+  try {
+    const basarili = await apiVeriYukle();
+    if (basarili) {
+      filterMusteriler(); filterTedarikciler(); renderTalepler();
+      renderPanelMetrikler(); onayBadgeGuncelle();
+    }
+    return basarili;
+  } catch (_) { return false; }
+}
+
+// Sekmeye geri dönülünce / pencere odaklanınca taze veri çek
+document.addEventListener('visibilitychange', () => { if (!document.hidden) sunucudanTazele(); });
+window.addEventListener('focus', () => sunucudanTazele());
+
+// Uygulama açıkken periyodik tazele (45 sn)
+_tazelemeTimer = setInterval(() => sunucudanTazele(), 45000);
 
 /* ──────────────────────────────────────────────────────────────
    VERİ YEDEKLEME — Export / Import + Versiyonlu Local Snapshot
