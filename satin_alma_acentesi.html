@@ -12702,6 +12702,23 @@ async function apiVeriKaydet(veri) {
   }
 }
 
+// Sunucudaki güncel veriyi yerel state'i bozmadan ham olarak çeker.
+// Kayıt öncesi "admin'e ait koleksiyonları" sunucudan alıp göndermek için kullanılır.
+async function apiVeriCekHam() {
+  const token = apiTokenAl();
+  if (!token) return null;
+  try {
+    const r = await fetch(API_URL + '/api/veri', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) { return null; }
+}
+
+// Admin'e ait, satıcının düzenleyemediği koleksiyonlar. Satıcı kaydederken
+// bunlar bayat yerel kopyayla değil sunucunun güncel haliyle gönderilir —
+// böylece satıcının kaydı admin'in (örn. tedarikçi) verisini ezmez.
+const ADMIN_SAHIPLI_KOLEKSIYONLAR = ['TEDARIKCILER', 'KULLANICILAR', 'AYARLAR', 'FP_KURALLAR'];
+
 function veriKaydet() {
   try {
     const tedGuvenli = TEDARIKCILER.map(r => r.map(item => {
@@ -12733,10 +12750,22 @@ function veriKaydet() {
     // Sonra API'ye gönder (debounce — 1 saniyede bir)
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
     _apiKaydetBekliyor = true; // canlı tazeleme bu kaydı ezmesin diye işaretle
-    _apiKaydetTimer = setTimeout(() => {
-      if (apiTokenAl()) {
-        apiVeriKaydet(veri).catch(() => {}).finally(() => { _apiKaydetBekliyor = false; });
-      } else {
+    _apiKaydetTimer = setTimeout(async () => {
+      try {
+        if (!apiTokenAl()) return;
+        // Satıcı (admin değil): admin'e ait koleksiyonları sunucunun güncel
+        // halinden al → bayat yerel kopya tedarikçi/kullanıcı/ayar verisini ezmesin
+        if (aktifKullanici && aktifKullanici.rol !== 'admin') {
+          const sunucu = await apiVeriCekHam();
+          if (sunucu) {
+            ADMIN_SAHIPLI_KOLEKSIYONLAR.forEach(key => {
+              if (sunucu[key] !== undefined) veri[key] = sunucu[key];
+            });
+          }
+        }
+        await apiVeriKaydet(veri);
+      } catch (_) {
+      } finally {
         _apiKaydetBekliyor = false;
       }
     }, 1000);
