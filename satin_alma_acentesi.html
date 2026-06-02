@@ -12738,6 +12738,7 @@ async function apiVeriCekHam() {
    "Dokunmadığım kayıt" sunucudaki haliyle korunur → eş zamanlı düzenlemeler ezişmez.
    ────────────────────────────────────────────────────────────── */
 let _sunucuBaz = null; // sunucudan en son senkronlanan durum (merge temeli)
+let _kayitGerekli = false; // sunucuya yazılamamış yerel değişiklik var mı (tekrar dene)
 
 function _mkey(r, keyFn) {
   try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
@@ -12745,7 +12746,9 @@ function _mkey(r, keyFn) {
 }
 
 // Anahtarlı dizi birleştirme
-function _mergeDizi(base, local, server, keyFn) {
+// noDelete=true → güvenilir baz yokken silme aşaması atlanır (birleşim/union
+// modu): sonuç = sunucu ∪ benim eklediklerim. Hiçbir kayıt düşmez.
+function _mergeDizi(base, local, server, keyFn, noDelete = false) {
   base   = Array.isArray(base)   ? base   : [];
   local  = Array.isArray(local)  ? local  : [];
   server = Array.isArray(server) ? server : [];
@@ -12756,8 +12759,10 @@ function _mergeDizi(base, local, server, keyFn) {
     const b = baseMap.get(k);
     if (b === undefined || JSON.stringify(b) !== JSON.stringify(r)) sonuc.set(k, r);
   }
-  for (const k of baseMap.keys()) {                   // sildiklerim (baz'da var, yerelde yok)
-    if (!localMap.has(k)) sonuc.delete(k);
+  if (!noDelete) {
+    for (const k of baseMap.keys()) {                 // sildiklerim (baz'da var, yerelde yok)
+      if (!localMap.has(k)) sonuc.delete(k);
+    }
   }
   return Array.from(sonuc.values());
 }
@@ -12781,18 +12786,20 @@ function _adminSahipli(local, server) {
   return server !== undefined ? server : local;
 }
 
-// Yerel kaydı sunucunun güncel haliyle birleştir
-function _mergeKaydet(local, server) {
-  const base = _sunucuBaz || {};
+// Yerel kaydı sunucunun güncel haliyle birleştir.
+// base verilmezse _sunucuBaz kullanılır. noDelete=true (güvenilir baz yok) →
+// birleşim modu: hiçbir kayıt silinmez, yalnızca eklenir/güncellenir.
+function _mergeKaydet(local, server, base, noDelete = false) {
+  base = base || _sunucuBaz || {};
   const ob = base.ONAY_BEKLEYENLER || {}, ol = local.ONAY_BEKLEYENLER || {}, os = server.ONAY_BEKLEYENLER || {};
   const sonuc = JSON.parse(JSON.stringify(local)); // tüm alanlar yerelden başlasın
-  sonuc.TALEPLER        = _mergeDizi(base.TALEPLER,        local.TALEPLER,        server.TALEPLER,        r => r.no);
-  sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma);
-  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)));
-  sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id);
+  sonuc.TALEPLER        = _mergeDizi(base.TALEPLER,        local.TALEPLER,        server.TALEPLER,        r => r.no, noDelete);
+  sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma, noDelete);
+  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
+  sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
   sonuc.ONAY_BEKLEYENLER = {
-    musteriler:   _mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   r => JSON.stringify(r)),
-    tedarikciler: _mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, r => JSON.stringify(r)),
+    musteriler:   _mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   r => JSON.stringify(r), noDelete),
+    tedarikciler: _mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, r => JSON.stringify(r), noDelete),
   };
   sonuc.talepTeklifleri = _mergeObje(base.talepTeklifleri, local.talepTeklifleri, server.talepTeklifleri);
   sonuc.KULLANICILAR    = _adminSahipli(local.KULLANICILAR, server.KULLANICILAR);
@@ -12840,9 +12847,20 @@ function veriKaydet() {
         // Kayıt-bazlı birleştirme: sunucunun güncel halini çek, kendi
         // değişikliklerimi onun üstüne uygula → başka kullanıcıların kayıtları ezilmez
         const sunucu = await apiVeriCekHam();
-        const gonderilecek = (sunucu && _sunucuBaz) ? _mergeKaydet(veri, sunucu) : veri;
+        if (!sunucu) {
+          // Sunucunun güncel hali çekilemedi. Ham yerel snapshot'ı GÖNDERME:
+          // bellekteki liste sunucudan eski/eksikse ortak tedarikçi/müşteri
+          // tablosunu ezer (full-replace). localStorage'da duruyor; bayrağı
+          // kaldır, periyodik tazeleme tekrar denesin.
+          _kayitGerekli = true;
+          return;
+        }
+        // Baz yoksa (açılışta localStorage'dan yüklenmiş olabilir) sunucuyu
+        // temel al ve BİRLEŞİM modunda merge et → hiçbir sunucu kaydı düşmez.
+        const bazVar = !!_sunucuBaz;
+        const gonderilecek = _mergeKaydet(veri, sunucu, _sunucuBaz || sunucu, !bazVar);
         const ok = await apiVeriKaydet(gonderilecek);
-        if (ok) _sunucuBaz = JSON.parse(JSON.stringify(veri)); // yeni temel = az önce gönderdiğim yerel durum
+        if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; } // yeni temel = az önce gönderdiğim yerel durum
       } catch (_) {
       } finally {
         _apiKaydetBekliyor = false;
@@ -12949,8 +12967,12 @@ async function sunucudanTazele(zorla = false) {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) sunucudanTazele(); });
 window.addEventListener('focus', () => sunucudanTazele());
 
-// Uygulama açıkken periyodik tazele (45 sn)
-_tazelemeTimer = setInterval(() => sunucudanTazele(), 45000);
+// Uygulama açıkken periyodik tazele (45 sn). Sunucuya yazılamamış yerel
+// değişiklik varsa önce onu göndermeyi tekrar dene (pull'dan önce push).
+_tazelemeTimer = setInterval(() => {
+  if (_kayitGerekli && apiTokenAl() && !_apiKaydetBekliyor) { veriKaydet(); return; }
+  sunucudanTazele();
+}, 45000);
 
 /* ──────────────────────────────────────────────────────────────
    VERİ YEDEKLEME — Export / Import + Versiyonlu Local Snapshot
