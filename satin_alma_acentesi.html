@@ -13452,7 +13452,10 @@ msalBaslat();
       const k = JSON.parse(kayitliKullanici);
       // Kullanıcı hâlâ KULLANICILAR listesinde var mı?
       const guncel = KULLANICILAR.find(u => u.id === k.id && u.durum !== 'pasif');
-      if (guncel) {
+      // Token şart: ortak veri (müşteri/tedarikçi/talep) yalnızca sunucudan gelir.
+      // Token yoksa (süresi dolmuş/temizlenmiş) kullanıcıyı sessizce boş ekrana
+      // düşürmek yerine login ekranına yönlendir ki taze token alıp senkron olsun.
+      if (guncel && apiTokenAl()) {
         aktifKullanici = { ...guncel, msAccount: k.msAccount };
         document.getElementById('login-screen').style.display = 'none';
         rolUygula();
