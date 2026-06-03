@@ -1648,7 +1648,7 @@
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <div>
             <div style="font-size:13px;font-weight:500;">🤖 Claude AI API Key</div>
-            <div style="font-size:12px;color:var(--text3);">Gelen RFQ maillerinden fiyat çıkarmak için kullanılır. <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent2);">console.anthropic.com</a>'dan oluşturabilirsiniz. Sadece bu tarayıcıda saklanır.</div>
+            <div style="font-size:12px;color:var(--text3);">Gelen RFQ maillerinden fiyat çıkarmak için kullanılır. <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent2);">console.anthropic.com</a>'dan oluşturabilirsiniz. <b>Sunucuda merkezi key tanımlıysa</b> (badge "✓ Sunucu") buna gerek yoktur — bu alan yalnızca kişisel/yedek key'dir, sadece bu tarayıcıda saklanır.</div>
           </div>
           <span id="claude-key-badge" class="badge" style="flex-shrink:0;">—</span>
         </div>
@@ -8103,6 +8103,7 @@ async function loginYap() {
     // Admin ise auth kullanıcılarını çekip yerel kayıtlara sunucu id'sini eşle
     // (sonraki düzenleme/şifre/sil işlemleri PUT için bu id'yi kullanır)
     if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
+    try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
     stzUyariBaslat(); onayBadgeGuncelle();
@@ -9744,6 +9745,7 @@ async function _msalGirisisle(result) {
     document.getElementById('login-screen').style.display = 'none';
     await apiVeriYukle();
     if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
+    try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
     ayarlariYukle(); setTimeout(renderPanelMetrikler, 100);
@@ -11659,12 +11661,28 @@ async function aiTumFiyatlariCikar() {
 }
 
 // Claude API key yönetimi
+// Sunucuda merkezi key (CLAUDE_API_KEY) tanımlıysa true → kullanıcıya key sorulmaz,
+// AI çağrıları backend proxy (/api/ai/messages) üzerinden gider. Login'de probe edilir.
+let _aiProxyHazir = false;
+
+// Backend AI proxy'sinin (merkezi key) hazır olup olmadığını öğren.
+async function aiDurumProbe() {
+  const token = apiTokenAl();
+  if (!token) { _aiProxyHazir = false; return; }
+  try {
+    const r = await fetch(API_URL + '/api/ai/durum', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.ok) { const d = await r.json().catch(() => ({})); _aiProxyHazir = !!d.proxy; }
+  } catch (_) {}
+  try { claudeKeyDurumGuncelle(); } catch (_) {}
+}
+
 function claudeKeyGetir() {
   return (localStorage.getItem('emonfast_claude_key') || '').trim();
 }
 
 // Key yoksa yerinde sor, varsa true döner. Kullanıcı iptal ederse false.
 function claudeKeyTalepEt() {
+  if (_aiProxyHazir) return true; // sunucu merkezi key'i var → sormaya gerek yok
   let key = claudeKeyGetir();
   if (key) return true;
   const val = (prompt(
@@ -11717,7 +11735,11 @@ function claudeKeyDurumGuncelle() {
   const badge = document.getElementById('claude-key-badge');
   const input = document.getElementById('ayar-claude-key');
   if (badge) {
-    if (key) {
+    if (_aiProxyHazir) {
+      badge.textContent = '✓ Sunucu (merkezi)';
+      badge.style.color = 'var(--green)';
+      badge.style.borderColor = 'rgba(62,207,142,0.3)';
+    } else if (key) {
       badge.textContent = '✓ Tanımlı';
       badge.style.color = 'var(--green)';
       badge.style.borderColor = 'rgba(62,207,142,0.3)';
@@ -11738,7 +11760,40 @@ function claudeKeyDurumGuncelle() {
 // pdfler: [{name, data(base64)}] — varsa Claude'a document block olarak gönderilir
 // ── AI çağrı helper'ları (maliyet azaltma) ──
 // Tek HTTP çağrısı; başarıda parse edilmiş JSON, başarısızlıkta {_err:...} veya null (parse edilemedi)
+// Anthropic yanıtından düz JSON çıkar (proxy ve doğrudan yol için ortak)
+function _claudeYanitParse(d) {
+  const metin = d?.content?.find(b => b.type === 'text')?.text || '';
+  const m = metin.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
+
+// Tek HTTP çağrısı. ÖNCE backend proxy (merkezi sunucu key'i, JWT ile); sunucuda key
+// yoksa (503) veya eski sürümse (404/405) yerel key + doğrudan Anthropic'e düşer.
 async function _claudeAiCagir(model, systemMsg, contentBlocks, maxTokens) {
+  const govde = { model, max_tokens: maxTokens, system: systemMsg, messages: [{ role:'user', content: contentBlocks }] };
+  const token = apiTokenAl();
+  if (token) {
+    try {
+      const r = await fetch(API_URL + '/api/ai/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify(govde)
+      });
+      if (r.status === 401) { oturumSuresiDoldu(); return { _err: 'unauthorized-jwt' }; }
+      if (r.status !== 404 && r.status !== 405 && r.status !== 503) {
+        _aiProxyHazir = true;
+        const env = await r.json().catch(() => null);
+        if (!env) return { _err: 'network' };
+        if (env.status === 401) return { _err: 'unauthorized' };   // sunucudaki key geçersiz
+        if (env.status === 429) return { _err: 'rate-limit' };
+        if (env.status !== 200 || !env.data) return { _err: env.status ? ('http-' + env.status) : 'network' };
+        return _claudeYanitParse(env.data);
+      }
+      _aiProxyHazir = false; // proxy yok → yerel yola düş
+    } catch (e) { _aiProxyHazir = false; }
+  }
+  // Yerel yedek: kişisel key + doğrudan Anthropic (eski yol)
   const apiKey = claudeKeyGetir();
   if (!apiKey) return { _err: 'no-key' };
   try {
@@ -11750,18 +11805,14 @@ async function _claudeAiCagir(model, systemMsg, contentBlocks, maxTokens) {
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemMsg, messages: [{ role:'user', content: contentBlocks }] })
+      body: JSON.stringify(govde)
     });
     if (!r.ok) {
       if (r.status === 401) return { _err: 'unauthorized' };
       if (r.status === 429) return { _err: 'rate-limit' };
       return { _err: 'http-' + r.status };
     }
-    const d = await r.json();
-    const metin = d.content?.find(b => b.type === 'text')?.text || '';
-    const jsonMatch = metin.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    try { return JSON.parse(jsonMatch[0]); } catch { return null; }
+    return _claudeYanitParse(await r.json());
   } catch (e) {
     return { _err: 'network' };
   }
@@ -11779,8 +11830,7 @@ async function _claudeAiCagirAkilli(systemMsg, contentBlocks, maxTokens, pdfVar)
 }
 
 async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
-  const apiKey = claudeKeyGetir();
-  if (!apiKey) {
+  if (!_aiProxyHazir && !claudeKeyGetir()) {
     showToast('⚠ Claude API key tanımlı değil. Ayarlar > Entegrasyonlar bölümünden ekleyin.');
     return { _err: 'no-key' };
   }
@@ -11952,8 +12002,7 @@ function musteriBulByMail(mail) {
 
 // Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
 async function maildenTalepCikar(mailIcerik, pdfler) {
-  const apiKey = claudeKeyGetir();
-  if (!apiKey) return { _err: 'no-key' };
+  if (!_aiProxyHazir && !claudeKeyGetir()) return { _err: 'no-key' };
   try {
     const promptMetin =
       'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele ve TÜRÜNÜ (tip) belirle.\n\n' +
@@ -11993,7 +12042,7 @@ async function otoTalepTara(sessiz = false) {
   const cfg = otoTalepCfg();
   if (!cfg.aktif) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
   if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
-  if (!claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
+  if (!_aiProxyHazir && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
   const mailSet = musteriMailSet();
   if (mailSet.size === 0) { if (!sessiz) showToast('⚠ Kayıtlı müşteri e-postası yok.'); return; }
 
@@ -13730,6 +13779,7 @@ msalBaslat();
         stzUyariBaslat();
         onayBadgeGuncelle();
         msOturumGeriYukle(); // MS 365 oturumunu sessiz geri yükle + periyodik yenileme
+        aiDurumProbe().catch(() => {}); // merkezi Claude key var mı? (gating doğru olsun)
         // Sunucudan taze veri çek — yeni onay istekleri ve diğer
         // cihazlardan gelen değişiklikler için
         if (apiTokenAl()) {

@@ -145,6 +145,43 @@ jobs:
             } else {
               console.log('UYARI: /api/saglik bulunamadi, giris-ms eklenemedi');
             }
+            // 4) AI proxy — merkezi Claude key (.env CLAUDE_API_KEY) ile Anthropic'e
+            //    sunucu uzerinden istek. Kullanicilar kendi key'ini girmez.
+            const aiRoute =
+              "app.post('/api/ai/messages', authMiddleware, async (req, res) => { // ai-proxy v1\n" +
+              "  const key = process.env.CLAUDE_API_KEY;\n" +
+              "  if (!key) return res.status(503).json({ hata: 'no-server-key' });\n" +
+              "  try {\n" +
+              "    const https = require('https');\n" +
+              "    const payload = JSON.stringify(req.body || {});\n" +
+              "    const up = await new Promise((resolve, reject) => {\n" +
+              "      const ar = https.request({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(payload) } }, (ares) => {\n" +
+              "        let d = '';\n" +
+              "        ares.on('data', c => d += c);\n" +
+              "        ares.on('end', () => resolve({ status: ares.statusCode, body: d }));\n" +
+              "      });\n" +
+              "      ar.on('error', reject);\n" +
+              "      ar.setTimeout(180000, () => ar.destroy(new Error('timeout')));\n" +
+              "      ar.write(payload);\n" +
+              "      ar.end();\n" +
+              "    });\n" +
+              "    let data = null; try { data = JSON.parse(up.body); } catch (e) {}\n" +
+              "    res.json({ status: up.status, data });\n" +
+              "  } catch (e) {\n" +
+              "    res.json({ status: 0, hata: 'proxy: ' + (e.message || 'hata') });\n" +
+              "  }\n" +
+              "});\n" +
+              "app.get('/api/ai/durum', authMiddleware, (req, res) => { res.json({ proxy: !!process.env.CLAUDE_API_KEY }); }); // ai-proxy v1\n";
+            if (s.includes('// ai-proxy v1')) {
+              console.log('ai-proxy route zaten var');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", aiRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('ai-proxy route eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, ai-proxy eklenemedi');
+            }
             if (degisti) fs.writeFileSync(f, s); else console.log('server.js zaten guncel');
             PATCH
             node /tmp/emon-patch.js
@@ -168,6 +205,29 @@ jobs:
           script: |
             cd /var/www/emonfast
             node seed-tedarikciler.js
+
+      - name: Set Claude API key in .env (secret varsa)
+        uses: appleboy/ssh-action@master
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: CLAUDE_API_KEY
+          script: |
+            cd /var/www/emonfast
+            if [ -n "$CLAUDE_API_KEY" ]; then
+              touch .env
+              if grep -q '^CLAUDE_API_KEY=' .env; then
+                sed -i "s|^CLAUDE_API_KEY=.*|CLAUDE_API_KEY=$CLAUDE_API_KEY|" .env
+              else
+                echo "CLAUDE_API_KEY=$CLAUDE_API_KEY" >> .env
+              fi
+              echo ".env CLAUDE_API_KEY ayarlandi"
+            else
+              echo "CLAUDE_API_KEY secret yok, .env degismedi (proxy 503 doner, frontend yerel key'e duser)"
+            fi
 
       - name: Rename and restart
         uses: appleboy/ssh-action@master
