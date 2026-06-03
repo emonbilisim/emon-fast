@@ -50,6 +50,17 @@ jobs:
               degisti = true;
               console.log('server.js dizi-koruma yamalandi');
             }
+            // 1b) TALEPLER bos dizi koruması (ayrı blok — MUSTERILER/TEDARIKCILER zaten
+            //     yamali oldugundan yukaridaki kosul artik calismaz). Bos []/eksik gelince
+            //     DELETE FROM talepler ile tum talepleri silmeyi engeller.
+            if (s.includes('if (TALEPLER) {')) {
+              yedek();
+              s = s.replace('if (TALEPLER) {', 'if (Array.isArray(TALEPLER) && TALEPLER.length) {');
+              degisti = true;
+              console.log('server.js TALEPLER dizi-koruma yamalandi');
+            } else {
+              console.log('TALEPLER guard: zaten yamali ya da pattern (if (TALEPLER) {) bulunamadi');
+            }
             // 2) DELETE /api/kullanicilar/:id (v2) — referanslari NULL'a cekip
             //    (musteri/tedarikci/talep verisi KORUNUR) pasif kullaniciyi siler.
             const yeniRoute =

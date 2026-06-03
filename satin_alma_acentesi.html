@@ -13151,6 +13151,14 @@ function veriKaydet() {
         // temel al ve BİRLEŞİM modunda merge et → hiçbir sunucu kaydı düşmez.
         const bazVar = !!_sunucuBaz;
         const gonderilecek = _mergeKaydet(veri, sunucu, _sunucuBaz || sunucu, !bazVar);
+        // CLOBBER KORUMASI: sunucuda talep varken birleşim sonucu boşaldıysa (yarış /
+        // eski baz / boş yerel) GÖNDERME — backend korumasız 'if(TALEPLER)' boş diziyle
+        // tüm talepleri siliyordu. Sunucudaki listeyi koru, bu istemci asla wipe etmesin.
+        if ((!Array.isArray(gonderilecek.TALEPLER) || gonderilecek.TALEPLER.length === 0)
+            && Array.isArray(sunucu.TALEPLER) && sunucu.TALEPLER.length > 0) {
+          console.warn('Clobber önlendi: TALEPLER birleşimi boş, sunucudaki', sunucu.TALEPLER.length, 'talep korunuyor.');
+          gonderilecek.TALEPLER = sunucu.TALEPLER;
+        }
         const ok = await apiVeriKaydet(gonderilecek);
         if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; } // yeni temel = az önce gönderdiğim yerel durum
       } catch (_) {
