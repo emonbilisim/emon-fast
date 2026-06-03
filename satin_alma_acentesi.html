@@ -4866,7 +4866,7 @@ function mailSecimAc(firma) {
             style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0;">
           <div style="flex:1;min-width:0;">
             <div style="font-size:12px;font-weight:500;">${u.aciklama||''}</div>
-            ${u.kod ? "<div style=\"font-size:10px;color:var(--text3);font-family:monospace;\">${u.kod}</div>" : ''}
+            ${u.kod ? `<div style="font-size:10px;color:var(--text3);font-family:monospace;">${u.kod}</div>` : ''}
           </div>
           <div style="font-size:11px;color:var(--text3);flex-shrink:0;">${u.adet||1} ${u.birim||'Adet'}</div>
         </label>`).join('')}
@@ -6617,7 +6617,7 @@ function teklifPdfIndir() {
     <!-- Header -->
     <div class="header">
       <div></div>
-      ${logoUrl ? "<img class=\"emon-logo\" src=\"${logoUrl}\" alt=\"EMON\">" : '<div style="font-size:16pt;font-weight:700;color:#1565C0;">EMON</div>'}
+      ${logoUrl ? `<img class="emon-logo" src="${logoUrl}" alt="EMON">` : '<div style="font-size:16pt;font-weight:700;color:#1565C0;">EMON</div>'}
     </div>
 
     <div class="baslik-alan">
@@ -6634,7 +6634,7 @@ function teklifPdfIndir() {
       <table class="firma-sol" style="text-align:right;">
         <tr><td>TARİH</td><td style="padding-left:4mm;">${bugun}</td></tr>
         <tr><td>Teklif No</td><td style="padding-left:4mm;">${t.no||''}</td></tr>
-        ${t.musteriNo ? "<tr><td>Müşteri Talep No</td><td style=\"padding-left:4mm;\">${t.musteriNo}</td></tr>" : ''}
+        ${t.musteriNo ? `<tr><td>Müşteri Talep No</td><td style="padding-left:4mm;">${t.musteriNo}</td></tr>` : ''}
       </table>
     </div>
 
@@ -6670,7 +6670,7 @@ function teklifPdfIndir() {
 
     <!-- Kur notu -->
     <div class="kur-notu">
-      ${kurBilgisi ? "<strong>Uygulanan Kur:</strong> ${kurBilgisi} &nbsp;|&nbsp; " : ''}
+      ${kurBilgisi ? `<strong>Uygulanan Kur:</strong> ${kurBilgisi} &nbsp;|&nbsp; ` : ''}
       Aksi belirtilmediği sürece fiyatlarımız <strong>fatura tarihindeki TCMB günlük satış kurundan</strong> hesaplanır. &nbsp;
       <strong>Tüm Türkiye lojistik bedel teklife dahildir.</strong>
     </div>
@@ -6695,7 +6695,7 @@ function teklifPdfIndir() {
     <!-- Footer -->
     <hr class="footer-cizgi">
     <div class="footer">
-      ${logoUrl ? "<img class=\"footer-logo\" src=\"${logoUrl}\" alt=\"EMON\">" : ''}
+      ${logoUrl ? `<img class="footer-logo" src="${logoUrl}" alt="EMON">` : ''}
       <p>
         <strong>EMON BİLGİ İŞLEM ÜRÜNLERİ TİCARET A.Ş.</strong><br>
         Perpa Ticaret Merkezi B Blok Kat:11 No:1691 Okmeydanı – Şişli / İSTANBUL<br>
@@ -9856,17 +9856,17 @@ function mailHtmlOlustur(bodyText, urunler) {
     <div style="border-top:2px solid #1565C0;padding-top:12px;margin-top:20px;">
       <table style="font-family:Arial,sans-serif;font-size:13px;color:#424242;">
         <tr>
-          ${logoUrl ? "<td style=\"padding-right:16px;vertical-align:top;\">${logoHtml}</td>" : ''}
+          ${logoUrl ? `<td style="padding-right:16px;vertical-align:top;">${logoHtml}</td>` : ''}
           <td style="vertical-align:top;">
-            ${i.ad    ? "<div style=\"font-weight:700;font-size:14px;color:#212121;\">${i.ad}</div>" : ''}
-            ${i.unvan ? "<div style=\"font-size:12px;color:#757575;\">${i.unvan}</div>" : ''}
+            ${i.ad    ? `<div style="font-weight:700;font-size:14px;color:#212121;">${i.ad}</div>` : ''}
+            ${i.unvan ? `<div style="font-size:12px;color:#757575;">${i.unvan}</div>` : ''}
             <div style="margin-top:6px;line-height:1.9;">
-              ${i.firma ? "<div style=\"font-weight:600;\">${i.firma}</div>" : ''}
-              ${i.gsm   ? "<div>📱 ${i.gsm}</div>" : ''}
-              ${i.tel   ? "<div>☎️ ${i.tel}</div>" : ''}
-              ${i.mail  ? "<div>✉️ <a href=\"mailto:${i.mail}\" style=\"color:#1565C0;\">${i.mail}</a></div>" : ''}
-              ${i.web   ? "<div>🌐 <a href=\"https://${i.web.replace(/^https?:\/\//,'')}\" style=\"color:#1565C0;\">${i.web}</a></div>" : ''}
-              ${i.adres ? "<div style=\"color:#757575;font-size:12px;\">📍 ${i.adres.replace(/\n/g,'<br>')}</div>" : ''}
+              ${i.firma ? `<div style="font-weight:600;">${i.firma}</div>` : ''}
+              ${i.gsm   ? `<div>📱 ${i.gsm}</div>` : ''}
+              ${i.tel   ? `<div>☎️ ${i.tel}</div>` : ''}
+              ${i.mail  ? `<div>✉️ <a href="mailto:${i.mail}" style="color:#1565C0;">${i.mail}</a></div>` : ''}
+              ${i.web   ? `<div>🌐 <a href="https://${i.web.replace(/^https?:\/\//,'')}" style="color:#1565C0;">${i.web}</a></div>` : ''}
+              ${i.adres ? `<div style="color:#757575;font-size:12px;">📍 ${i.adres.replace(/\n/g,'<br>')}</div>` : ''}
             </div>
           </td>
         </tr>
@@ -12591,7 +12591,7 @@ function excelTedarikciYukle(input) {
             </tbody>
           </table>
         </div>
-        ${excelOkunanSatirlar.length > 10 ? "<div style=\"font-size:12px;color:var(--text3);margin-top:8px;\">... ve ${excelOkunanSatirlar.length-10} kayıt daha</div>" : ''}
+        ${excelOkunanSatirlar.length > 10 ? `<div style="font-size:12px;color:var(--text3);margin-top:8px;">... ve ${excelOkunanSatirlar.length-10} kayıt daha</div>` : ''}
 
         <div style="margin-top:14px;padding:10px 14px;background:rgba(79,142,247,0.08);border-radius:var(--radius);font-size:12px;color:var(--text2);">
           ℹ️ Mevcut tedarikçiler güncellenecek, yeni olanlar eklenecek. Listeden çıkarılmış olanlar silinmeyecek.
