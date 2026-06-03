@@ -1109,7 +1109,7 @@
           <div class="card-title">✅ Fiyat Onayı Bekleyenler</div>
           <div class="card-sub">Satıcıların onay için gönderdiği fiyatlamalar</div>
         </div>
-        <button class="btn btn-sm" onclick="renderFiyatOnaylari()">🔄 Yenile</button>
+        <button class="btn btn-sm" onclick="fiyatOnaylariTazele()">🔄 Yenile</button>
       </div>
       <div id="fiyat-onaylari-icerik">
         <div style="padding:24px;text-align:center;color:var(--text3);">Yükleniyor...</div>
@@ -3570,7 +3570,7 @@ function goPage(id, el) {
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
   if (id === 'panel') { renderPanelMetrikler(); onayBadgeGuncelle(); }
-  if (id === 'fiyatOnaylari') renderFiyatOnaylari();
+  if (id === 'fiyatOnaylari') fiyatOnaylariTazele();
   if (id === 'teklifler') renderMusteriTeklifleri();
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
@@ -8541,6 +8541,13 @@ function onayBekleyenBadgeGuncelle() {
   }
 }
 
+// Fiyat Onayları'nı SUNUCUDAN taze çekip yeniden çiz — başka cihazdaki satıcının
+// gönderdiği onay talepleri admin'e görünsün (bellekteki bayat liste değil).
+function fiyatOnaylariTazele() {
+  renderFiyatOnaylari();                                    // bayat veriyle hemen çiz (hızlı)
+  sunucudanTazele(true).then(ok => { if (ok) renderFiyatOnaylari(); }); // taze gelince yeniden çiz
+}
+
 // Admin: onay bekleyen fiyatları listele
 function renderFiyatOnaylari() {
   const icerik = document.getElementById('fiyat-onaylari-icerik');
@@ -13258,6 +13265,9 @@ async function sunucudanTazele(zorla = false) {
     if (basarili) {
       filterMusteriler(); filterTedarikciler(); renderTalepler();
       renderPanelMetrikler(); onayBadgeGuncelle();
+      onayBekleyenBadgeGuncelle(); // fiyat-onay bekleyen sayısı (sidebar) tazelensin
+      // Fiyat Onayları sayfası açıksa, başka cihazdan gelen onay taleplerini yansıt
+      if (document.getElementById('page-fiyatOnaylari')?.classList.contains('active')) renderFiyatOnaylari();
     }
     return basarili;
   } catch (_) { return false; }
