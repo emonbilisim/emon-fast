@@ -3573,7 +3573,7 @@ function goPage(id, el) {
   if (id === 'fiyatOnaylari') renderFiyatOnaylari();
   if (id === 'teklifler') renderMusteriTeklifleri();
   if (id === 'arsiv') renderArsiv();
-  if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); }
+  if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
   if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); }
   if (id === 'crm') renderCRM();
   // Liste/özet sayfalarına geçişte sunucudan taze veri çek (başka
@@ -8100,6 +8100,9 @@ async function loginYap() {
     document.getElementById('login-screen').style.display = 'none';
     // Sunucudan veriyi yükle
     await apiVeriYukle();
+    // Admin ise auth kullanıcılarını çekip yerel kayıtlara sunucu id'sini eşle
+    // (sonraki düzenleme/şifre/sil işlemleri PUT için bu id'yi kullanır)
+    if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
     stzUyariBaslat(); onayBadgeGuncelle();
@@ -8695,7 +8698,7 @@ function kullaniciFormAc(idx) {
   openModal('kullaniciForm');
 }
 
-function kullaniciKaydet() {
+async function kullaniciKaydet() {
   const hata = document.getElementById('kf-hata');
   hata.style.display = 'none';
   const ad       = document.getElementById('kf-ad').value.trim();
@@ -8720,18 +8723,48 @@ function kullaniciKaydet() {
 
   if (idx === -1) {
     kullaniciSayac++;
-    KULLANICILAR.push({ id:kullaniciSayac, ad, username, email, rol, durum, sifre:pass, imza, sonGiris:'', olusturma:new Date().toISOString().slice(0,10) });
-    showToast('"'+ad+'" kullan\u0131c\u0131s\u0131 eklendi!'); veriKaydet();
-  } else {
-    const k = KULLANICILAR[idx];
-    k.ad = ad; k.username = username; k.email = email; k.rol = rol; k.durum = durum; k.imza = imza;
-    if (pass) k.sifre = pass;
-    if (aktifKullanici?.id === k.id) { aktifKullanici = k; sidebarGuncelle(); rolUygula(); }
-    showToast('"'+ad+'" g\u00fcncellendi!'); veriKaydet();
+    const yeni = { id:kullaniciSayac, ad, username, email, rol, durum, sifre:pass, imza, sonGiris:'', olusturma:new Date().toISOString().slice(0,10) };
+    KULLANICILAR.push(yeni);
+    closeModal('kullaniciForm');
+    renderKullanicilar();
+    aktifOturumGoster();
+    veriKaydet(); // yerel + offline yedek
+    // Auth tablosuna yaz \u2014 yoksa bu kullan\u0131c\u0131 hi\u00e7bir zaman giri\u015f yapamaz
+    const sonuc = await apiKullaniciEkle(yeni);
+    if (sonuc.ok) { yeni.sunucuId = sonuc.id; showToast('"'+ad+'" eklendi ve sunucuya kaydedildi!'); }
+    else if (/mevcut|zaten/i.test(sonuc.hata || '') || sonuc.durum === 400) {
+      // Sunucuda bu kullan\u0131c\u0131 ad\u0131 zaten var \u2192 mevcut kayd\u0131 g\u00fcncelle
+      await apiKullanicilarYukle();
+      if (yeni.sunucuId) {
+        const g = await apiKullaniciGuncelle(yeni.sunucuId, yeni, pass);
+        showToast(g.ok ? '"'+ad+'" eklendi (sunucudaki kay\u0131t g\u00fcncellendi)!' : '"'+ad+'" eklendi (sunucu: '+(g.hata||'hata')+')');
+      } else showToast('"'+ad+'" eklendi (sunucu kayd\u0131 e\u015flenemedi)');
+    }
+    else showToast('"'+ad+'" eklendi (sunucuya yaz\u0131lamad\u0131: '+(sonuc.hata||'ba\u011flant\u0131')+')');
+    return;
   }
+
+  const k = KULLANICILAR[idx];
+  const eskiUsername = k.username;
+  k.ad = ad; k.username = username; k.email = email; k.rol = rol; k.durum = durum; k.imza = imza;
+  if (pass) k.sifre = pass;
+  if (aktifKullanici?.id === k.id) { aktifKullanici = k; sidebarGuncelle(); rolUygula(); }
   closeModal('kullaniciForm');
   renderKullanicilar();
   aktifOturumGoster();
+  veriKaydet();
+  // Auth tablosuna yans\u0131t
+  let mesaj = '"'+ad+'" g\u00fcncellendi!';
+  if (k.sunucuId) {
+    const g = await apiKullaniciGuncelle(k.sunucuId, k, pass || null);
+    if (!g.ok) mesaj = '"'+ad+'" g\u00fcncellendi (sunucu: '+(g.hata||'hata')+')';
+    else if (username !== eskiUsername) mesaj = '"'+ad+'" g\u00fcncellendi (not: kullan\u0131c\u0131 ad\u0131 de\u011fi\u015fikli\u011fi sunucu giri\u015fine yans\u0131maz)';
+  } else if (pass) {
+    // Yerelde var ama sunucuda yok \u2192 \u015fifre verildiyse auth tablosunda olu\u015ftur
+    const e = await apiKullaniciEkle(k);
+    if (e.ok) { k.sunucuId = e.id; mesaj = '"'+ad+'" g\u00fcncellendi ve sunucuya eklendi!'; }
+  }
+  showToast(mesaj);
 }
 function kfRolDegisti() {
   const rol = document.getElementById('kf-rol').value;
@@ -8748,22 +8781,33 @@ function kfRolDegisti() {
   ).join('');
 }
 
-function kullaniciSil(idx) {
+async function kullaniciSil(idx) {
   const k = KULLANICILAR[idx];
   if (k.id === aktifKullanici?.id) { showToast('Kendi hesabınızı silemezsiniz.'); return; }
   if (!confirm(`"${k.ad}" kullanıcısını silmek istiyor musunuz?`)) return;
+  const sunucuId = k.sunucuId;
   KULLANICILAR.splice(idx, 1);
   renderKullanicilar();
-  showToast('Kullanıcı silindi.'); veriKaydet();
+  veriKaydet();
+  // Backend'de DELETE endpoint'i yok → auth kaydını PUT ile 'Pasif' yapıp
+  // girişi engelle (giriş sorgusu durum='Aktif' filtreler).
+  if (sunucuId) {
+    const g = await apiKullaniciGuncelle(sunucuId, { ...k, durum:'pasif' });
+    showToast(g.ok ? 'Kullanıcı silindi (sunucu girişi kapatıldı).' : 'Kullanıcı yerelden silindi (sunucu: '+(g.hata||'hata')+').');
+  } else showToast('Kullanıcı silindi.');
 }
 
-function sifreSifirla(idx) {
+async function sifreSifirla(idx) {
   const k = KULLANICILAR[idx];
   const yeni = prompt(`"${k.ad}" için yeni şifre (en az 6 karakter):`);
   if (!yeni) return;
   if (yeni.length < 6) { showToast('Şifre en az 6 karakter olmalıdır.'); return; }
   k.sifre = yeni;
-  showToast(`"${k.ad}" şifresi güncellendi!`);
+  veriKaydet(); // yerel kalıcılık (eskiden hiç kaydedilmiyordu)
+  if (k.sunucuId) {
+    const g = await apiKullaniciGuncelle(k.sunucuId, k, yeni);
+    showToast(g.ok ? `"${k.ad}" şifresi güncellendi (sunucu dahil)!` : `"${k.ad}" şifresi yerelde güncellendi (sunucu: ${g.hata||'hata'}).`);
+  } else showToast(`"${k.ad}" şifresi güncellendi! (yalnızca yerel — sunucu kaydı yok)`);
 }
 
 
@@ -12725,6 +12769,75 @@ async function apiVeriCekHam() {
     if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
     return await r.json();
   } catch (_) { return null; }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   KULLANICI (AUTH) TABLOSU API'si
+   Auth tablosu (/api/kullanicilar) /api/veri'den BAĞIMSIZDIR: POST /api/veri
+   KULLANICILAR alanını tamamen yok sayar. Bu yüzden uygulamadan eklenen/
+   düzenlenen kullanıcılar bu endpointlere yazılmazsa auth tablosuna hiç
+   gitmez → hiçbir zaman giriş yapamaz. Aşağıdaki yardımcılar frontend'i
+   kalıcı olarak /api/kullanicilar'a bağlar.
+   Notlar:
+   - Backend giriş sorgusu durum='Aktif' (büyük A) filtreler; yerel
+     'aktif'/'pasif' değerlerini sunucuya 'Aktif'/'Pasif' olarak gönderiyoruz.
+   - Yerel KULLANICILAR id'leri sunucu id'leriyle eşleşmez → username üzerinden
+     eşleyip k.sunucuId'ye yazıyoruz (PUT/sil bunu kullanır).
+   - PUT username'i GÜNCELLEMEZ (backend kısıtı) ve DELETE endpoint'i yoktur
+     → silme = PUT durum:'Pasif' (giriş engellenir).
+   ────────────────────────────────────────────────────────────── */
+function _durumSunucu(d) { return (d === 'pasif') ? 'Pasif' : 'Aktif'; }
+
+// Sunucudaki auth kullanıcılarını çek ve yerel kayıtlara username üzerinden
+// sunucu id'sini eşle. Admin değilse / token yoksa sessizce null döner.
+async function apiKullanicilarYukle() {
+  const token = apiTokenAl();
+  if (!token) return null;
+  try {
+    const r = await fetch(API_URL + '/api/kullanicilar', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
+    const liste = await r.json();
+    if (!Array.isArray(liste)) return null;
+    const byUser = new Map(liste.map(s => [s.username, s]));
+    KULLANICILAR.forEach(k => { const s = byUser.get(k.username); if (s) k.sunucuId = s.id; });
+    return liste;
+  } catch (e) { console.warn('Kullanıcı listesi yükleme hatası:', e); return null; }
+}
+
+async function apiKullaniciEkle(k) {
+  const token = apiTokenAl();
+  if (!token) return { ok:false, hata:'Oturum yok' };
+  try {
+    const r = await fetch(API_URL + '/api/kullanicilar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ ad:k.ad, username:k.username, email:k.email||'', rol:k.rol, sifre:k.sifre, durum:_durumSunucu(k.durum) })
+    });
+    if (r.status === 401) { oturumSuresiDoldu(); return { ok:false, hata:'Oturum süresi doldu' }; }
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) return { ok:true, id:data.id };
+    return { ok:false, hata: data.hata || 'Sunucu hatası', durum:r.status };
+  } catch (e) { console.warn('Kullanıcı ekleme hatası:', e); return { ok:false, hata:'Bağlantı hatası' }; }
+}
+
+// yeniSifre yalnızca şifre gerçekten değiştiyse verilir; yoksa sunucudaki
+// hash korunur (her güncellemede yerel şifreyle ezilmez).
+async function apiKullaniciGuncelle(sunucuId, k, yeniSifre) {
+  const token = apiTokenAl();
+  if (!token || !sunucuId) return { ok:false, hata:'Oturum/sunucu kimliği yok' };
+  try {
+    const govde = { ad:k.ad, email:k.email||'', rol:k.rol, durum:_durumSunucu(k.durum) };
+    if (yeniSifre) govde.sifre = yeniSifre;
+    const r = await fetch(API_URL + '/api/kullanicilar/' + encodeURIComponent(sunucuId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(govde)
+    });
+    if (r.status === 401) { oturumSuresiDoldu(); return { ok:false, hata:'Oturum süresi doldu' }; }
+    if (r.ok) return { ok:true };
+    const data = await r.json().catch(() => ({}));
+    return { ok:false, hata: data.hata || 'Sunucu hatası' };
+  } catch (e) { console.warn('Kullanıcı güncelleme hatası:', e); return { ok:false, hata:'Bağlantı hatası' }; }
 }
 
 /* ──────────────────────────────────────────────────────────────
