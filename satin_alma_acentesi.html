@@ -8636,7 +8636,7 @@ function renderKullanicilar() {
   if (!tbody) return;
   tbody.innerHTML = '';
   KULLANICILAR.forEach((k, idx) => {
-    const benimHesap = aktifKullanici?.id === k.id;
+    const benimHesap = !!aktifKullanici && (aktifKullanici.id === k.id || aktifKullanici.username === k.username);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>
@@ -8748,7 +8748,7 @@ async function kullaniciKaydet() {
   const eskiUsername = k.username;
   k.ad = ad; k.username = username; k.email = email; k.rol = rol; k.durum = durum; k.imza = imza;
   if (pass) k.sifre = pass;
-  if (aktifKullanici?.id === k.id) { aktifKullanici = k; sidebarGuncelle(); rolUygula(); }
+  if (aktifKullanici && (aktifKullanici.id === k.id || aktifKullanici.username === k.username)) { aktifKullanici = k; sidebarGuncelle(); rolUygula(); }
   closeModal('kullaniciForm');
   renderKullanicilar();
   aktifOturumGoster();
@@ -8783,7 +8783,7 @@ function kfRolDegisti() {
 
 async function kullaniciSil(idx) {
   const k = KULLANICILAR[idx];
-  if (k.id === aktifKullanici?.id) { showToast('Kendi hesabınızı silemezsiniz.'); return; }
+  if (aktifKullanici && (k.id === aktifKullanici.id || k.username === aktifKullanici.username)) { showToast('Kendi hesabınızı silemezsiniz.'); return; }
   if (!confirm(`"${k.ad}" kullanıcısını silmek istiyor musunuz?`)) return;
   const sunucuId = k.sunucuId;
   KULLANICILAR.splice(idx, 1);
@@ -12787,9 +12787,14 @@ async function apiVeriCekHam() {
      → silme = PUT durum:'Pasif' (giriş engellenir).
    ────────────────────────────────────────────────────────────── */
 function _durumSunucu(d) { return (d === 'pasif') ? 'Pasif' : 'Aktif'; }
+function _durumYerel(d)  { return (d === 'Pasif' || d === 'pasif') ? 'pasif' : 'aktif'; }
 
-// Sunucudaki auth kullanıcılarını çek ve yerel kayıtlara username üzerinden
-// sunucu id'sini eşle. Admin değilse / token yoksa sessizce null döner.
+// Auth tablosu (/api/kullanicilar) giriş yapabilen kullanıcıların TEK gerçek
+// kaynağıdır; /api/veri KULLANICILAR'ı döndürmez. Bu yüzden admin listesini
+// yerel/localStorage yerine buradan beslemek gerekir: sunucudaki her kullanıcıyı
+// yerel listeye BİRLEŞTİR — eşleşeni (username) güncelle ve sunucu id'sini yaz,
+// yerelde olmayanı ekle. Böylece başka bir tarayıcı/cihazda eklenen kullanıcılar
+// da admin'in Kullanıcı Yönetimi ekranında görünür. Admin değilse 403 → null.
 async function apiKullanicilarYukle() {
   const token = apiTokenAl();
   if (!token) return null;
@@ -12798,8 +12803,26 @@ async function apiKullanicilarYukle() {
     if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
     const liste = await r.json();
     if (!Array.isArray(liste)) return null;
-    const byUser = new Map(liste.map(s => [s.username, s]));
-    KULLANICILAR.forEach(k => { const s = byUser.get(k.username); if (s) k.sunucuId = s.id; });
+    const yerelByUser = new Map(KULLANICILAR.map(k => [k.username, k]));
+    liste.forEach(s => {
+      const mevcut = yerelByUser.get(s.username);
+      if (mevcut) {
+        // Sunucu auth durumu esas: görünen alanları tazele (yerel sifre/imza korunur)
+        mevcut.sunucuId = s.id;
+        mevcut.ad = s.ad; mevcut.email = s.email || '';
+        mevcut.rol = s.rol; mevcut.durum = _durumYerel(s.durum);
+        if (s.son_giris) mevcut.sonGiris = s.son_giris;
+      } else {
+        kullaniciSayac++;
+        KULLANICILAR.push({
+          id: kullaniciSayac, sunucuId: s.id, ad: s.ad, username: s.username,
+          email: s.email || '', rol: s.rol, durum: _durumYerel(s.durum),
+          sifre: '', imza: { unvan: '', gsm: '' }, sonGiris: s.son_giris || '',
+          olusturma: (s.olusturma || '').slice(0, 10),
+        });
+      }
+    });
+    renderKullanicilar(); // yeni gelen kullanıcılar ekrana yansısın
     return liste;
   } catch (e) { console.warn('Kullanıcı listesi yükleme hatası:', e); return null; }
 }
