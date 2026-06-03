@@ -40,15 +40,32 @@ jobs:
             const fs = require('fs');
             const f = '/var/www/emonfast/server.js';
             let s = fs.readFileSync(f, 'utf8');
+            let degisti = false;
+            const yedek = () => { if (!degisti) fs.writeFileSync(f + '.bak.ci', s); };
+            // 1) Bos dizi tablo silme korumasi
             if (s.includes('if (MUSTERILER) {') || s.includes('if (TEDARIKCILER) {')) {
-            fs.writeFileSync(f + '.bak.ci', s);
-            s = s.replace('if (MUSTERILER) {', 'if (Array.isArray(MUSTERILER) && MUSTERILER.length) {');
-            s = s.replace('if (TEDARIKCILER) {', 'if (Array.isArray(TEDARIKCILER) && TEDARIKCILER.length) {');
-            fs.writeFileSync(f, s);
-            console.log('server.js patched');
-            } else {
-            console.log('server.js already patched');
+              yedek();
+              s = s.replace('if (MUSTERILER) {', 'if (Array.isArray(MUSTERILER) && MUSTERILER.length) {');
+              s = s.replace('if (TEDARIKCILER) {', 'if (Array.isArray(TEDARIKCILER) && TEDARIKCILER.length) {');
+              degisti = true;
+              console.log('server.js dizi-koruma yamalandi');
             }
+            // 2) DELETE /api/kullanicilar/:id — yalnizca durum=Pasif kayitlari kalici siler
+            if (!s.includes("app.delete('/api/kullanicilar/:id'") && s.includes("app.get('/api/saglik'")) {
+              yedek();
+              const route =
+                "app.delete('/api/kullanicilar/:id', authMiddleware, async (req, res) => {\n" +
+                "  if (req.kullanici.rol !== 'admin') return res.status(403).json({ hata: 'Yetkisiz' });\n" +
+                "  if (String(req.kullanici.id) === String(req.params.id)) return res.status(400).json({ hata: 'Kendi hesabinizi silemezsiniz' });\n" +
+                "  const r = await pool.query(\"DELETE FROM kullanicilar WHERE id=$1 AND durum='Pasif'\", [req.params.id]);\n" +
+                "  if (!r.rowCount) return res.status(400).json({ hata: 'Yalnizca pasif kullanici kalici silinebilir' });\n" +
+                "  res.json({ ok: true });\n" +
+                "});\n\n";
+              s = s.replace("app.get('/api/saglik'", route + "app.get('/api/saglik'");
+              degisti = true;
+              console.log('DELETE /api/kullanicilar/:id route eklendi');
+            }
+            if (degisti) fs.writeFileSync(f, s); else console.log('server.js zaten guncel');
             PATCH
             node /tmp/emon-patch.js
 

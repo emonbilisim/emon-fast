@@ -8656,7 +8656,10 @@ function renderKullanicilar() {
         <div style="display:flex;gap:4px;">
           <button class="btn btn-sm" style="padding:4px 8px;" onclick="kullaniciFormAc(${idx})" title="Düzenle">✏️</button>
           <button class="btn btn-sm" style="padding:4px 8px;" onclick="sifreSifirla(${idx})" title="Şifre sıfırla">🔑</button>
-          ${!benimHesap ? ('<button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="kullaniciSil(' + idx + ')" title="Sil">🗑</button>') : ''}
+          ${!benimHesap ? (k.durum === 'pasif'
+            ? ('<button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.5);" onclick="kullaniciKaliciSil(' + idx + ')" title="Kalıcı sil (geri alınamaz)">🗑️❌</button>')
+            : ('<button class="btn btn-sm" style="padding:4px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="kullaniciSil(' + idx + ')" title="Pasife al (girişi kapat)">🗑</button>')
+          ) : ''}
         </div>
       </td>`;
     tbody.appendChild(tr);
@@ -8781,20 +8784,44 @@ function kfRolDegisti() {
   ).join('');
 }
 
+// 1. AŞAMA — Pasife al: girişi kapatır (giriş sorgusu durum='Aktif' filtreler),
+// kullanıcı listede "Pasif" olarak GÖRÜNÜR kalır (kalıcı silme buradan yapılır).
 async function kullaniciSil(idx) {
   const k = KULLANICILAR[idx];
   if (aktifKullanici && (k.id === aktifKullanici.id || k.username === aktifKullanici.username)) { showToast('Kendi hesabınızı silemezsiniz.'); return; }
-  if (!confirm(`"${k.ad}" kullanıcısını silmek istiyor musunuz?`)) return;
-  const sunucuId = k.sunucuId;
-  KULLANICILAR.splice(idx, 1);
+  if (!confirm(`"${k.ad}" kullanıcısını pasife alıp girişini kapatmak istiyor musunuz?`)) return;
+  if (k.sunucuId) {
+    const g = await apiKullaniciGuncelle(k.sunucuId, { ...k, durum:'pasif' });
+    if (!g.ok) { showToast('Sunucu hatası: '+(g.hata||'?')+' — değişiklik uygulanmadı.'); return; }
+    k.durum = 'pasif';
+    renderKullanicilar();
+    veriKaydet();
+    showToast('Kullanıcı pasife alındı (girişi kapatıldı). Kalıcı silmek için 🗑️❌ kullanın.');
+  } else {
+    // Sunucuda olmayan yerel-only kayıt → doğrudan kaldır
+    KULLANICILAR.splice(idx, 1);
+    renderKullanicilar();
+    veriKaydet();
+    showToast('Kullanıcı silindi.');
+  }
+}
+
+// 2. AŞAMA — Kalıcı sil: auth tablosundan tamamen kaldırır (geri alınamaz).
+// Sunucu yalnızca durum='Pasif' kayıtları siler; önce pasife alınmalı.
+async function kullaniciKaliciSil(idx) {
+  const k = KULLANICILAR[idx];
+  if (aktifKullanici && (k.id === aktifKullanici.id || k.username === aktifKullanici.username)) { showToast('Kendi hesabınızı silemezsiniz.'); return; }
+  if (k.durum !== 'pasif') { showToast('Yalnızca pasif kullanıcı kalıcı silinebilir. Önce 🗑 ile pasife alın.'); return; }
+  if (!confirm(`"${k.ad}" KALICI olarak silinecek ve geri alınamaz.\n\nEmin misiniz?`)) return;
+  if (k.sunucuId) {
+    const g = await apiKullaniciKaliciSil(k.sunucuId);
+    if (!g.ok) { showToast('Kalıcı silinemedi (sunucu: '+(g.hata||'hata')+').'); return; }
+  }
+  const i = KULLANICILAR.indexOf(k);
+  if (i >= 0) KULLANICILAR.splice(i, 1);
   renderKullanicilar();
   veriKaydet();
-  // Backend'de DELETE endpoint'i yok → auth kaydını PUT ile 'Pasif' yapıp
-  // girişi engelle (giriş sorgusu durum='Aktif' filtreler).
-  if (sunucuId) {
-    const g = await apiKullaniciGuncelle(sunucuId, { ...k, durum:'pasif' });
-    showToast(g.ok ? 'Kullanıcı silindi (sunucu girişi kapatıldı).' : 'Kullanıcı yerelden silindi (sunucu: '+(g.hata||'hata')+').');
-  } else showToast('Kullanıcı silindi.');
+  showToast(`"${k.ad}" kalıcı olarak silindi.`);
 }
 
 async function sifreSifirla(idx) {
@@ -12861,6 +12888,24 @@ async function apiKullaniciGuncelle(sunucuId, k, yeniSifre) {
     const data = await r.json().catch(() => ({}));
     return { ok:false, hata: data.hata || 'Sunucu hatası' };
   } catch (e) { console.warn('Kullanıcı güncelleme hatası:', e); return { ok:false, hata:'Bağlantı hatası' }; }
+}
+
+// Kalıcı sil — backend yalnızca durum='Pasif' kayıtları siler (DELETE endpoint
+// deploy yamasıyla eklenir). Eski sunucu sürümünde 404/405 dönerse hata mesajı verir.
+async function apiKullaniciKaliciSil(sunucuId) {
+  const token = apiTokenAl();
+  if (!token || !sunucuId) return { ok:false, hata:'Oturum/sunucu kimliği yok' };
+  try {
+    const r = await fetch(API_URL + '/api/kullanicilar/' + encodeURIComponent(sunucuId), {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (r.status === 401) { oturumSuresiDoldu(); return { ok:false, hata:'Oturum süresi doldu' }; }
+    if (r.ok) return { ok:true };
+    if (r.status === 404 || r.status === 405) return { ok:false, hata:'Sunucu bu özelliği henüz desteklemiyor (deploy bekleniyor)' };
+    const data = await r.json().catch(() => ({}));
+    return { ok:false, hata: data.hata || 'Sunucu hatası' };
+  } catch (e) { console.warn('Kullanıcı kalıcı silme hatası:', e); return { ok:false, hata:'Bağlantı hatası' }; }
 }
 
 /* ──────────────────────────────────────────────────────────────
