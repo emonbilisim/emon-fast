@@ -9701,6 +9701,62 @@ async function _msalGirisisle(result) {
     email = me.mail || me.userPrincipalName || email;
   } catch {}
 
+  // ── DURUM 1: Zaten şifreyle girilmiş bir oturum var (ör. giriş yapıp sonra
+  // Outlook bağlama). Backend JWT'si zaten mevcut → yalnızca MS hesabını bağla,
+  // rolü/kimliği/JWT'yi DEĞİŞTİRME.
+  if (aktifKullanici && aktifKullanici.rol) {
+    aktifKullanici.msAccount = result.account;
+    if (!aktifKullanici.email) aktifKullanici.email = email;
+    const ai = KULLANICILAR.findIndex(k => k.id === aktifKullanici.id);
+    if (ai >= 0) KULLANICILAR[ai] = { ...KULLANICILAR[ai], msAccount: result.account };
+    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: aktifKullanici.id, username: aktifKullanici.username, msAccount: result.account }));
+    document.getElementById('login-screen').style.display = 'none';
+    const bilgi1 = document.getElementById('ms-giris-bilgi');
+    if (bilgi1) bilgi1.style.display = 'block';
+    rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
+    msStatusGuncelle(); msTokenAutoRefreshKur();
+    showToast('✓ Microsoft 365 bağlandı: ' + (aktifKullanici.email || aktifKullanici.ad));
+    return;
+  }
+
+  // ── DURUM 2: Microsoft ile BİRİNCİL giriş. Backend'e SSO yap → JWT al.
+  // Kullanıcı ekleme/listeleme ve veri senkronu bu backend token'ını gerektirir;
+  // yoksa eskisi gibi sessiz "çevrimdışı" tuzağına düşerdik.
+  const sso = await apiGirisMs(accessToken);
+  if (sso && sso.token && sso.kullanici) {
+    const s = sso.kullanici;
+    const k = {
+      id: s.id, sunucuId: s.id, ad: s.ad || displayName,
+      username: s.username || email, email: s.email || email,
+      rol: s.rol, durum: _durumYerel(s.durum),
+      sifre: '', sonGiris: new Date().toLocaleString('tr-TR'),
+      olusturma: String(s.olusturma || new Date().toISOString().slice(0,10)).slice(0, 10),
+      imza: { unvan: '', gsm: '' }, msAccount: result.account,
+    };
+    // Yerel KULLANICILAR ile birleştir (username ya da email üzerinden)
+    const mi = KULLANICILAR.findIndex(u =>
+      (u.username || '').toLowerCase() === (k.username || '').toLowerCase() ||
+      (u.email || '').toLowerCase() === (k.email || '').toLowerCase());
+    if (mi >= 0) KULLANICILAR[mi] = { ...KULLANICILAR[mi], ...k };
+    else KULLANICILAR.push(k);
+    aktifKullanici = k;
+    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: k.id, username: k.username, msAccount: result.account }));
+    document.getElementById('login-screen').style.display = 'none';
+    await apiVeriYukle();
+    if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
+    filterMusteriler(); filterTedarikciler(); renderTalepler();
+    rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
+    ayarlariYukle(); setTimeout(renderPanelMetrikler, 100);
+    try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
+    const bilgi2 = document.getElementById('ms-giris-bilgi');
+    if (bilgi2) bilgi2.style.display = 'block';
+    msStatusGuncelle(); msTokenAutoRefreshKur();
+    showToast(`Hoşgeldiniz, ${k.ad.split(' ')[0]}!`);
+    return;
+  }
+
+  // ── DURUM 3: SSO başarısız (eski sunucu / ağ hatası). Eski yerel davranışa düş
+  // AMA bunu gizleme — kullanıcı sunucuya yazamayacağını net görsün.
   const msUser = {
     id: Date.now(), ad: displayName,
     username: email, email: email,
@@ -9709,37 +9765,43 @@ async function _msalGirisisle(result) {
     olusturma: new Date().toISOString().slice(0,10),
     msAccount: result.account,
   };
-
-  // Zaten giriş yapılmış bir oturum varsa (ör. şifreyle girip Outlook bağlama):
-  // Microsoft hesabını mevcut kullanıcıya bağla — rolü/kimliği DEĞİŞTİRME.
-  if (aktifKullanici && aktifKullanici.rol) {
-    aktifKullanici.msAccount = result.account;
-    if (!aktifKullanici.email) aktifKullanici.email = email;
-    const ai = KULLANICILAR.findIndex(k => k.id === aktifKullanici.id);
-    if (ai >= 0) KULLANICILAR[ai] = { ...KULLANICILAR[ai], msAccount: result.account };
-    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: aktifKullanici.id, username: aktifKullanici.username, msAccount: result.account }));
+  const mevcut = KULLANICILAR.findIndex(k => (k.email || '').toLowerCase() === msUser.email.toLowerCase());
+  if (mevcut >= 0) {
+    msUser.id  = KULLANICILAR[mevcut].id;
+    msUser.rol = KULLANICILAR[mevcut].rol;
+    KULLANICILAR[mevcut] = msUser;
   } else {
-    // Microsoft ile birincil giriş — rolü belirle
-    const mevcut = KULLANICILAR.findIndex(k => (k.email || '').toLowerCase() === msUser.email.toLowerCase());
-    if (mevcut >= 0) {
-      msUser.id  = KULLANICILAR[mevcut].id;
-      msUser.rol = KULLANICILAR[mevcut].rol;
-      KULLANICILAR[mevcut] = msUser;
-    } else {
-      // Listede yoksa: admin allowlist'i admin yapar, diğer herkes satıcı (en az yetki)
-      msUser.rol = MS_ADMIN_EMAILS.includes(msUser.email.toLowerCase()) ? 'admin' : 'satici';
-      KULLANICILAR.push(msUser);
-    }
-    aktifKullanici = msUser;
-    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: msUser.id, username: msUser.username, msAccount: result.account }));
+    msUser.rol = MS_ADMIN_EMAILS.includes(msUser.email.toLowerCase()) ? 'admin' : 'satici';
+    KULLANICILAR.push(msUser);
   }
+  aktifKullanici = msUser;
+  localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: msUser.id, username: msUser.username, msAccount: result.account }));
   document.getElementById('login-screen').style.display = 'none';
-  const bilgi = document.getElementById('ms-giris-bilgi');
-  if (bilgi) bilgi.style.display = 'block';
+  const bilgi3 = document.getElementById('ms-giris-bilgi');
+  if (bilgi3) bilgi3.style.display = 'block';
   rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
   ayarlariYukle();
   msStatusGuncelle(); msTokenAutoRefreshKur();
-  showToast(`Hoşgeldiniz, ${msUser.ad.split(' ')[0]}!`);
+  showToast(`Hoşgeldiniz, ${msUser.ad.split(' ')[0]}! (⚠ Çevrimdışı — sunucuya bağlanılamadı, değişiklikler kaydedilmez)`);
+}
+
+// Microsoft 365 access token'ını backend JWT'sine çevirir (POST /api/giris-ms).
+// Backend token'ı Microsoft Graph /me ile doğrular, kullanıcıyı e-postadan bulur/
+// oluşturur ve 8 saatlik JWT döner. 404/405 = sunucu henüz bu ucu desteklemiyor.
+async function apiGirisMs(accessToken) {
+  if (!accessToken) return null;
+  try {
+    const r = await fetch(API_URL + '/api/giris-ms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken })
+    });
+    if (r.status === 404 || r.status === 405) { console.warn('Sunucu /api/giris-ms desteklemiyor (deploy bekleniyor)'); return null; }
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.token) { apiTokenSet(data.token); return data; }
+    console.warn('MS SSO başarısız:', data.hata || r.status);
+    return null;
+  } catch (e) { console.warn('MS SSO hata:', e); return null; }
 }
 
 async function msTokenYenile(account) {

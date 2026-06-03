@@ -96,6 +96,55 @@ jobs:
               degisti = true;
               console.log('kullanici-sil route v2 eklendi');
             }
+            // 3) POST /api/giris-ms — Microsoft 365 SSO koprusu. MS access token'i
+            //    Graph /me ile dogrular, kullaniciyi e-postadan bulur/olusturur,
+            //    backend JWT (8h) doner. Sifreyle giris ile ayni token semasi.
+            const msRoute =
+              "app.post('/api/giris-ms', async (req, res) => { // giris-ms v1\n" +
+              "  try {\n" +
+              "    const jwt2 = require('jsonwebtoken');\n" +
+              "    const https = require('https');\n" +
+              "    const accessToken = (req.body && req.body.accessToken) || '';\n" +
+              "    if (!accessToken) return res.status(400).json({ hata: 'Microsoft token gerekli' });\n" +
+              "    const me = await new Promise((resolve, reject) => {\n" +
+              "      const gr = https.request({ hostname: 'graph.microsoft.com', path: '/v1.0/me', method: 'GET', headers: { Authorization: 'Bearer ' + accessToken } }, (gres) => {\n" +
+              "        let d = '';\n" +
+              "        gres.on('data', c => d += c);\n" +
+              "        gres.on('end', () => {\n" +
+              "          if (gres.statusCode >= 200 && gres.statusCode < 300) { try { resolve(JSON.parse(d)); } catch (e) { reject(new Error('parse')); } }\n" +
+              "          else reject(new Error('graph ' + gres.statusCode));\n" +
+              "        });\n" +
+              "      });\n" +
+              "      gr.on('error', reject);\n" +
+              "      gr.setTimeout(10000, () => gr.destroy(new Error('timeout')));\n" +
+              "      gr.end();\n" +
+              "    });\n" +
+              "    const email = String(me.mail || me.userPrincipalName || '').toLowerCase().trim();\n" +
+              "    if (!email) return res.status(401).json({ hata: 'E-posta alinamadi' });\n" +
+              "    const ADMIN_EMAILS = ['selim@emon.com.tr'];\n" +
+              "    let u = (await pool.query('SELECT * FROM kullanicilar WHERE lower(username)=$1 OR lower(email)=$1 LIMIT 1', [email])).rows[0];\n" +
+              "    if (!u) {\n" +
+              "      const rol = ADMIN_EMAILS.indexOf(email) >= 0 ? 'admin' : 'satici';\n" +
+              "      u = (await pool.query('INSERT INTO kullanicilar (ad, username, email, rol, sifre, durum) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *', [me.displayName || email, email, email, rol, '', 'Aktif'])).rows[0];\n" +
+              "    }\n" +
+              "    if (String(u.durum).toLowerCase() !== 'aktif') return res.status(403).json({ hata: 'Hesap pasif' });\n" +
+              "    try { await pool.query('UPDATE kullanicilar SET son_giris=NOW() WHERE id=$1', [u.id]); } catch (e) {}\n" +
+              "    const token = jwt2.sign({ id: u.id, username: u.username, rol: u.rol }, process.env.JWT_SECRET, { expiresIn: '8h' });\n" +
+              "    res.json({ token, kullanici: { id: u.id, ad: u.ad, username: u.username, email: u.email, rol: u.rol, durum: u.durum, olusturma: u.olusturma } });\n" +
+              "  } catch (e) {\n" +
+              "    res.status(401).json({ hata: 'Microsoft dogrulama basarisiz: ' + (e.message || 'hata') });\n" +
+              "  }\n" +
+              "});\n";
+            if (s.includes('// giris-ms v1')) {
+              console.log('giris-ms route zaten var');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", msRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('giris-ms route eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, giris-ms eklenemedi');
+            }
             if (degisti) fs.writeFileSync(f, s); else console.log('server.js zaten guncel');
             PATCH
             node /tmp/emon-patch.js
