@@ -6725,17 +6725,11 @@ async function musteriTeklifMaili() {
   if (!t) return;
 
   // Gönderim yetkisi: Admin her zaman gönderebilir.
-  // Satıcı: yalnızca admin away modda VE talep oto-talep (gelen mail) akışından gelmişse.
-  // Diğer her durumda mail admin tarafından gönderilmelidir.
-  if (aktifKullanici?.rol !== 'admin') {
-    if (!AYARLAR.awayMode) {
-      showToast('⚠ Teklif mailini gönderme yetkisi admindedir.');
-      return;
-    }
-    if (!t.mailId) {
-      showToast('⚠ Away modda yalnızca oto-talep (gelen mailden oluşan) taleplerde gönderim yetkiniz vardır.');
-      return;
-    }
+  // Satıcı: fiyat admin tarafından ONAYLANDIYSA müşteriye gönderebilir
+  // (kendi Outlook'undan gider). Onaysız gönderim engellenir.
+  if (aktifKullanici?.rol !== 'admin' && t.fiyatOnayDurumu !== 'onaylandi') {
+    showToast('⚠ Müşteriye göndermeden önce admin fiyat onayı gerekli.');
+    return;
   }
 
   const m       = MUSTERILER.find(x => x.firma === t.musteri);
@@ -8249,9 +8243,8 @@ function satisBolumunuGuncelle() {
           + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti — tablodaki değerler admin\'in onayladığı değerlerdir.</span>' : '')
           + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Admin notu: ' + t.fiyatOnayTalep.adminNot + '</span>' : '');
       }
-      // Satıcı yalnızca admin uzaktayken (away mode) ve talep oto-mail kaynağıysa gönderebilir.
-      // Diğer durumlarda mail admin tarafından gönderilir.
-      const saticiGonderebilir = !!(AYARLAR.awayMode && t.mailId);
+      // Fiyat admin tarafından onaylandı → satıcı müşteriye kendi Outlook'undan gönderebilir.
+      const saticiGonderebilir = true;
       const gonder = document.getElementById('btn-satici-gonder');
       if (gonder) gonder.style.display = saticiGonderebilir ? 'flex' : 'none';
       const pdfBtnS = document.getElementById('btn-pdf-indir-satici');
