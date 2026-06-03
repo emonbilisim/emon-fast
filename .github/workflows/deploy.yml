@@ -50,20 +50,51 @@ jobs:
               degisti = true;
               console.log('server.js dizi-koruma yamalandi');
             }
-            // 2) DELETE /api/kullanicilar/:id — yalnizca durum=Pasif kayitlari kalici siler
-            if (!s.includes("app.delete('/api/kullanicilar/:id'") && s.includes("app.get('/api/saglik'")) {
+            // 2) DELETE /api/kullanicilar/:id (v2) — referanslari NULL'a cekip
+            //    (musteri/tedarikci/talep verisi KORUNUR) pasif kullaniciyi siler.
+            const yeniRoute =
+              "app.delete('/api/kullanicilar/:id', authMiddleware, async (req, res) => { // kullanici-sil v2\n" +
+              "  if (req.kullanici.rol !== 'admin') return res.status(403).json({ hata: 'Yetkisiz' });\n" +
+              "  if (String(req.kullanici.id) === String(req.params.id)) return res.status(400).json({ hata: 'Kendi hesabinizi silemezsiniz' });\n" +
+              "  const id = req.params.id;\n" +
+              "  const client = await pool.connect();\n" +
+              "  try {\n" +
+              "    await client.query('BEGIN');\n" +
+              "    await client.query('UPDATE musteriler SET olusturan_id=NULL WHERE olusturan_id=$1', [id]);\n" +
+              "    await client.query('UPDATE tedarikciler SET olusturan_id=NULL WHERE olusturan_id=$1', [id]);\n" +
+              "    await client.query('UPDATE talepler SET olusturan_id=NULL WHERE olusturan_id=$1', [id]);\n" +
+              "    await client.query('UPDATE audit_log SET kullanici_id=NULL WHERE kullanici_id=$1', [id]);\n" +
+              "    const r = await client.query(\"DELETE FROM kullanicilar WHERE id=$1 AND durum='Pasif'\", [id]);\n" +
+              "    if (!r.rowCount) { await client.query('ROLLBACK'); return res.status(400).json({ hata: 'Yalnizca pasif kullanici kalici silinebilir' }); }\n" +
+              "    await client.query('COMMIT');\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) {\n" +
+              "    try { await client.query('ROLLBACK'); } catch (_) {}\n" +
+              "    res.status(500).json({ hata: 'Silme hatasi: ' + e.message });\n" +
+              "  } finally {\n" +
+              "    client.release();\n" +
+              "  }\n" +
+              "});\n";
+            const eskiRoute =
+              "app.delete('/api/kullanicilar/:id', authMiddleware, async (req, res) => {\n" +
+              "  if (req.kullanici.rol !== 'admin') return res.status(403).json({ hata: 'Yetkisiz' });\n" +
+              "  if (String(req.kullanici.id) === String(req.params.id)) return res.status(400).json({ hata: 'Kendi hesabinizi silemezsiniz' });\n" +
+              "  const r = await pool.query(\"DELETE FROM kullanicilar WHERE id=$1 AND durum='Pasif'\", [req.params.id]);\n" +
+              "  if (!r.rowCount) return res.status(400).json({ hata: 'Yalnizca pasif kullanici kalici silinebilir' });\n" +
+              "  res.json({ ok: true });\n" +
+              "});\n";
+            if (s.includes('// kullanici-sil v2')) {
+              console.log('kullanici-sil route zaten v2');
+            } else if (s.includes(eskiRoute)) {
               yedek();
-              const route =
-                "app.delete('/api/kullanicilar/:id', authMiddleware, async (req, res) => {\n" +
-                "  if (req.kullanici.rol !== 'admin') return res.status(403).json({ hata: 'Yetkisiz' });\n" +
-                "  if (String(req.kullanici.id) === String(req.params.id)) return res.status(400).json({ hata: 'Kendi hesabinizi silemezsiniz' });\n" +
-                "  const r = await pool.query(\"DELETE FROM kullanicilar WHERE id=$1 AND durum='Pasif'\", [req.params.id]);\n" +
-                "  if (!r.rowCount) return res.status(400).json({ hata: 'Yalnizca pasif kullanici kalici silinebilir' });\n" +
-                "  res.json({ ok: true });\n" +
-                "});\n\n";
-              s = s.replace("app.get('/api/saglik'", route + "app.get('/api/saglik'");
+              s = s.replace(eskiRoute, yeniRoute);
               degisti = true;
-              console.log('DELETE /api/kullanicilar/:id route eklendi');
+              console.log('kullanici-sil route v2 ile guncellendi');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", yeniRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('kullanici-sil route v2 eklendi');
             }
             if (degisti) fs.writeFileSync(f, s); else console.log('server.js zaten guncel');
             PATCH
