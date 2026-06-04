@@ -4451,6 +4451,7 @@ function talepDurumDegistir(idx) {
 function talepSil(idx) {
   if (confirm(`"${TALEPLER[idx].urun}" talebini silmek istiyor musunuz?`)) {
     TALEPLER.splice(idx, 1);
+    _taleplerKastenSilindi = true; // kasıtlı silme → boş/azalmış liste sunucuya yazılabilsin
     renderTalepler();
     showToast('Talep silindi.'); veriKaydet();
   }
@@ -13043,6 +13044,10 @@ async function apiKullaniciKaliciSil(sunucuId) {
    ────────────────────────────────────────────────────────────── */
 let _sunucuBaz = null; // sunucudan en son senkronlanan durum (merge temeli)
 let _kayitGerekli = false; // sunucuya yazılamamış yerel değişiklik var mı (tekrar dene)
+// Kullanıcı GERÇEKTEN talep sildiğinde true → boş/azalmış TALEPLER gönderimine izin
+// verilir (clobber guard ve backend boş-dizi koruması bu bayrak varken devre dışı).
+// Senkron başarınca sıfırlanır. Kaza/stale boşalmada bayrak false kalır → korunur.
+let _taleplerKastenSilindi = false;
 
 function _mkey(r, keyFn) {
   try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
@@ -13166,13 +13171,17 @@ function veriKaydet() {
         // CLOBBER KORUMASI: sunucuda talep varken birleşim sonucu boşaldıysa (yarış /
         // eski baz / boş yerel) GÖNDERME — backend korumasız 'if(TALEPLER)' boş diziyle
         // tüm talepleri siliyordu. Sunucudaki listeyi koru, bu istemci asla wipe etmesin.
+        // İSTİSNA: kullanıcı GERÇEKTEN sildiyse (_taleplerKastenSilindi) boşaltmaya izin ver.
         if ((!Array.isArray(gonderilecek.TALEPLER) || gonderilecek.TALEPLER.length === 0)
-            && Array.isArray(sunucu.TALEPLER) && sunucu.TALEPLER.length > 0) {
+            && Array.isArray(sunucu.TALEPLER) && sunucu.TALEPLER.length > 0
+            && !_taleplerKastenSilindi) {
           console.warn('Clobber önlendi: TALEPLER birleşimi boş, sunucudaki', sunucu.TALEPLER.length, 'talep korunuyor.');
           gonderilecek.TALEPLER = sunucu.TALEPLER;
         }
+        // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
+        gonderilecek.taleplerKasten = _taleplerKastenSilindi;
         const ok = await apiVeriKaydet(gonderilecek);
-        if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; } // yeni temel = az önce gönderdiğim yerel durum
+        if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; _taleplerKastenSilindi = false; } // yeni temel = az önce gönderdiğim yerel durum
       } catch (_) {
       } finally {
         _apiKaydetBekliyor = false;

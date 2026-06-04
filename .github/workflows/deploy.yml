@@ -61,6 +61,18 @@ jobs:
             } else {
               console.log('TALEPLER guard: zaten yamali ya da pattern (if (TALEPLER) {) bulunamadi');
             }
+            // 1c) TALEPLER KASITLI bosaltma: admin tum talepleri silince frontend
+            //     body'ye taleplerKasten:true koyar → bos diziyle de DELETE'e izin ver.
+            //     Bayrak yoksa (kaza/stale) 1b koruması gecerli kalir.
+            if (s.includes('if (Array.isArray(TALEPLER) && TALEPLER.length) {')) {
+              yedek();
+              s = s.replace('if (Array.isArray(TALEPLER) && TALEPLER.length) {',
+                            'if (Array.isArray(TALEPLER) && (TALEPLER.length || (req.body && req.body.taleplerKasten))) {');
+              degisti = true;
+              console.log('server.js TALEPLER kasitli-bosaltma yamalandi');
+            } else {
+              console.log('TALEPLER kasten guard: zaten yamali ya da pattern bulunamadi');
+            }
             // 2) DELETE /api/kullanicilar/:id (v2) — referanslari NULL'a cekip
             //    (musteri/tedarikci/talep verisi KORUNUR) pasif kullaniciyi siler.
             const yeniRoute =
