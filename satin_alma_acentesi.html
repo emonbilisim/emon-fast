@@ -8137,8 +8137,12 @@ function hakkindaGoster() {
   openModal('hakkinda');
 }
 
-function cikisYap() {
+async function cikisYap() {
   if (!confirm('Çıkış yapmak istiyor musunuz?')) return;
+  // Bekleyen (debounce'lu) son düzenlemeyi oturum kapanmadan ÖNCE sunucuya gönder.
+  // Aksi halde değişiklik yalnız localStorage'da kalır; yeniden girişte apiVeriYukle
+  // belleği sunucudaki eski veriyle ezer ve düzenleme kaybolur.
+  try { await veriKaydetFlush(); } catch (_) {}
   aktifKullanici = null;
   msGraphToken = null;
   if (_msTokenRefreshTimer) { clearInterval(_msTokenRefreshTimer); _msTokenRefreshTimer = null; }
@@ -13119,6 +13123,62 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   return sonuc;
 }
 
+// En son kaydedilmeye hazırlanan tam snapshot — debounce zamanlayıcısı ve
+// çıkış/oturum kapanışındaki flush bunu kullanır.
+let _sonKayitVeri = null;
+
+// Yerel snapshot'ı sunucunun güncel haliyle MERGE edip gönderir. Hem debounce
+// zamanlayıcısı hem de veriKaydetFlush (çıkış öncesi) bu tek yoldan geçer →
+// kayıt mantığı tek yerde, çıkışta da await edilebilir.
+async function _veriPush(veri) {
+  if (!veri || !apiTokenAl()) { _apiKaydetBekliyor = false; return false; }
+  try {
+    // Kayıt-bazlı birleştirme: sunucunun güncel halini çek, kendi
+    // değişikliklerimi onun üstüne uygula → başka kullanıcıların kayıtları ezilmez
+    const sunucu = await apiVeriCekHam();
+    if (!sunucu) {
+      // Sunucunun güncel hali çekilemedi. Ham yerel snapshot'ı GÖNDERME:
+      // bellekteki liste sunucudan eski/eksikse ortak tedarikçi/müşteri tablosunu
+      // full-replace ile ezer. localStorage'da duruyor; bayrağı kur, periyodik
+      // tazeleme tekrar denesin.
+      _kayitGerekli = true;
+      return false;
+    }
+    // Baz yoksa (açılışta localStorage'dan yüklenmiş olabilir) sunucuyu temel al
+    // ve BİRLEŞİM modunda merge et → hiçbir sunucu kaydı düşmez.
+    const bazVar = !!_sunucuBaz;
+    const gonderilecek = _mergeKaydet(veri, sunucu, _sunucuBaz || sunucu, !bazVar);
+    // CLOBBER KORUMASI: sunucuda talep varken birleşim sonucu boşaldıysa (yarış /
+    // eski baz / boş yerel) GÖNDERME — backend korumasız 'if(TALEPLER)' boş diziyle
+    // tüm talepleri siliyordu. Sunucudaki listeyi koru, bu istemci asla wipe etmesin.
+    // İSTİSNA: kullanıcı GERÇEKTEN sildiyse (_taleplerKastenSilindi) boşaltmaya izin ver.
+    if ((!Array.isArray(gonderilecek.TALEPLER) || gonderilecek.TALEPLER.length === 0)
+        && Array.isArray(sunucu.TALEPLER) && sunucu.TALEPLER.length > 0
+        && !_taleplerKastenSilindi) {
+      console.warn('Clobber önlendi: TALEPLER birleşimi boş, sunucudaki', sunucu.TALEPLER.length, 'talep korunuyor.');
+      gonderilecek.TALEPLER = sunucu.TALEPLER;
+    }
+    // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
+    gonderilecek.taleplerKasten = _taleplerKastenSilindi;
+    const ok = await apiVeriKaydet(gonderilecek);
+    if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; _taleplerKastenSilindi = false; } // yeni temel = az önce gönderdiğim yerel durum
+    return ok;
+  } catch (_) {
+    return false;
+  } finally {
+    _apiKaydetBekliyor = false;
+  }
+}
+
+// Bekleyen (debounce'lu) kaydı HEMEN, await edilebilir şekilde sunucuya gönder.
+// Çıkış / oturum kapanışı öncesi çağrılır → son düzenleme yalnızca localStorage'da
+// kalıp yeniden girişte sunucudan gelen eski veriyle ezilmesin.
+async function veriKaydetFlush() {
+  if (_apiKaydetTimer) { clearTimeout(_apiKaydetTimer); _apiKaydetTimer = null; }
+  if (_sonKayitVeri && apiTokenAl()) return await _veriPush(_sonKayitVeri);
+  return false;
+}
+
 function veriKaydet() {
   try {
     const tedGuvenli = TEDARIKCILER.map(r => r.map(item => {
@@ -13146,53 +13206,12 @@ function veriKaydet() {
 
     // Önce localStorage'a yaz (hızlı yedek)
     localStorage.setItem(LS_KEY, JSON.stringify(veri));
+    _sonKayitVeri = veri; // flush için en son snapshot
 
     // Sonra API'ye gönder (debounce — 1 saniyede bir) — HER ZAMAN MERGE
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
     _apiKaydetBekliyor = true; // canlı tazeleme bu kaydı ezmesin diye işaretle
-    _apiKaydetTimer = setTimeout(async () => {
-      try {
-        if (!apiTokenAl()) return;
-        // Kayıt-bazlı birleştirme: sunucunun güncel halini çek, kendi
-        // değişikliklerimi onun üstüne uygula → başka kullanıcıların kayıtları ezilmez
-        const sunucu = await apiVeriCekHam();
-        if (!sunucu) {
-          // Sunucunun güncel hali çekilemedi. Ham yerel snapshot'ı GÖNDERME:
-          // bellekteki liste sunucudan eski/eksikse ortak tedarikçi/müşteri
-          // tablosunu ezer (full-replace). localStorage'da duruyor; bayrağı
-          // kaldır, periyodik tazeleme tekrar denesin.
-          _kayitGerekli = true;
-          return;
-        }
-        // Baz yoksa (açılışta localStorage'dan yüklenmiş olabilir) sunucuyu
-        // temel al ve BİRLEŞİM modunda merge et → hiçbir sunucu kaydı düşmez.
-        const bazVar = !!_sunucuBaz;
-        const gonderilecek = _mergeKaydet(veri, sunucu, _sunucuBaz || sunucu, !bazVar);
-        // CLOBBER KORUMASI: sunucuda talep varken birleşim sonucu boşaldıysa (yarış /
-        // eski baz / boş yerel) GÖNDERME — backend korumasız 'if(TALEPLER)' boş diziyle
-        // tüm talepleri siliyordu. Sunucudaki listeyi koru, bu istemci asla wipe etmesin.
-        // İSTİSNA: kullanıcı GERÇEKTEN sildiyse (_taleplerKastenSilindi) boşaltmaya izin ver.
-        if ((!Array.isArray(gonderilecek.TALEPLER) || gonderilecek.TALEPLER.length === 0)
-            && Array.isArray(sunucu.TALEPLER) && sunucu.TALEPLER.length > 0
-            && !_taleplerKastenSilindi) {
-          console.warn('Clobber önlendi: TALEPLER birleşimi boş, sunucudaki', sunucu.TALEPLER.length, 'talep korunuyor.');
-          gonderilecek.TALEPLER = sunucu.TALEPLER;
-        }
-        // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
-        gonderilecek.taleplerKasten = _taleplerKastenSilindi;
-        // GEÇİCİ TEŞHİS — müşteri "TEST123" düzenlemesi nerede kayboluyor?
-        try {
-          const has = o => { try { return JSON.stringify(o||[]).includes('TEST123'); } catch(_){ return false; } };
-          console.warn('[VK-DBG] yerel:', has(veri.MUSTERILER), '| baz:', has(_sunucuBaz && _sunucuBaz.MUSTERILER), '| sunucu:', has(sunucu.MUSTERILER), '| GÖNDERİLEN:', has(gonderilecek.MUSTERILER), '| bazVar:', bazVar);
-        } catch(_){}
-        const ok = await apiVeriKaydet(gonderilecek);
-        try { console.warn('[VK-DBG] push ok:', ok, '| müşteri adedi:', (gonderilecek.MUSTERILER||[]).length); } catch(_){}
-        if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; _taleplerKastenSilindi = false; } // yeni temel = az önce gönderdiğim yerel durum
-      } catch (_) {
-      } finally {
-        _apiKaydetBekliyor = false;
-      }
-    }, 1000);
+    _apiKaydetTimer = setTimeout(() => { _veriPush(veri); }, 1000);
 
   } catch (e) {
     console.warn('Veri kayıt hatası:', e.message);
