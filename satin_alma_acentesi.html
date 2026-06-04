@@ -11682,7 +11682,9 @@ function claudeKeyGetir() {
 
 // Key yoksa yerinde sor, varsa true döner. Kullanıcı iptal ederse false.
 function claudeKeyTalepEt() {
-  if (_aiProxyHazir) return true; // sunucu merkezi key'i var → sormaya gerek yok
+  // Giriş yapılmışsa AI backend proxy üzerinden çalışır (merkezi key) → sorma.
+  // _aiProxyHazir probe gecikse/atlasa bile token varsa AI'yı denemeye izin ver.
+  if (_aiProxyHazir || apiTokenAl()) return true;
   let key = claudeKeyGetir();
   if (key) return true;
   const val = (prompt(
@@ -11762,7 +11764,8 @@ function claudeKeyDurumGuncelle() {
 // Tek HTTP çağrısı; başarıda parse edilmiş JSON, başarısızlıkta {_err:...} veya null (parse edilemedi)
 // Anthropic yanıtından düz JSON çıkar (proxy ve doğrudan yol için ortak)
 function _claudeYanitParse(d) {
-  const metin = d?.content?.find(b => b.type === 'text')?.text || '';
+  let metin = d?.content?.find(b => b.type === 'text')?.text || '';
+  metin = metin.replace(/```(?:json)?/gi, '').trim(); // markdown çitlerini soy
   const m = metin.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try { return JSON.parse(m[0]); } catch { return null; }
@@ -11830,7 +11833,7 @@ async function _claudeAiCagirAkilli(systemMsg, contentBlocks, maxTokens, pdfVar)
 }
 
 async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
-  if (!_aiProxyHazir && !claudeKeyGetir()) {
+  if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) {
     showToast('⚠ Claude API key tanımlı değil. Ayarlar > Entegrasyonlar bölümünden ekleyin.');
     return { _err: 'no-key' };
   }
@@ -12002,7 +12005,7 @@ function musteriBulByMail(mail) {
 
 // Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
 async function maildenTalepCikar(mailIcerik, pdfler) {
-  if (!_aiProxyHazir && !claudeKeyGetir()) return { _err: 'no-key' };
+  if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) return { _err: 'no-key' };
   try {
     const promptMetin =
       'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele ve TÜRÜNÜ (tip) belirle.\n\n' +
@@ -12042,7 +12045,7 @@ async function otoTalepTara(sessiz = false) {
   const cfg = otoTalepCfg();
   if (!cfg.aktif) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
   if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
-  if (!_aiProxyHazir && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
+  if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
   const mailSet = musteriMailSet();
   if (mailSet.size === 0) { if (!sessiz) showToast('⚠ Kayıtlı müşteri e-postası yok.'); return; }
 
@@ -12538,7 +12541,7 @@ async function seciliOutlookTeklifleriEkle() {
     return fiyat; // TRY
   }
 
-  let eklenen = 0;
+  let eklenen = 0, atlanan = 0;
 
   for (const cb of seciliCBlar) {
     const mailIdx = parseInt(cb.dataset.mailIdx);
@@ -12573,6 +12576,10 @@ async function seciliOutlookTeklifleriEkle() {
       .map(([,v]) => v).filter(v => v > 0);
     const ortFiyat = fiyatlar.length ? fiyatlar.reduce((a,b) => a+b, 0) / fiyatlar.length : 0;
 
+    // Hiç fiyat yoksa teklifi EKLEME — yoksa mail "zaten eklendi" olup kilitlenir
+    // ve kullanıcı tekrar AI çalıştıramaz/manuel giremez. Atla, uyar.
+    if (!fiyatlar.length) { atlanan++; continue; }
+
     talepTeklifleri[t.no].push({
       tedarikci: eslesen || mail.from?.emailAddress?.name || gonderen,
       birimFiyat: ortFiyat,
@@ -12585,10 +12592,15 @@ async function seciliOutlookTeklifleriEkle() {
     eklenen++;
   }
 
-  closeModal('outlookTeklifler');
   renderTalepTeklifleri();
   veriKaydet();
-  showToast('✅ ' + eklenen + ' teklif eklendi!');
+  if (eklenen > 0) {
+    closeModal('outlookTeklifler');
+    showToast('✅ ' + eklenen + ' teklif eklendi!' + (atlanan ? ' (' + atlanan + ' mail fiyatsız olduğu için atlandı)' : ''));
+  } else {
+    // Hiçbiri eklenmedi → pencereyi AÇIK tut ki fiyat girip tekrar deneyebilsinler
+    showToast('⚠ Fiyat girilmediği için teklif eklenmedi. Fiyatları (AI veya manuel) doldurup tekrar deneyin.');
+  }
 }
 
 // ═══════════════════════════════════════
