@@ -13816,6 +13816,49 @@ msalBaslat();
   // Microsoft redirect sonrası token kontrolü
   setTimeout(async () => { try { await msalHazirla(); } catch {} }, 500);
 })();
+
+/* ──────────────────────────────────────────────────────────────
+   OTOMATİK SÜRÜM KONTROLÜ — Uygulama tek-sayfa (SPA): bir sekme uzun
+   süre açık kalıp hiç yenilenmezse, deploy sonrası ESKİ kodu çalıştırır
+   (örn. eski/küçük mail görünümü). Sunucudaki index.html'in ETag'i
+   değişince (yeni deploy) üstte bir bant gösterip yenilemeyi öneririz.
+   Not: Hâlihazırda açık eski sekmeler bu özelliği almak için BİR KEZ
+   yenilenmeli; sonrasında otomatik bildirilirler.
+   ────────────────────────────────────────────────────────────── */
+(function() {
+  let _surumImza = null;     // açılıştaki sürüm imzası (ETag) — temel
+  let _bildirildi = false;
+  async function surumKontrolEt() {
+    if (_bildirildi) return;
+    try {
+      const r = await fetch('/', { method: 'HEAD', cache: 'no-store' });
+      const imza = r.headers.get('ETag') || r.headers.get('Last-Modified') || '';
+      if (!imza) return;
+      if (_surumImza === null) { _surumImza = imza; return; } // ilk ölçüm = temel
+      if (imza !== _surumImza) { _bildirildi = true; yeniSurumBandiGoster(); }
+    } catch (_) {}
+  }
+  function yeniSurumBandiGoster() {
+    if (document.getElementById('yeni-surum-bandi')) return;
+    const bant = document.createElement('div');
+    bant.id = 'yeni-surum-bandi';
+    bant.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;display:flex;'
+      + 'align-items:center;justify-content:center;gap:14px;padding:10px 16px;flex-wrap:wrap;'
+      + 'background:linear-gradient(90deg,#2563eb,#4f8ef7);color:#fff;font-size:13px;font-weight:500;'
+      + 'box-shadow:0 2px 12px rgba(0,0,0,0.25);';
+    bant.innerHTML =
+      '<span>🔄 Yeni sürüm yayınlandı — güncellemek için sayfayı yenileyin.</span>'
+      + '<button id="yeni-surum-yenile" style="background:#fff;color:#2563eb;border:0;border-radius:6px;padding:5px 14px;font-weight:600;cursor:pointer;font-size:13px;">Yenile</button>'
+      + '<button id="yeni-surum-kapat" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;">Sonra</button>';
+    document.body.appendChild(bant);
+    document.getElementById('yeni-surum-yenile').onclick = () => location.reload();
+    document.getElementById('yeni-surum-kapat').onclick  = () => bant.remove();
+  }
+  setInterval(surumKontrolEt, 5 * 60 * 1000);   // 5 dakikada bir
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) surumKontrolEt(); });
+  window.addEventListener('focus', surumKontrolEt);
+  surumKontrolEt();                              // açılışta temel imzayı al
+})();
 </script>
 </body>
 </html>
