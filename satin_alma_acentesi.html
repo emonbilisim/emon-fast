@@ -13180,7 +13180,13 @@ function veriKaydet() {
         }
         // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
         gonderilecek.taleplerKasten = _taleplerKastenSilindi;
+        // GEÇİCİ TEŞHİS — müşteri "TEST123" düzenlemesi nerede kayboluyor?
+        try {
+          const has = o => { try { return JSON.stringify(o||[]).includes('TEST123'); } catch(_){ return false; } };
+          console.warn('[VK-DBG] yerel:', has(veri.MUSTERILER), '| baz:', has(_sunucuBaz && _sunucuBaz.MUSTERILER), '| sunucu:', has(sunucu.MUSTERILER), '| GÖNDERİLEN:', has(gonderilecek.MUSTERILER), '| bazVar:', bazVar);
+        } catch(_){}
         const ok = await apiVeriKaydet(gonderilecek);
+        try { console.warn('[VK-DBG] push ok:', ok, '| müşteri adedi:', (gonderilecek.MUSTERILER||[]).length); } catch(_){}
         if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; _taleplerKastenSilindi = false; } // yeni temel = az önce gönderdiğim yerel durum
       } catch (_) {
       } finally {
