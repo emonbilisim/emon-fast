@@ -13184,6 +13184,50 @@ async function veriKaydetFlush() {
   return false;
 }
 
+// SEKME KAPATMA (çarpı / pagehide) FLUSH'I — best-effort.
+// Çıkış butonu veriKaydetFlush ile await edip gönderir; ama sekme çarpıdan
+// kapatılınca async zincir (sunucu GET → merge → POST) güvenilir tamamlanmaz ve
+// tarayıcı sendBeacon'a Authorization header KOYAMAZ. Çözüm: fetch keepalive:true
+// → istek sayfa yıkılırken bile gider, üstelik auth header taşır.
+// Unload anında canlı sunucu hali çekilemediğinden, en son bilinen sunucu temeline
+// (_sunucuBaz) karşı merge ederiz: kendi düzenlemem korunur, baz'daki admin-sahipli
+// koleksiyonlar ezilmez. Son saniyelerde BAŞKA kullanıcı yazdıysa onun değişikliği
+// burada görülemez — ama bu yalnız "çarpıdan kapatma" kenar durumudur; tek alternatif
+// düzenlemeyi tamamen kaybetmektir. Periyodik tazeleme + giriş merge'i çoğunu toparlar.
+function veriKaydetFlushBeacon() {
+  const token = apiTokenAl();
+  // Bekleyen yazılmamış düzenleme yoksa, token yoksa veya sunucu temeli henüz
+  // kurulmadıysa GÖNDERME (temelsiz push = load-time clobber riski).
+  if (!token || !_sonKayitVeri || !_sunucuBaz) return;
+  if (!_apiKaydetTimer && !_kayitGerekli) return; // sunucu zaten güncel
+  try {
+    if (_apiKaydetTimer) { clearTimeout(_apiKaydetTimer); _apiKaydetTimer = null; }
+    // En son bilinen sunucu temeline karşı best-effort merge.
+    const gonderilecek = _mergeKaydet(_sonKayitVeri, _sunucuBaz, _sunucuBaz, false);
+    // Clobber koruması: baz'da talep varken birleşim boşaldıysa (ve kullanıcı kasten
+    // silmediyse) sunucudaki listeyi koru — boş diziyle wipe etme.
+    if ((!Array.isArray(gonderilecek.TALEPLER) || gonderilecek.TALEPLER.length === 0)
+        && Array.isArray(_sunucuBaz.TALEPLER) && _sunucuBaz.TALEPLER.length > 0
+        && !_taleplerKastenSilindi) {
+      gonderilecek.TALEPLER = _sunucuBaz.TALEPLER;
+    }
+    gonderilecek.taleplerKasten = _taleplerKastenSilindi;
+    fetch(API_URL + '/api/veri', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(gonderilecek),
+      keepalive: true, // sayfa kapanırken bile isteği tamamla
+    }).catch(() => {});
+  } catch (_) { /* unload sırasında sessiz geç */ }
+}
+
+// pagehide = sekme/pencere kapatma + navigasyon için en güvenilir an. Yalnızca
+// gerçek kapanışta tetiklenir; rutin sekme geçişini normal 1 sn debounce (taze
+// sunucu merge'i ile) zaten güvenle kapsadığından visibilitychange'e bağlamıyoruz
+// — aksi halde her sekme geçişinde eski temele göre push, eşzamanlı düzenlemeleri
+// gereksiz yere ezme riskini artırırdı.
+window.addEventListener('pagehide', veriKaydetFlushBeacon);
+
 function veriKaydet() {
   try {
     const tedGuvenli = TEDARIKCILER.map(r => r.map(item => {
