@@ -13144,10 +13144,15 @@ async function _veriPush(veri) {
       _kayitGerekli = true;
       return false;
     }
-    // Baz yoksa (açılışta localStorage'dan yüklenmiş olabilir) sunucuyu temel al
-    // ve BİRLEŞİM modunda merge et → hiçbir sunucu kaydı düşmez.
-    const bazVar = !!_sunucuBaz;
-    const gonderilecek = _mergeKaydet(veri, sunucu, _sunucuBaz || sunucu, !bazVar);
+    // GÜVENLİK: Bu oturumda henüz sunucu temeli kurulmadıysa (açılışta apiVeriYukle
+    // bitmeden tetiklenen otomatik kayıt olabilir) YAZMA — bayat localStorage sunucudaki
+    // taze veriyi full-replace ile ezer (load-time clobber). Temeli sunucudan kur ki
+    // sonraki gerçek düzenlemeler normal merge ile güvenle senkronlansın.
+    if (!_sunucuBaz) {
+      _sunucuBaz = JSON.parse(JSON.stringify(sunucu));
+      return false;
+    }
+    const gonderilecek = _mergeKaydet(veri, sunucu, _sunucuBaz, false);
     // CLOBBER KORUMASI: sunucuda talep varken birleşim sonucu boşaldıysa (yarış /
     // eski baz / boş yerel) GÖNDERME — backend korumasız 'if(TALEPLER)' boş diziyle
     // tüm talepleri siliyordu. Sunucudaki listeyi koru, bu istemci asla wipe etmesin.
@@ -13207,6 +13212,12 @@ function veriKaydet() {
     // Önce localStorage'a yaz (hızlı yedek)
     localStorage.setItem(LS_KEY, JSON.stringify(veri));
     _sonKayitVeri = veri; // flush için en son snapshot
+
+    // KRİTİK: Sunucu temeli kurulmadan (açılışta apiVeriYukle bitmeden tetiklenen
+    // otomatik kayıt) PUSH PLANLAMA — yakalanan bayat snapshot 1 sn sonra sunucuya
+    // yazılıp taze veriyi ezer (load-time clobber). Temel kurulunca periyodik tazeleme
+    // _kayitGerekli ile güncel veriyi gönderir.
+    if (!_sunucuBaz) { _kayitGerekli = true; return; }
 
     // Sonra API'ye gönder (debounce — 1 saniyede bir) — HER ZAMAN MERGE
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
