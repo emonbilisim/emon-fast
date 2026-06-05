@@ -12873,19 +12873,32 @@ async function apiVeriYukle() {
       // TEŞHİS: pull yereldeki müşteriyi sunucununkiyle EZİYOR. İçerik farklıysa
       // (sayı aynı olsa bile) logla → "müşteri düzenlemesi siliniyor" anını yakalar.
       try {
-        if (JSON.stringify(MUSTERILER) !== JSON.stringify(veri.MUSTERILER)) {
-          console.warn('[PULL] MUSTERILER sunucudan EZİLDİ. yerel adet:', MUSTERILER.length,
-            '→ sunucu adet:', veri.MUSTERILER.length, '| kayitGerekli:', _kayitGerekli, '| bekliyor:', _apiKaydetBekliyor);
-          // Hangi müşteri(ler) farklı, yerelde ne var / sunucuda ne var → tam göster
-          const sMap = new Map((veri.MUSTERILER || []).map(m => [m && m.firma, m]));
-          MUSTERILER.forEach(yer => {
-            const sun = sMap.get(yer && yer.firma);
-            if (JSON.stringify(yer) !== JSON.stringify(sun)) {
-              console.warn('[PULL-DIFF] firma:', yer && yer.firma,
-                '\n  YEREL :', JSON.stringify(yer),
-                '\n  SUNUCU:', JSON.stringify(sun));
-            }
-          });
+        // ANAHTAR-SIRASINDAN BAĞIMSIZ karşılaştırma: Postgres JSONB anahtar sırasını
+        // korumaz → ham JSON.stringify yanlış "fark" verir. Kanonik (özyinelemeli
+        // anahtar-sıralı) stringify ile yalnız GERÇEK veri farkını yakala.
+        const kanonik = (o) => {
+          if (Array.isArray(o)) return o.map(kanonik);
+          if (o && typeof o === 'object') {
+            const r = {};
+            Object.keys(o).sort().forEach(k => { r[k] = kanonik(o[k]); });
+            return r;
+          }
+          return o;
+        };
+        const sMap = new Map((veri.MUSTERILER || []).map(m => [m && m.firma, m]));
+        let gercekFark = 0;
+        MUSTERILER.forEach(yer => {
+          const sun = sMap.get(yer && yer.firma);
+          if (JSON.stringify(kanonik(yer)) !== JSON.stringify(kanonik(sun))) {
+            gercekFark++;
+            console.warn('[PULL-DIFF] GERÇEK fark — firma:', yer && yer.firma,
+              '\n  YEREL :', JSON.stringify(yer),
+              '\n  SUNUCU:', JSON.stringify(sun));
+          }
+        });
+        if (gercekFark) {
+          console.warn('[PULL] MUSTERILER pull EZDİ —', gercekFark, 'gerçek farklı kayıt.',
+            '| kayitGerekli:', _kayitGerekli, '| bekliyor:', _apiKaydetBekliyor);
         }
       } catch (_) {}
       MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER);
