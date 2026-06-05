@@ -12869,7 +12869,17 @@ async function apiVeriYukle() {
     }
     const veri = await r.json();
     if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
-    if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
+    if (Array.isArray(veri.MUSTERILER))   {
+      // TEŞHİS: pull yereldeki müşteriyi sunucununkiyle EZİYOR. İçerik farklıysa
+      // (sayı aynı olsa bile) logla → "müşteri düzenlemesi siliniyor" anını yakalar.
+      try {
+        if (JSON.stringify(MUSTERILER) !== JSON.stringify(veri.MUSTERILER)) {
+          console.warn('[PULL] MUSTERILER sunucudan EZİLDİ. yerel adet:', MUSTERILER.length,
+            '→ sunucu adet:', veri.MUSTERILER.length, '| kayitGerekli:', _kayitGerekli, '| bekliyor:', _apiKaydetBekliyor);
+        }
+      } catch (_) {}
+      MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER);
+    }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
@@ -13166,7 +13176,27 @@ async function _veriPush(veri) {
     // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
     gonderilecek.taleplerKasten = _taleplerKastenSilindi;
     const ok = await apiVeriKaydet(gonderilecek);
-    if (ok) { _sunucuBaz = JSON.parse(JSON.stringify(veri)); _kayitGerekli = false; _taleplerKastenSilindi = false; } // yeni temel = az önce gönderdiğim yerel durum
+    try {
+      const ms = (gonderilecek.MUSTERILER || []).length;
+      console.warn('[VK] push ok:', ok, '| gönderilen müşteri:', ms);
+    } catch (_) {}
+    if (ok) {
+      // YENİ TEMEL = sunucuya GERÇEKTEN gönderilen (merge edilmiş) durum.
+      // Eskiden _sunucuBaz=veri (ham yerel) kuruluyordu; veri, başka kullanıcıların
+      // sunucudan gelip merge'e katılan kayıtlarını içermez → baz sunucu gerçeğiyle
+      // tutarsız kalırdı. Gönderilen snapshot baz olunca sonraki diff'ler doğru.
+      const yeniBaz = JSON.parse(JSON.stringify(gonderilecek));
+      delete yeniBaz.taleplerKasten; // meta bayrak; sunucu verisinin parçası değil
+      _sunucuBaz = yeniBaz;
+      _kayitGerekli = false; _taleplerKastenSilindi = false;
+    } else {
+      // POST başarısız (sunucu çekilebildi ama yazılamadı): retry bayrağını kur.
+      // Aksi halde değişiklik yalnız bellekte/localStorage'da kalır ve 45 sn sonra
+      // periyodik pull sunucudaki eski veriyle EZER (müşteri düzenlemesi "siliniyor").
+      // Bayrak: periyodik timer pull'dan ÖNCE push'u tekrar dener + sunucudanTazele
+      // bayrak varken pull yapmaz (kaydedilmemiş değişikliği koru).
+      _kayitGerekli = true;
+    }
     return ok;
   } catch (_) {
     return false;
@@ -13301,6 +13331,12 @@ async function sunucudanTazele(zorla = false) {
   if (!zorla && document.hidden) return false;                       // arka plan sekmesi
   if (document.querySelector('.modal-overlay.open')) return false;   // açık form/modal
   if (_apiKaydetBekliyor) return false;                              // bekleyen yerel kayıt
+  if (_kayitGerekli) {                                               // sunucuya yazılamamış değişiklik var
+    // Pull YAPMA — sunucudaki eski veri kaydedilmemiş düzenlemeyi ezer. Önce
+    // push'u tekrar dene; başarınca _kayitGerekli temizlenir, sonraki tazeleme akar.
+    if (apiTokenAl()) veriKaydet();
+    return false;
+  }
   const aktifEl = document.activeElement;                            // aktif veri girişi
   if (aktifEl && (aktifEl.tagName === 'INPUT' || aktifEl.tagName === 'TEXTAREA')) {
     const id = aktifEl.id || '';
