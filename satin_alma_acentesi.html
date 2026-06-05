@@ -12876,6 +12876,16 @@ async function apiVeriYukle() {
         if (JSON.stringify(MUSTERILER) !== JSON.stringify(veri.MUSTERILER)) {
           console.warn('[PULL] MUSTERILER sunucudan EZİLDİ. yerel adet:', MUSTERILER.length,
             '→ sunucu adet:', veri.MUSTERILER.length, '| kayitGerekli:', _kayitGerekli, '| bekliyor:', _apiKaydetBekliyor);
+          // Hangi müşteri(ler) farklı, yerelde ne var / sunucuda ne var → tam göster
+          const sMap = new Map((veri.MUSTERILER || []).map(m => [m && m.firma, m]));
+          MUSTERILER.forEach(yer => {
+            const sun = sMap.get(yer && yer.firma);
+            if (JSON.stringify(yer) !== JSON.stringify(sun)) {
+              console.warn('[PULL-DIFF] firma:', yer && yer.firma,
+                '\n  YEREL :', JSON.stringify(yer),
+                '\n  SUNUCU:', JSON.stringify(sun));
+            }
+          });
         }
       } catch (_) {}
       MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER);
