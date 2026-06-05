@@ -12869,40 +12869,7 @@ async function apiVeriYukle() {
     }
     const veri = await r.json();
     if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
-    if (Array.isArray(veri.MUSTERILER))   {
-      // TEŞHİS: pull yereldeki müşteriyi sunucununkiyle EZİYOR. İçerik farklıysa
-      // (sayı aynı olsa bile) logla → "müşteri düzenlemesi siliniyor" anını yakalar.
-      try {
-        // ANAHTAR-SIRASINDAN BAĞIMSIZ karşılaştırma: Postgres JSONB anahtar sırasını
-        // korumaz → ham JSON.stringify yanlış "fark" verir. Kanonik (özyinelemeli
-        // anahtar-sıralı) stringify ile yalnız GERÇEK veri farkını yakala.
-        const kanonik = (o) => {
-          if (Array.isArray(o)) return o.map(kanonik);
-          if (o && typeof o === 'object') {
-            const r = {};
-            Object.keys(o).sort().forEach(k => { r[k] = kanonik(o[k]); });
-            return r;
-          }
-          return o;
-        };
-        const sMap = new Map((veri.MUSTERILER || []).map(m => [m && m.firma, m]));
-        let gercekFark = 0;
-        MUSTERILER.forEach(yer => {
-          const sun = sMap.get(yer && yer.firma);
-          if (JSON.stringify(kanonik(yer)) !== JSON.stringify(kanonik(sun))) {
-            gercekFark++;
-            console.warn('[PULL-DIFF] GERÇEK fark — firma:', yer && yer.firma,
-              '\n  YEREL :', JSON.stringify(yer),
-              '\n  SUNUCU:', JSON.stringify(sun));
-          }
-        });
-        if (gercekFark) {
-          console.warn('[PULL] MUSTERILER pull EZDİ —', gercekFark, 'gerçek farklı kayıt.',
-            '| kayitGerekli:', _kayitGerekli, '| bekliyor:', _apiKaydetBekliyor);
-        }
-      } catch (_) {}
-      MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER);
-    }
+    if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
@@ -13199,10 +13166,6 @@ async function _veriPush(veri) {
     // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
     gonderilecek.taleplerKasten = _taleplerKastenSilindi;
     const ok = await apiVeriKaydet(gonderilecek);
-    try {
-      const ms = (gonderilecek.MUSTERILER || []).length;
-      console.warn('[VK] push ok:', ok, '| gönderilen müşteri:', ms);
-    } catch (_) {}
     if (ok) {
       // YENİ TEMEL = sunucuya GERÇEKTEN gönderilen (merge edilmiş) durum.
       // Eskiden _sunucuBaz=veri (ham yerel) kuruluyordu; veri, başka kullanıcıların
