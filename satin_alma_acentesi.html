@@ -1542,6 +1542,39 @@
       </div>
     </div>
 
+    <!-- Talep Numarası -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div class="card-title" style="margin-bottom:4px;">🔢 Talep Numarası</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:14px;">
+        Yeni taleplere verilen numaranın biçimini ve sayacın sıradaki değerini buradan yönetebilirsiniz. Biçim tüm kullanıcılar için geçerlidir.
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Önek</label>
+          <input type="text" id="ayar-talepno-onek" placeholder="TLB-" maxlength="12" style="max-width:140px;" oninput="talepNoOrnekGuncelle()">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Hane sayısı</label>
+          <input type="number" id="ayar-talepno-hane" min="1" max="8" value="5" style="max-width:110px;" oninput="talepNoOrnekGuncelle()">
+        </div>
+        <div style="font-size:13px;color:var(--text2);padding-bottom:8px;">
+          <span id="ayar-talepno-ornek" style="font-family:ui-monospace,monospace;color:var(--accent);">Örnek: TLB-00001</span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="talepNoBicimKaydet()" style="margin-bottom:2px;">Biçimi Kaydet</button>
+      </div>
+      <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Sıradaki numara şu değerden başlasın</label>
+          <input type="number" id="ayar-talepno-baslangic" min="1" value="1" style="max-width:160px;">
+        </div>
+        <button class="btn btn-sm" onclick="talepNoSifirla()" style="margin-bottom:2px;color:var(--amber);border-color:rgba(251,191,36,0.4);">↺ Sayacı Sıfırla</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.6;">
+        ⚠ Sayacı, mevcut en büyük talep numarasından küçük bir değere ayarlamak aynı numaradan ikinci bir talep oluşmasına (çakışma) yol açabilir.
+      </div>
+    </div>
+
     <!-- Away (Uzakta) Modu -->
     <div class="card" style="margin-top:16px;" data-admin-only>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
@@ -10108,6 +10141,7 @@ let AYARLAR = {
   standartKargoUSD: 0,
   awayMode: false,
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
+  talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
 };
 
@@ -10279,6 +10313,11 @@ function ayarlariYukle() {
   setVal('ayar-tel',    AYARLAR.tel);
   setVal('ayar-adres',  AYARLAR.adres);
   setVal('ayar-kargo-usd', AYARLAR.standartKargoUSD ? String(AYARLAR.standartKargoUSD) : '');
+  // Talep numarası biçimi
+  const tb = talepNoBicimAl();
+  const onekEl = document.getElementById('ayar-talepno-onek'); if (onekEl) onekEl.value = tb.onek;
+  const haneEl = document.getElementById('ayar-talepno-hane'); if (haneEl) haneEl.value = String(tb.hane);
+  talepNoOrnekGuncelle();
   const i = AYARLAR.imza || {};
   setVal('imza-ad',       i.ad);
   setVal('imza-unvan',    i.unvan);
@@ -12057,6 +12096,25 @@ function otoTalepDurumKaydet() {
   }, 800);
 }
 
+// Talep numarası biçimi (admin ayarı). Sunucu yalnız atomik SAYIYI (n) üretir; biçimi
+// (önek + hane) istemci uygular → biçim değişimi backend gerektirmez, AYARLAR ile senkron.
+function talepNoBicimAl() {
+  const b = (AYARLAR && AYARLAR.talepNoBicim) || {};
+  const onek = (typeof b.onek === 'string') ? b.onek : 'TLB-';
+  let hane = parseInt(b.hane, 10);
+  if (!(hane >= 1 && hane <= 8)) hane = 5;
+  return { onek, hane };
+}
+function talepNoBicimle(n) {
+  const { onek, hane } = talepNoBicimAl();
+  return onek + String(n).padStart(hane, '0');
+}
+// Herhangi bir talep no'sundan sayısal kısmı çıkar (önekten bağımsız)
+function talepNoSayi(no) {
+  const d = parseInt(String(no || '').replace(/\D/g, ''), 10);
+  return Number.isFinite(d) ? d : 0;
+}
+
 // Sunucu-taraflı talep numarası (atomik sequence) — çakışmasız, kullanıcılar arası benzersiz.
 // Sunucuya ulaşılamazsa yerel max+1'e düşer (çevrimdışı emniyet).
 async function apiSonrakiTalepNo() {
@@ -12066,7 +12124,10 @@ async function apiSonrakiTalepNo() {
       const r = await fetch(API_URL + '/api/next-talep-no', { headers: { Authorization: 'Bearer ' + token } });
       if (r.ok) {
         const d = await r.json();
-        if (d && d.ok && d.no) { talepSayac = Math.max(Number(talepSayac) || 0, Number(d.n) || 0); return d.no; }
+        if (d && d.ok && Number.isFinite(Number(d.n))) {
+          talepSayac = Math.max(Number(talepSayac) || 0, Number(d.n) || 0);
+          return talepNoBicimle(Number(d.n)); // sunucu n'ini istemci biçimiyle formatla
+        }
       }
     } catch (_) {}
   }
@@ -12074,9 +12135,56 @@ async function apiSonrakiTalepNo() {
 }
 function yerelSonrakiTalepNo() {
   let maxN = Number(talepSayac) || 0;
-  TALEPLER.forEach(t => { const m = /TLB-0*(\d+)/.exec(t.no || ''); if (m) maxN = Math.max(maxN, parseInt(m[1], 10)); });
+  TALEPLER.forEach(t => { maxN = Math.max(maxN, talepNoSayi(t.no)); });
   talepSayac = maxN + 1;
-  return 'TLB-' + String(talepSayac).padStart(5, '0');
+  return talepNoBicimle(talepSayac);
+}
+
+// ── Admin: Talep numarası biçimi + sayaç sıfırlama ──
+function talepNoOrnekGuncelle() {
+  const onek = document.getElementById('ayar-talepno-onek')?.value ?? 'TLB-';
+  let hane = parseInt(document.getElementById('ayar-talepno-hane')?.value, 10);
+  if (!(hane >= 1 && hane <= 8)) hane = 5;
+  const el = document.getElementById('ayar-talepno-ornek');
+  if (el) el.textContent = 'Örnek: ' + onek + String(1).padStart(hane, '0');
+}
+function talepNoBicimKaydet() {
+  const onek = document.getElementById('ayar-talepno-onek')?.value ?? 'TLB-';
+  let hane = parseInt(document.getElementById('ayar-talepno-hane')?.value, 10);
+  if (!(hane >= 1 && hane <= 8)) { showToast('⚠ Hane sayısı 1-8 arasında olmalı.'); return; }
+  AYARLAR.talepNoBicim = { onek: String(onek), hane };
+  veriKaydet();
+  showToast('Talep numarası biçimi kaydedildi. Örnek: ' + talepNoBicimle(1));
+}
+async function talepNoSifirla() {
+  let n = parseInt(document.getElementById('ayar-talepno-baslangic')?.value, 10);
+  if (!(n >= 1)) { showToast('⚠ Geçerli bir başlangıç numarası girin (≥ 1).'); return; }
+  const token = apiTokenAl();
+  if (!token) { showToast('⚠ Sunucu oturumu yok — sayaç yalnızca sunucuda sıfırlanabilir.'); return; }
+  // Mevcut en büyük talep numarasıyla çakışma uyarısı
+  let maxN = 0;
+  TALEPLER.forEach(t => { maxN = Math.max(maxN, talepNoSayi(t.no)); });
+  const onayMetni = (n <= maxN)
+    ? 'DİKKAT: Sıradaki numara ' + talepNoBicimle(n) + ' olacak, fakat mevcut en büyük talep numarası ' + talepNoBicimle(maxN) + '. Bu, AYNI numaradan ikinci bir talep oluşmasına (çakışma) yol açabilir.\n\nYine de sayaç sıfırlansın mı?'
+    : 'Sıradaki talep numarası ' + talepNoBicimle(n) + ' olarak ayarlanacak. Onaylıyor musunuz?';
+  if (!confirm(onayMetni)) return;
+  try {
+    const r = await fetch(API_URL + '/api/talep-no-reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ baslangic: n })
+    });
+    if (r.status === 401) { oturumSuresiDoldu(); return; }
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      talepSayac = n - 1; // çevrimdışı fallback de uyumlu olsun (sonraki = n)
+      showToast('✅ Sayaç ayarlandı — sıradaki numara ' + talepNoBicimle(n));
+    } else if (r.status === 403) {
+      showToast('⚠ Yetki yok — yalnızca admin sıfırlayabilir.');
+    } else {
+      showToast('⚠ Sıfırlanamadı: ' + (d.hata || ('HTTP ' + r.status)));
+    }
+  } catch (e) { showToast('⚠ Bağlantı hatası: ' + (e.message || 'bilinmeyen')); }
 }
 
 // ── Faz 2: periyodik otomatik tarama ──
