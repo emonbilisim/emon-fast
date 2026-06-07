@@ -1462,6 +1462,39 @@
     </div>
     <div id="crm-musteri-arama-sonuc" style="margin-bottom:16px;"></div>
 
+    <!-- 📊 CRM İSTATİSTİKLERİ -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header" style="margin-bottom:14px;">
+        <div>
+          <div class="card-title">📊 Müşteri & Talep İstatistikleri</div>
+          <div class="card-sub">Tüm zamanlar — genel performans</div>
+        </div>
+      </div>
+      <div id="crm-stat-kartlar"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:10px;">Dönüşümler, talebin oluşturulduğu döneme göre (kohort) hesaplanır. "18 saatte dönüş" talep günü 00:00'dan teklif gönderim anına kadardır.</div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header" style="margin-bottom:12px;">
+        <div class="card-title">📅 Dönem Kırılımı</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" onclick="crmStatGran('gunluk')" id="crm-gran-gunluk">Günlük</button>
+          <button class="btn btn-sm" onclick="crmStatGran('aylik')" id="crm-gran-aylik">Aylık</button>
+          <button class="btn btn-sm" onclick="crmStatGran('yillik')" id="crm-gran-yillik">Yıllık</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;" id="crm-stat-donem-tablo"></table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header" style="margin-bottom:12px;"><div class="card-title">🏢 Müşteri Bazlı Performans</div></div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;" id="crm-stat-musteri-tablo"></table>
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:20px;">
       <div class="card-title" style="margin-bottom:12px;">Satış Hunisi</div>
       <div id="crm-pipeline" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
@@ -4322,6 +4355,140 @@ function renderCRM() {
   if (sonucEl) sonucEl.innerHTML = '';
   const araEl = document.getElementById('crm-musteri-ara');
   if (araEl) araEl.value = '';
+
+  if (typeof renderCrmIstatistik === 'function') renderCrmIstatistik();
+}
+
+// ═══════════════════════════════════════
+// CRM İSTATİSTİKLERİ — talep/teklif/sipariş metrikleri (kohort: talep oluşturma dönemi)
+// ═══════════════════════════════════════
+let _crmStatGran = 'aylik';
+
+// Bir talebe müşteri teklifi GÖNDERİLDİ mi? (dönülmüş)
+function crmDonulduMu(t) {
+  return !!(t.musteriTeklifGonderildi || ['Müşteriye İletildi','Sipariş Verildi','Tamamlandı'].includes(t.durum));
+}
+// Talep SİPARİŞE döndü mü?
+function crmSiparisMi(t) {
+  return !!((t.siparis && t.siparis.length) || ['Sipariş Verildi','Tamamlandı'].includes(t.durum) || t.teklifDurumu === 'kabul');
+}
+// Talebe 18 saat içinde mi dönüldü? (talep günü 00:00 → teklif gönderim anı)
+function crmSla18Mi(t) {
+  if (!t.tarih || !t.musteriTeklifTarih) return false;
+  const t0 = new Date(String(t.tarih).slice(0,10) + 'T00:00:00').getTime();
+  const t1 = new Date(t.musteriTeklifTarih).getTime();
+  if (isNaN(t0) || isNaN(t1) || t1 < t0) return false;
+  return (t1 - t0) <= 18 * 3600 * 1000;
+}
+function crmMetrikHesapla(talepler) {
+  let donulen = 0, siparis = 0, sla = 0;
+  const musteriler = new Set();
+  talepler.forEach(t => {
+    if (t.musteri) musteriler.add(t.musteri);
+    if (crmDonulduMu(t)) donulen++;
+    if (crmSiparisMi(t)) siparis++;
+    if (crmSla18Mi(t)) sla++;
+  });
+  const talep = talepler.length;
+  return {
+    talep, donulen, siparis, sla,
+    musteriSayisi: musteriler.size,
+    donulenYuzde:  talep   ? donulen / talep * 100   : 0,
+    siparisYuzde:  donulen ? siparis / donulen * 100 : 0, // "tekliflerin (=dönülen) % kaçı siparişe"
+    slaYuzde:      talep   ? sla / talep * 100        : 0,
+  };
+}
+function crmPct(n) { return (Math.round(Math.min(100, Math.max(0, n)) * 10) / 10).toLocaleString('tr-TR') + '%'; }
+function crmStatKart(label, val, alt) {
+  return '<div class="metric-card"><div class="metric-label">' + label + '</div>'
+    + '<div class="metric-val">' + val + '</div>'
+    + '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + alt + '</div></div>';
+}
+const _CRM_AYLAR = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+function crmDonemEtiket(key, gran) {
+  if (gran === 'yillik') return key;
+  if (gran === 'aylik') { const [y,m] = key.split('-'); return (_CRM_AYLAR[(+m)-1] || m) + ' ' + y; }
+  const [y,m,d] = key.split('-'); return (+d) + ' ' + (_CRM_AYLAR[(+m)-1] || m) + ' ' + y;
+}
+function crmStatGran(gran) { _crmStatGran = gran; renderCrmIstatistik(); }
+
+function renderCrmIstatistik() {
+  const tumTalepler = TALEPLER.filter(t => t && t.tarih);
+  // Genel kartlar
+  const g = crmMetrikHesapla(tumTalepler);
+  const kartlar = document.getElementById('crm-stat-kartlar');
+  if (kartlar) {
+    kartlar.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;';
+    kartlar.innerHTML =
+        crmStatKart('Talep Sayısı', g.talep.toLocaleString('tr-TR'), g.musteriSayisi + ' farklı müşteri')
+      + crmStatKart('Dönülen Talep', crmPct(g.donulenYuzde), g.donulen + ' / ' + g.talep + ' talep yanıtlandı')
+      + crmStatKart('Sipariş Dönüşümü', crmPct(g.siparisYuzde), g.siparis + ' / ' + g.donulen + ' teklif siparişe')
+      + crmStatKart('18 Saatte Dönüş', crmPct(g.slaYuzde), g.sla + ' / ' + g.talep + ' talep ≤18 sa')
+      + crmStatKart('Farklı Müşteri', g.musteriSayisi.toLocaleString('tr-TR'), 'hizmet verilen');
+  }
+  crmDonemTabloRender();
+  crmMusteriTabloRender();
+  ['gunluk','aylik','yillik'].forEach(gr => {
+    const b = document.getElementById('crm-gran-' + gr);
+    if (b) b.classList.toggle('btn-primary', gr === _crmStatGran);
+  });
+}
+function crmDonemTabloRender() {
+  const tablo = document.getElementById('crm-stat-donem-tablo');
+  if (!tablo) return;
+  const gran = _crmStatGran;
+  const kova = {};
+  TALEPLER.forEach(t => {
+    if (!t || !t.tarih) return;
+    const s = String(t.tarih);
+    const key = gran === 'gunluk' ? s.slice(0,10) : (gran === 'aylik' ? s.slice(0,7) : s.slice(0,4));
+    if (!key) return;
+    (kova[key] = kova[key] || []).push(t);
+  });
+  const limit = gran === 'gunluk' ? 31 : (gran === 'aylik' ? 24 : 10);
+  const anahtarlar = Object.keys(kova).sort().reverse().slice(0, limit);
+  const kols = ['Dönem','Talep','Dönülen','Sipariş Dönüşümü','18s Yanıt','Farklı Müşteri'];
+  const baslik = '<thead><tr style="background:var(--bg3);">'
+    + kols.map((h,i) => '<th style="padding:8px 10px;text-align:' + (i===0?'left':'right') + ';border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);white-space:nowrap;">' + h + '</th>').join('')
+    + '</tr></thead>';
+  const satirlar = anahtarlar.map(k => {
+    const m = crmMetrikHesapla(kova[k]);
+    const td = (v, extra) => '<td style="padding:8px 10px;text-align:right;">' + v + (extra ? ' <span style="color:var(--text3);font-size:11px;">(' + extra + ')</span>' : '') + '</td>';
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:8px 10px;font-weight:600;white-space:nowrap;">' + crmDonemEtiket(k, gran) + '</td>'
+      + td(m.talep)
+      + td(crmPct(m.donulenYuzde), m.donulen)
+      + td(crmPct(m.siparisYuzde), m.siparis)
+      + td(crmPct(m.slaYuzde))
+      + td(m.musteriSayisi)
+      + '</tr>';
+  }).join('');
+  tablo.innerHTML = baslik + '<tbody>' + (satirlar || '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text3);">Veri yok.</td></tr>') + '</tbody>';
+}
+function crmMusteriTabloRender() {
+  const tablo = document.getElementById('crm-stat-musteri-tablo');
+  if (!tablo) return;
+  const kova = {};
+  TALEPLER.forEach(t => { if (t && t.musteri) (kova[t.musteri] = kova[t.musteri] || []).push(t); });
+  const veriler = Object.keys(kova).map(firma => {
+    const m = crmMetrikHesapla(kova[firma]);
+    const sonTarih = kova[firma].map(t => t.tarih).filter(Boolean).sort().reverse()[0] || '';
+    return { firma, m, sonTarih };
+  }).sort((a,b) => b.m.talep - a.m.talep).slice(0, 60);
+  const kols = ['Müşteri','Talep','Dönülen','Sipariş Dönüşümü','18s','Son Talep'];
+  const baslik = '<thead><tr style="background:var(--bg3);">'
+    + kols.map((h,i) => '<th style="padding:8px 10px;text-align:' + (i===0?'left':'right') + ';border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);white-space:nowrap;">' + h + '</th>').join('')
+    + '</tr></thead>';
+  const satirlar = veriler.map(r =>
+    '<tr style="border-bottom:1px solid var(--border);">'
+    + '<td style="padding:8px 10px;font-weight:500;">' + (r.firma || '—') + '</td>'
+    + '<td style="padding:8px 10px;text-align:right;">' + r.m.talep + '</td>'
+    + '<td style="padding:8px 10px;text-align:right;">' + crmPct(r.m.donulenYuzde) + '</td>'
+    + '<td style="padding:8px 10px;text-align:right;">' + crmPct(r.m.siparisYuzde) + '</td>'
+    + '<td style="padding:8px 10px;text-align:right;">' + crmPct(r.m.slaYuzde) + '</td>'
+    + '<td style="padding:8px 10px;text-align:right;color:var(--text3);white-space:nowrap;">' + (r.sonTarih ? crmDonemEtiket(String(r.sonTarih).slice(0,10),'gunluk') : '—') + '</td>'
+    + '</tr>').join('');
+  tablo.innerHTML = baslik + '<tbody>' + (satirlar || '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text3);">Müşteri verisi yok.</td></tr>') + '</tbody>';
 }
 
 function crmMusteriAraSayfa() {
