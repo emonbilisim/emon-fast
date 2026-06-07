@@ -4649,24 +4649,26 @@ function talepDetayAc(idx) {
   satisUrunBaz = {};
   satisToplamPara = null;
   setTimeout(() => {
-    // Onaylı/talep edilmiş durumda kayıtlı veriyi geri yükle
-    // Öncelik: admin'in onay anındaki verisi (varsa), yoksa satıcının talep anındaki verisi
-    const kayitliData = t.fiyatOnayTalep?.adminSatisData || t.fiyatOnayTalep?.saticiSatisData;
-    if (kayitliData && satisTabloDurumuYukle(kayitliData)) {
+    // 💱 Teklif (manuel) kuru varsayılan KAPALI → her açılışta güncel sistem kuru kullanılsın
+    const mkcb = document.getElementById('satis-manuel-kur-cb');
+    if (mkcb) mkcb.checked = false;
+
+    const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
+    // Admin ONAYLADIYSA/işlediyse o veriyi AYNEN geri yükle (kilitli fiyat).
+    const adminVeri = t.fiyatOnayTalep?.adminSatisData;
+    if (adminVeri && satisTabloDurumuYukle(adminVeri)) {
       satisHesaplaTablosu();
     } else {
       // KDV varsayılan: hariç
       const kdvEl = document.getElementById('satis-kdv');
       if (kdvEl) kdvEl.value = '0';
-
-      // Müşteri marjını otomatik getir — kart bulunursa müşteri/ürün grubu/genel
-      // baz sırasıyla uygulanır; kart yoksa genel baz marj tüm satırlara yazılır.
-      const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
-      if (musteriObj) {
-        musteriMarjUygula(true); // sessiz — açılışta toast gösterme
-      } else {
-        satisHesaplaReset();
-      }
+      // Satıcı taslağı varsa KDV/nakliye/kargo gibi ayarlarını koru...
+      const saticiVeri = t.fiyatOnayTalep?.saticiSatisData;
+      if (saticiVeri) satisTabloDurumuYukle(saticiVeri);
+      // ...ama müşteri HEDEF marjını OTOMATİK uygula → satıcı "Müşteri Marjı" butonuna
+      // basmadan müşteri-marjlı birim fiyat/toplamı görür; onay öncesi yine değiştirebilir.
+      if (musteriObj) musteriMarjUygula(true); // sessiz — açılışta toast gösterme
+      else satisHesaplaReset();
     }
     satisBolumunuGuncelle();
   }, 150);
@@ -5997,7 +5999,11 @@ function satisHesaplaTablosu() {
       kargoBirimTL  = nak / projePaylasiminda / adet;
     }
     const topMaliyetTL = tlFiyat + kargoBirimTL;
-    const marj     = parseFloat(satisUrunMarjlari[uIdx] ?? 25);
+    // Varsayılan marj = müşterinin HEDEF kar marjı (yoksa genel baz) → satıcı butona
+    // basmadan müşteri-marjlı fiyat gelir; satır marjı elle set edilmişse o kullanılır.
+    const musteriHedefVars = musteriHedefMarjHesap(u);
+    const marjVarsayilan = (musteriHedefVars !== null && !isNaN(musteriHedefVars)) ? musteriHedefVars : (parseFloat(FP_KURALLAR?.baz) || 25);
+    const marj     = parseFloat(satisUrunMarjlari[uIdx] ?? marjVarsayilan);
     const netTL    = topMaliyetTL * (1 + marj/100);
     const kdvTutar = netTL * kdv / 100;
     const birimSatisTL  = netTL + kdvTutar;
@@ -6125,7 +6131,7 @@ function satisHesaplaTablosu() {
     // Kar marjı
     const td3 = tr.insertCell();
     td3.style.cssText = 'padding:6px 8px;text-align:center;vertical-align:middle;';
-    const musteriHedefMarj = musteriHedefMarjHesap(u);
+    const musteriHedefMarj = musteriHedefVars;
     const marjGoster = (Math.round(marj*10)/10).toLocaleString('tr-TR', { maximumFractionDigits: 1 });
     td3.innerHTML = '<div style="display:flex;align-items:center;gap:4px;justify-content:center;">'
       + '<input type="text" inputmode="decimal" autocomplete="off" value="' + marjGoster + '" style="width:72px;text-align:center;padding:4px 6px;font-size:13px;" '
