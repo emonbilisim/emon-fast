@@ -1190,10 +1190,10 @@
   <!-- KARGO BİLGİLERİ MODALI -->
   <div class="modal-overlay" id="modal-kargoGir">
     <div class="modal" style="width:min(90vw,520px);">
-      <div class="modal-title">📦 Kargo Bilgilerini Girin</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Sipariş tamamlanabilmesi için kargo firması ve takip kodu zorunludur.</div>
+      <div class="modal-title">📦 Kargo & Fatura Bilgileri</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">Talebin tamamlanabilmesi için <b>kargo takip kodu</b> ve <b>fatura numarası</b> zorunludur. İkisi de girilince "Kaydet ve Talebi Tamamla" aktif olur.</div>
       <div class="form-group">
-        <label class="form-label">Kargo Firması <span style="color:var(--red);">*</span></label>
+        <label class="form-label">Kargo Firması <span style="font-size:11px;color:var(--text3);">(takip linki için)</span></label>
         <select id="kargo-firma" style="font-size:13px;">
           <option value="">Seçin...</option>
           <option value="aras">Aras Kargo</option>
@@ -1210,7 +1210,11 @@
       </div>
       <div class="form-group">
         <label class="form-label">Takip / Gönderi Kodu <span style="color:var(--red);">*</span></label>
-        <input type="text" id="kargo-takip-kodu" placeholder="örn. 123456789" style="font-size:14px;font-family:monospace;letter-spacing:1px;">
+        <input type="text" id="kargo-takip-kodu" placeholder="örn. 123456789" oninput="kargoModalValidate()" style="font-size:14px;font-family:monospace;letter-spacing:1px;">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fatura Numarası <span style="color:var(--red);">*</span></label>
+        <input type="text" id="kargo-fatura-no" placeholder="örn. EMN2026000123" oninput="kargoModalValidate()" style="font-size:14px;font-family:monospace;letter-spacing:1px;">
       </div>
       <div class="form-group">
         <label class="form-label">Kargo Notu <span style="font-size:11px;color:var(--text3);">(isteğe bağlı)</span></label>
@@ -1219,7 +1223,7 @@
       <div id="kargo-hata" style="display:none;color:var(--red);font-size:12px;padding:8px;background:rgba(240,96,96,0.1);border-radius:6px;margin-bottom:8px;"></div>
       <div class="modal-footer">
         <button class="btn" onclick="closeModal('kargoGir')">İptal</button>
-        <button class="btn btn-primary" onclick="kargoKaydetVeTamamla()">📦 Kaydet ve Tamamla</button>
+        <button class="btn btn-primary" id="kargo-tamamla-btn" onclick="kargoKaydetVeTamamla()" disabled>📦 Kaydet ve Talebi Tamamla</button>
       </div>
     </div>
   </div>
@@ -7050,45 +7054,54 @@ const KARGO_FIRMALARI = {
   diger:   { ad: 'Diğer Kargo',    logo: '📦', takipUrl: kod => null },
 };
 
-function kargoModalAc() {
+// "Kaydet ve Talebi Tamamla" yalnız takip no + fatura no girilince aktif olur
+function kargoModalValidate() {
+  const takip  = (document.getElementById('kargo-takip-kodu')?.value || '').trim();
+  const fatura = (document.getElementById('kargo-fatura-no')?.value || '').trim();
+  const btn = document.getElementById('kargo-tamamla-btn');
+  if (btn) btn.disabled = !(takip && fatura);
+}
+
+function kargoModalAc(idx) {
+  // Teklifler sekmesinden idx ile çağrılabilir (talep detayından idx'siz → aktifTalepIdx)
+  if (typeof idx === 'number' && idx >= 0) aktifTalepIdx = idx;
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
-  // Mevcut kargo bilgilerini doldur
+  // Mevcut kargo/fatura bilgilerini doldur
   const k = t.kargoGonderi;
-  const firmaEl = document.getElementById('kargo-firma');
-  const kodEl   = document.getElementById('kargo-takip-kodu');
-  const notEl   = document.getElementById('kargo-not');
-  if (firmaEl) firmaEl.value = k?.firma || '';
-  if (kodEl)   kodEl.value   = k?.kod   || '';
-  if (notEl)   notEl.value   = k?.not   || '';
+  const firmaEl  = document.getElementById('kargo-firma');
+  const kodEl    = document.getElementById('kargo-takip-kodu');
+  const faturaEl = document.getElementById('kargo-fatura-no');
+  const notEl    = document.getElementById('kargo-not');
+  if (firmaEl)  firmaEl.value  = k?.firma    || '';
+  if (kodEl)    kodEl.value     = k?.kod      || '';
+  if (faturaEl) faturaEl.value  = k?.faturaNo || '';
+  if (notEl)    notEl.value     = k?.not      || '';
   document.getElementById('kargo-hata').style.display = 'none';
+  kargoModalValidate();
   openModal('kargoGir');
 }
 
 function kargoKaydetVeTamamla() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
-  const firma = document.getElementById('kargo-firma')?.value;
-  const kod   = document.getElementById('kargo-takip-kodu')?.value.trim();
-  const not   = document.getElementById('kargo-not')?.value.trim();
-  const hata  = document.getElementById('kargo-hata');
+  const firma  = document.getElementById('kargo-firma')?.value || '';
+  const kod    = (document.getElementById('kargo-takip-kodu')?.value || '').trim();
+  const fatura = (document.getElementById('kargo-fatura-no')?.value || '').trim();
+  const not    = (document.getElementById('kargo-not')?.value || '').trim();
+  const hata   = document.getElementById('kargo-hata');
 
-  if (!firma) {
-    hata.textContent = 'Kargo firması seçilmesi zorunludur.';
-    hata.style.display = 'block'; return;
-  }
-  if (!kod) {
-    hata.textContent = 'Takip / gönderi kodu girilmesi zorunludur.';
-    hata.style.display = 'block'; return;
-  }
+  if (!kod)    { hata.textContent = 'Takip / gönderi kodu girilmesi zorunludur.'; hata.style.display = 'block'; return; }
+  if (!fatura) { hata.textContent = 'Fatura numarası girilmesi zorunludur.';      hata.style.display = 'block'; return; }
 
-  t.kargoGonderi = { firma, kod, not, tarih: new Date().toISOString() };
+  t.kargoGonderi = { firma: firma || 'diger', kod, faturaNo: fatura, not, tarih: new Date().toISOString() };
   t.durum = 'Tamamlandı';
   closeModal('kargoGir');
   veriKaydet();
   renderTalepler();
   renderKargoTakip();
-  showToast('📦 Kargo bilgisi kaydedildi. Talep tamamlandı → Arşiv\'e taşındı.');
+  if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
+  showToast('📦 Kargo + fatura kaydedildi. Talep tamamlandı → Arşiv\'e taşındı.');
 }
 
 function renderKargoTakip() {
@@ -7126,6 +7139,7 @@ function renderKargoTakip() {
             style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--text2);font-size:12px;" title="Kopyala">📋</button>
         </div>
         <div style="font-size:11px;color:var(--text3);">Kargo Firması: <b style="color:var(--text2);">${f.ad}</b></div>
+        ${k.faturaNo ? '<div style="font-size:11px;color:var(--text3);">Fatura No: <b style="color:var(--text2);font-family:monospace;">' + k.faturaNo + '</b></div>' : ''}
         ${k.not ? '<div style="font-size:12px;color:var(--text2);padding:6px 8px;background:var(--bg3);border-radius:4px;">' + k.not + '</div>' : ''}
       </div>
 
@@ -9570,6 +9584,7 @@ function renderMusteriTeklifleri() {
         : '')
       + (durum === 'kabul' ?
           '<button class="btn btn-sm btn-primary" onclick="siparisOnayla('+idx+')" style="font-size:12px;">🛒 '+(siparisVerildi?'Siparişi Düzenle':'Sipariş Ver')+'</button>'
+          + (siparisVerildi ? '<button class="btn btn-sm btn-primary" onclick="kargoModalAc('+idx+')" style="font-size:12px;">📦 Kargo & Fatura → Talebi Tamamla</button>' : '')
           + '<button class="btn btn-sm" onclick="teklifPdfIndir('+idx+')" style="font-size:12px;">📥 PDF</button>'
         : '')
       + (durum === 'red' ?
