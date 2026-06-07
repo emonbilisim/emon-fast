@@ -1163,6 +1163,18 @@
       <button class="btn btn-sm" onclick="anlikGuncelle('teklifler')" style="font-size:12px;" title="Listeyi yenile + gelen mailleri tara">🔄 Güncelle</button>
     </div>
 
+    <!-- 📩 Müşteri yanıtları — otomatik mail taraması (onay/revize) -->
+    <div class="card" id="teklifler-yanit-card" style="margin-bottom:16px;border-left:3px solid var(--accent2);">
+      <div class="card-header" style="margin-bottom:8px;">
+        <div>
+          <div class="card-title">📩 Müşteri Yanıtları (otomatik tarama)</div>
+          <div class="card-sub" id="teklifler-yanit-durum">Gelen kutusu, müşteri onay/revize yanıtları için otomatik taranır.</div>
+        </div>
+        <button class="btn btn-sm btn-primary" id="teklifler-yanit-tara-btn" onclick="teklifYanitlariTara(false)" style="font-size:12px;">🔄 Yanıtları Tara</button>
+      </div>
+      <div id="teklifler-yanit-liste" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+
     <!-- Teklif listesi -->
     <div id="musteri-teklifler-listesi" style="display:flex;flex-direction:column;gap:12px;"></div>
     <div id="musteri-teklifler-empty" style="display:none;padding:40px;text-align:center;color:var(--text3);">
@@ -3616,9 +3628,10 @@ function goPage(id, el) {
   document.getElementById('page-title').textContent = titles[id] || id;
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
+  if (typeof teklifTaramaDurdur === 'function') teklifTaramaDurdur(); // başka sayfaya geçince teklif taramasını durdur
   if (id === 'panel') { renderPanelMetrikler(); onayBadgeGuncelle(); }
   if (id === 'fiyatOnaylari') fiyatOnaylariTazele();
-  if (id === 'teklifler') renderMusteriTeklifleri();
+  if (id === 'teklifler') { renderMusteriTeklifleri(); teklifTaramaBaslat(); }
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
   if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); }
@@ -9413,6 +9426,7 @@ function acikTeklifBadgeGuncelle() {
 }
 
 function renderMusteriTeklifleri() {
+  if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
   const q = (document.getElementById('tof-search')?.value || '').toLowerCase();
   const df = document.getElementById('tof-durum-filter')?.value || '';
   const liste = document.getElementById('musteri-teklifler-listesi');
@@ -12413,9 +12427,9 @@ async function maildenTalepCikar(mailIcerik, pdfler) {
 }
 
 // ── Çekirdek tarama (Faz 1: manuel buton; Faz 2: interval, sessiz=true) ──
-async function otoTalepTara(sessiz = false) {
+async function otoTalepTara(sessiz = false, zorla = false) {
   const cfg = otoTalepCfg();
-  if (!cfg.aktif) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
+  if (!cfg.aktif && !zorla) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
   if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
   const mailSet = musteriMailSet();
@@ -12594,12 +12608,102 @@ function otoTalepHatirlatGuncelle() {
 async function anlikGuncelle(hangi) {
   const yenile = () => { if (hangi === 'teklifler') renderMusteriTeklifleri(); else renderTalepler(); };
   yenile();
-  if (otoTalepCfg().aktif) {
-    await otoTalepTara(false);
+  // Teklifler sekmesinde oto-talep kapalı olsa da müşteri yanıtları için tara (zorla)
+  const zorla = (hangi === 'teklifler');
+  if (otoTalepCfg().aktif || zorla) {
+    await otoTalepTara(false, zorla);
     yenile();
   } else {
     showToast('🔄 Liste güncellendi.');
   }
+}
+
+// ── Teklifler sekmesi: müşteri yanıtı (onay/revize) tarama + gösterim ──
+let _teklifTaraInterval = null;
+function teklifTaramaBaslat() {
+  teklifTaramaDurdur();
+  teklifYanitlariTara(true); // açılışta bir kez sessiz tara
+  const dk = Math.max(3, otoTalepCfg().aralikDk || 10);
+  _teklifTaraInterval = setInterval(() => { teklifYanitlariTara(true); }, dk * 60000);
+}
+function teklifTaramaDurdur() {
+  if (_teklifTaraInterval) { clearInterval(_teklifTaraInterval); _teklifTaraInterval = null; }
+}
+let _teklifTaraCalisiyor = false;
+async function teklifYanitlariTara(sessiz) {
+  if (_teklifTaraCalisiyor) return; // üst üste tarama olmasın
+  // Önkoşullar (manuel taramada kullanıcıyı bilgilendir; sessizde sessizce çık)
+  if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
+  if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
+  _teklifTaraCalisiyor = true;
+  const say = () => (otoTalepCfg().taslaklar || []).filter(x => x.tip === 'onay' || x.tip === 'revizyon').length;
+  const onceki = say();
+  const btn = document.getElementById('teklifler-yanit-tara-btn');
+  if (btn) { btn.disabled = true; if (!sessiz) btn.textContent = '⏳ Taranıyor...'; }
+  try {
+    await otoTalepTara(true, true); // sessiz + zorla → kendi bildirimimizi yaparız, modal açılmaz
+  } finally {
+    _teklifTaraCalisiyor = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Yanıtları Tara'; }
+  }
+  renderMusteriTeklifleri();
+  const yeni = say() - onceki;
+  if (yeni > 0) showToast('📩 ' + yeni + ' yeni müşteri yanıtı algılandı — Teklifler sekmesinde.');
+  else if (!sessiz) showToast('✅ Yeni müşteri yanıtı yok.');
+}
+// Eşleşmesi olmayan yanıtta seçilen teklifle uygula
+function teklifYanitUygula(id, revize) {
+  const no = (document.getElementById('tkl-teklif-' + id)?.value || '').trim();
+  if (!no) { showToast('⚠ Lütfen ilgili teklifi seçin.'); return; }
+  otoOnayRevizeUygula(id, revize, no);
+}
+// Onay/revize taslaklarını Teklifler sekmesinde göster
+function teklifMusteriYanitlariRender() {
+  const liste   = document.getElementById('teklifler-yanit-liste');
+  const durumEl = document.getElementById('teklifler-yanit-durum');
+  if (!liste) return;
+  const cfg = otoTalepCfg();
+  const yanitlar = (cfg.taslaklar || []).filter(x => x.tip === 'onay' || x.tip === 'revizyon');
+  if (durumEl) {
+    const st = cfg.sonTarama ? new Date(cfg.sonTarama).toLocaleString('tr-TR') : 'henüz taranmadı';
+    durumEl.textContent = (yanitlar.length ? yanitlar.length + ' yanıt bekliyor · ' : 'Bekleyen yanıt yok · ') + 'Son tarama: ' + st;
+  }
+  if (yanitlar.length === 0) { liste.innerHTML = ''; return; }
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  const teklifOpsiyon = (secili, musteri) => {
+    const aday = TALEPLER.filter(x => x.musteriTeklifGonderildi || x.durum === 'Müşteriye İletildi');
+    const sirali = aday.filter(x => x.musteri === musteri).concat(aday.filter(x => x.musteri !== musteri));
+    return '<option value="">— İlgili teklif seç —</option>' +
+      sirali.map(x => `<option value="${esc(x.no)}"${x.no === secili ? ' selected' : ''}>${esc(x.no)} · ${esc(x.musteri)}</option>`).join('');
+  };
+  liste.innerHTML = yanitlar.map(ts => {
+    const revize = ts.tip === 'revizyon';
+    const renk   = revize ? 'var(--accent2)' : 'var(--green)';
+    const etiket = revize ? '✏️ Müşteri REVİZYON istiyor' : '✅ Müşteri teklifi ONAYLADI';
+    const tarih  = ts.tarih ? new Date(ts.tarih).toLocaleString('tr-TR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
+    const eslesti = !!ts.eslesenTalepNo;
+    const uygulaBtn = eslesti
+      ? `<button class="btn btn-primary btn-sm" onclick="otoOnayRevizeUygula('${ts.id}', ${revize}, '${esc(ts.eslesenTalepNo)}')" style="font-size:12px;">${revize ? '✏️ Revize İstendi İşaretle' : '✅ Kabul İşaretle'}</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="teklifYanitUygula('${ts.id}', ${revize})" style="font-size:12px;">${revize ? '✏️ Revize İşaretle' : '✅ Kabul İşaretle'}</button>`;
+    return `
+      <div style="background:var(--bg2);border:1px solid ${renk};border-radius:var(--radius);padding:12px;">
+        <div style="font-size:12px;font-weight:700;color:${renk};margin-bottom:4px;">${etiket}</div>
+        <div style="font-size:13px;font-weight:600;">${esc(ts.musteri || ts.gonderenAd || ts.gonderen)} · ${esc(ts.konu || '')}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${esc(ts.gonderen || '')} · ${tarih}</div>
+        ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${esc(ts.ozet)}</div>` : ''}
+        ${ts.not ? `<div style="font-size:12px;color:var(--text2);background:var(--bg3);border-radius:var(--radius);padding:6px 9px;margin:6px 0;">📝 ${esc(ts.not)}</div>` : ''}
+        <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--text3);">İlgili teklif:</span>
+          ${eslesti
+            ? `<span class="badge badge-blue" style="font-size:11px;">${esc(ts.eslesenTalepNo)}</span>`
+            : `<select id="tkl-teklif-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:200px;">${teklifOpsiyon(ts.eslesenTalepNo, ts.musteri)}</select><span style="font-size:11px;color:var(--amber);">⚠ eşleşme yok — seçin</span>`}
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
+          ${uygulaBtn}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 // ── Onay modalı ──
@@ -12780,12 +12884,12 @@ async function otoTalepMailGoster(taslakId) {
 }
 
 // Onay/revizyon taslağını ilgili teklife uygula
-function otoOnayRevizeUygula(taslakId, revize) {
+function otoOnayRevizeUygula(taslakId, revize, noOverride) {
   const cfg = otoTalepCfg();
   const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
   if (ix < 0) return;
   const ts = cfg.taslaklar[ix];
-  const no = (document.getElementById('ott-teklif-' + taslakId)?.value || ts.eslesenTalepNo || '').trim();
+  const no = (noOverride || document.getElementById('ott-teklif-' + taslakId)?.value || ts.eslesenTalepNo || '').trim();
   if (!no) { showToast('⚠ Lütfen ilgili teklifi seçin.'); return; }
   const t = TALEPLER.find(x => x.no === no);
   if (!t) { showToast('⚠ Teklif bulunamadı: ' + no); return; }
@@ -12833,6 +12937,7 @@ function otoTalepSil(taslakId) {
   if (mid && !cfg.islenenMailIdler.includes(mid)) cfg.islenenMailIdler.push(mid); // yoksayılan mail tekrar taranmasın
   cfg.taslaklar.splice(ix, 1);
   otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
   showToast('Taslak yoksayıldı.');
 }
 
