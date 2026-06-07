@@ -11199,6 +11199,16 @@ async function outlookTumMaillerGoster() {
     await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: aktifKullanici.msAccount })
       .then(r => msGraphToken = r.accessToken).catch(() => {});
 
+    // Gelen kutusu klasör kimliği — $search bazen URL'deki klasör kısıtını yok sayıp
+    // tüm posta kutusunu (Gönderilmiş/Arşiv vb.) tarar; sonuçları parentFolderId ile
+    // YALNIZCA gelen kutusuna filtrelemek için kullanılır.
+    let inboxId = null;
+    try {
+      const fr = await fetch(GRAPH_API + '/me/mailFolders/inbox?$select=id', { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
+      if (fr.ok) inboxId = (await fr.json()).id || null;
+    } catch {}
+    const gelenKutusunda = m => !inboxId || m.parentFolderId === inboxId;
+
     const firmaMap = rfqFirmaMap();
     const rfqFirmalar = t.rfqTedarikciler || [];
     const rfqTarih = t.tarih ? new Date(t.tarih).toISOString() : null;
@@ -11218,12 +11228,13 @@ async function outlookTumMaillerGoster() {
       for (const { mail: rfqMail, firma } of rfqMailler) {
         try {
           const resp = await fetch(
-            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="from:${rfqMail}"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments`,
+            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="from:${rfqMail}"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId`,
             { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
           );
           if (resp.ok) {
             const data = await resp.json();
             (data.value || []).forEach(m => {
+              if (!gelenKutusunda(m)) return;            // yalnızca gelen kutusu
               // RFQ tarihinden sonra gelen mailler
               if (rfqTarih && new Date(m.receivedDateTime) < new Date(rfqTarih)) return;
               if (!tumMailler.find(x => x.id === m.id)) tumMailler.push(m);
@@ -11236,12 +11247,13 @@ async function outlookTumMaillerGoster() {
       if (tumMailler.length === 0 && t.no) {
         try {
           const resp = await fetch(
-            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments`,
+            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId`,
             { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
           );
           if (resp.ok) {
             const data = await resp.json();
             (data.value || []).forEach(m => {
+              if (!gelenKutusunda(m)) return;            // yalnızca gelen kutusu
               if (!tumMailler.find(x => x.id === m.id)) tumMailler.push(m);
             });
           }
@@ -11251,12 +11263,13 @@ async function outlookTumMaillerGoster() {
       // RFQ gönderilmemişse sadece talep no ile ara
       try {
         const resp = await fetch(
-          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments`,
+          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId`,
           { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
         );
         if (resp.ok) {
           const data = await resp.json();
-          tumMailler = data.value || [];
+          tumMailler = (data.value || []).filter(gelenKutusunda);   // yalnızca gelen kutusu
+          window._tumMailler = tumMailler;
         }
       } catch {}
     }
@@ -11595,6 +11608,25 @@ async function mailIceriginiGoster(mailIdx) {
   }
 }
 
+// Tedarikçi YANITINDAKİ alıntılanmış eski yazışmayı (bizim fiyatsız sorgu/RFQ mailimiz)
+// at. Tedarikçiler genelde üstte yanıtlar, alıntı altta kalır → ilk "yanıt ayracından"
+// sonrasını keser. Hem çok-satırlı hem boşlukları sıkıştırılmış metinde çalışır (ayraçlar
+// satır başına bağlı değil). Üstte anlamlı içerik yoksa (ör. salt forward) tümünü korur.
+function mailAlintiyiAt(text) {
+  if (!text) return text;
+  const t = String(text);
+  const idx = [];
+  const ekle = re => { const m = t.match(re); if (m) idx.push(m.index); };
+  ekle(/_{6,}/);                                                                                  // Outlook alt-çizgi ayıracı
+  ekle(/-{2,}\s*(Original Message|Özgün İleti|Forwarded message|İletilen ileti)\s*-{2,}/i);       // "-----Original Message-----"
+  ekle(/(Kimden|Gönderen|From)\s*:\s*\S.{0,200}?(Gönderilen|Gönderildi|Sent|Tarih|Date)\s*:/i);   // Outlook başlık bloğu
+  ekle(/\b\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}\b.{0,80}?(tarihinde|yazdı|wrote|schrieb)\b/i);           // "… 5.06.2026 … tarihinde … yazdı:"
+  if (!idx.length) return t;
+  const kes = Math.min.apply(null, idx);
+  const ust = t.slice(0, kes).trim();
+  return ust.length >= 15 ? ust : t;
+}
+
 // Tek bir mail için AI ile fiyat çıkar
 // opts.pdf=true ise mail eklerindeki PDF'leri de Claude'a gönder
 async function aiMaildenFiyatDoldur(mailIdx, opts) {
@@ -11664,7 +11696,10 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
   }
 
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama: t.urun }];
-  const parsed = await maildenFiyatlariCikar(mailBody.substring(0, 8000), urunler, pdfler);
+  // Yanıt maili ise alıntılanan (bizim fiyatsız sorgu/RFQ) kısmı at — AI onu boş fiyatlı
+  // teklif sanmasın. Yalnız tedarikçinin YENİ yazdığı metin (üst kısım) AI'ya gider.
+  const aiMetin = mailAlintiyiAt(mailBody).substring(0, 8000);
+  const parsed = await maildenFiyatlariCikar(aiMetin, urunler, pdfler);
 
   if (parsed?.fiyatlar) {
     let dolanSayisi = 0;
@@ -11917,7 +11952,8 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
       '- urunIdx 0\'dan başlar ve yukarıdaki listenin sırasına denk gelir.\n' +
       '- Bir ürün için fiyat yoksa O ÜRÜNÜ ATLAMA, birimFiyat:0 olarak ekle.\n' +
       '- PDF ek varsa onu da incele — proforma fatura, teklif formu vb. PDF içindeki fiyatlara öncelik ver.\n' +
-      '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n\n' +
+      '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n' +
+      '- ÖNEMLİ: Mail bir YANIT olabilir ve altında alıntılanmış eski yazışma (bizim fiyatsız sorgu/talep mailimiz) bulunabilir. Bu alıntı kısmını YOK SAY; yalnızca gönderenin yeni yazdığı bölümdeki fiyatları al. Bizim ürün listemizi/sorgumuzu fiyat olarak alma — gerçek fiyat yoksa birimFiyat:0 bırak.\n\n' +
       'MAİL İÇERİĞİ:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON formatında cevap ver (markdown veya açıklama yok):\n' +
       '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY"}],"teslimat":"","odeme":"","not":""}';
