@@ -7871,7 +7871,6 @@ document.addEventListener('click', e => {
 
 let KULLANICILAR = [
   { id:1, ad:'Sistem Admin', username:'admin', email:'admin@sirket.com.tr', rol:'admin', durum:'aktif', sifre:'admin123', sonGiris:'', olusturma:'2024-01-01' },
-  { id:2, ad:'Ahmet Satıcı', username:'satici1', email:'ahmet@sirket.com.tr', rol:'satici', durum:'aktif', sifre:'satis123', sonGiris:'', olusturma:'2024-02-15' },
 ];
 let kullaniciSayac = 2;
 let aktifKullanici = null;
@@ -13513,6 +13512,7 @@ async function apiKullanicilarYukle() {
     if (!Array.isArray(liste)) return null;
     const yerelByUser = new Map(KULLANICILAR.map(k => [k.username, k]));
     liste.forEach(s => {
+      if (s.username === 'satici1') return; // demo satıcı 'Ahmet Satıcı' — hiçbir kaynaktan geri ekleme
       const mevcut = yerelByUser.get(s.username);
       if (mevcut) {
         // Sunucu auth durumu esas: görünen alanları tazele (yerel sifre/imza korunur)
@@ -13816,7 +13816,9 @@ function veriYukle() {
     if (Array.isArray(veri.CRM_AKTIVITELER)) { CRM_AKTIVITELER.length = 0; CRM_AKTIVITELER.push(...veri.CRM_AKTIVITELER); }
     if (veri.crmSayac)         crmSayac = veri.crmSayac;
     if (Array.isArray(veri.KULLANICILAR) && veri.KULLANICILAR.length) {
-      const demolar   = KULLANICILAR.filter(k => ['admin','satici1'].includes(k.username));
+      // Yalnız yerel admin tohumu korunur. Demo satıcı 'satici1' (Ahmet) artık tohumda
+      // YOK ve localStorage'dan da DÜŞÜRÜLÜR → kalıcı silinebilir, geri gelmez.
+      const demolar   = KULLANICILAR.filter(k => k.username === 'admin');
       const gercekler = veri.KULLANICILAR.filter(k => !['admin','satici1'].includes(k.username));
       KULLANICILAR.length = 0;
       KULLANICILAR.push(...demolar, ...gercekler);
