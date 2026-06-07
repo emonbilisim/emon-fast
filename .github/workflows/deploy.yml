@@ -221,10 +221,19 @@ jobs:
             # 5a) DDL: atomik talep-no sequence (mevcut en buyuk TLB'ye ayarla, asla dusurme) + kullanici-basina oto-talep durum tablosu
             PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL'
             CREATE SEQUENCE IF NOT EXISTS talep_no_seq;
-            SELECT setval('talep_no_seq', GREATEST(
-              COALESCE((SELECT MAX((regexp_replace(data->>'no','\D','','g'))::int) FROM talepler WHERE data->>'no' ~ '^TLB-[0-9]+$'), 0),
-              (SELECT last_value FROM talep_no_seq)
-            ), true);
+            -- Talep tablosu BOŞSA sıradaki numara TLB-00001 olsun (temiz başlangıç / sıfırlama).
+            -- Talep VARSA en büyük numaranın üstünden devam et ve sequence'i asla düşürme.
+            DO $$
+            DECLARE maxn int;
+            BEGIN
+              SELECT COALESCE(MAX((regexp_replace(data->>'no','\D','','g'))::int), 0)
+                INTO maxn FROM talepler WHERE data->>'no' ~ '^TLB-[0-9]+$';
+              IF maxn > 0 THEN
+                PERFORM setval('talep_no_seq', GREATEST(maxn, (SELECT last_value FROM talep_no_seq)), true);
+              ELSE
+                PERFORM setval('talep_no_seq', 1, false);
+              END IF;
+            END $$;
             CREATE TABLE IF NOT EXISTS oto_talep_durum (
               kullanici_id INTEGER PRIMARY KEY,
               data JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -240,11 +249,11 @@ jobs:
             const yedek = () => { if (!degisti) fs.writeFileSync(f + '.bak.ci2', s); };
             // 5b-1) Atomik talep numarasi
             const talepNoRoute =
-              "app.get('/api/next-talep-no', authMiddleware, async (req, res) => { // talep-no v1\n" +
+              "app.get('/api/next-talep-no', authMiddleware, async (req, res) => { // talep-no v2\n" +
               "  try {\n" +
               "    const r = await pool.query(\"SELECT nextval('talep_no_seq') AS n\");\n" +
               "    const n = Number(r.rows[0].n);\n" +
-              "    res.json({ ok: true, n, no: 'TLB-' + String(n).padStart(3, '0') });\n" +
+              "    res.json({ ok: true, n, no: 'TLB-' + String(n).padStart(5, '0') });\n" +
               "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
               "});\n";
             // 5b-2) Kullanici-basina oto-talep durumu (taslaklar/islenenMailIdler/sonTarama)
@@ -262,8 +271,15 @@ jobs:
               "    res.json({ ok: true });\n" +
               "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
               "});\n";
-            if (s.includes('// talep-no v1')) {
-              console.log('talep-no route zaten var');
+            if (s.includes('// talep-no v2')) {
+              console.log('talep-no route v2 zaten var');
+            } else if (s.includes('// talep-no v1')) {
+              // v1 -> v2: numara biçimini 3 haneden 5 haneye çek (TLB-001 -> TLB-00001)
+              yedek();
+              s = s.replace('// talep-no v1', '// talep-no v2')
+                   .replace("String(n).padStart(3, '0')", "String(n).padStart(5, '0')");
+              degisti = true;
+              console.log('talep-no route v1->v2 (5 hane) guncellendi');
             } else if (s.includes("app.get('/api/saglik'")) {
               yedek();
               s = s.replace("app.get('/api/saglik'", talepNoRoute + "\napp.get('/api/saglik'");

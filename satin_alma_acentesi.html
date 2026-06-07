@@ -4281,7 +4281,7 @@ let TALEPLER = [
   { no:'TLB-020', musteri:'Sigma AŞ', urun:'Zebra Barkod Okuyucu', miktar:'3 adet', durum:'Müşteriye İletildi', tarih:'2026-04-25', termin:'2026-05-12', not:'' },
   { no:'TLB-019', musteri:'Mega Corp', urun:'Lenovo ThinkPad E14', miktar:'5 adet', durum:'Teklif Hazır', tarih:'2026-04-24', termin:'2026-05-15', not:'' },
 ];
-let talepSayac = 24;
+let talepSayac = 0; // çevrimdışı fallback başlangıcı; çevrimiçide sunucu sequence'i (talep_no_seq) yetkilidir
 
 // Eski kayıtlardaki 'Onay Bekliyor' statüsünü 'Müşteriye İletildi' olarak güncelle
 function taleplerDurumMigrate() {
@@ -12076,7 +12076,7 @@ function yerelSonrakiTalepNo() {
   let maxN = Number(talepSayac) || 0;
   TALEPLER.forEach(t => { const m = /TLB-0*(\d+)/.exec(t.no || ''); if (m) maxN = Math.max(maxN, parseInt(m[1], 10)); });
   talepSayac = maxN + 1;
-  return 'TLB-' + String(talepSayac).padStart(3, '0');
+  return 'TLB-' + String(talepSayac).padStart(5, '0');
 }
 
 // ── Faz 2: periyodik otomatik tarama ──
