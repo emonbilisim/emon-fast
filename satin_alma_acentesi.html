@@ -105,6 +105,8 @@
   .badge-red { background: rgba(240,96,96,0.15); color: var(--red); }
   .badge-purple { background: rgba(167,139,250,0.15); color: var(--purple); }
   .badge-gray { background: rgba(139,145,168,0.12); color: var(--text2); }
+  @keyframes onayliYanip { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .onayli-yanip { animation: onayliYanip 1.4s ease-in-out infinite; }
 
   /* TABLE */
   .table-wrap { overflow-x: auto; }
@@ -524,6 +526,7 @@
       <span class="icon">📋</span> Talepler
       <span class="nav-badge" id="badge-talepler">3</span>
       <span class="nav-badge" id="badge-oto-taslak" title="Gelen maillerden bekleyen taslak" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
+      <span class="nav-badge onayli-yanip" id="badge-onayli-gonder" title="Admin onayladı — müşteriye gönderilmeyi bekliyor" style="display:none;background:var(--green);color:#06281c;">0</span>
     </div>
     <div class="nav-item" onclick="goPage('teklifler',this)">
       <span class="icon">💬</span> Teklifler
@@ -594,6 +597,17 @@
 
   <!-- PANEL PAGE -->
   <div class="content page active" id="page-panel">
+
+    <!-- ✅ Onaylanan fiyatlar — müşteriye gönderilmeyi bekliyor (satıcı dikkati) -->
+    <div class="card" id="panel-onayli-gonder-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--green);background:rgba(62,207,142,0.07);">
+      <div class="card-header">
+        <div>
+          <div class="card-title" style="color:var(--green);">✅ Fiyatınız Onaylandı — Müşteriye Gönderilmeyi Bekliyor</div>
+          <div class="card-sub">Admin fiyatı onayladı. Teklifi müşteriye iletin.</div>
+        </div>
+      </div>
+      <div id="panel-onayli-gonder-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
 
     <!-- ⏰ Son Teklif Zamanı Uyarıları (sayfa açılışında ilk görünen alan) -->
     <div class="card" id="panel-stz-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--amber);">
@@ -4448,7 +4462,7 @@ function renderTalepler() {
         <td style="font-weight:500;">${t.musteri}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.urun}</td>
         <td style="font-size:12px;">${t.miktar||'—'}</td>
-        <td>${durumTalepBadge(t.durum)}</td>
+        <td>${durumTalepBadge(t.durum)}${onayliRozet(t)}</td>
         <td style="font-size:12px;color:var(--text2);">${talepTarihFmt(t.tarih)}</td>
         <td><button class="btn btn-sm" onclick="goPage('talepler',document.querySelector('[onclick*=talepler]'))">→</button></td>`;
       panelTbody.appendChild(pr);
@@ -4465,7 +4479,7 @@ function renderTalepler() {
         <td data-label="Müşteri" style="font-weight:500;">${t.musteri}</td>
         <td data-label="Ürün" style="max-width:220px;">${t.urun}</td>
         <td data-label="Miktar" style="font-size:12px;">${t.miktar||'—'}</td>
-        <td data-label="Durum">${durumTalepBadge(t.durum)}</td>
+        <td data-label="Durum">${durumTalepBadge(t.durum)}${onayliRozet(t)}</td>
         <td data-label="Tarih" style="font-size:12px;color:var(--text2);">${talepTarihFmt(t.tarih)}</td>
         <td data-label="Termin" style="font-size:12px;color:var(--text2);">${t.termin?tarihKisa(new Date(t.termin)):'—'}</td>
         <td data-label="STZ" style="font-size:12px;">${(()=>{
@@ -4503,6 +4517,7 @@ function renderTalepler() {
   if (badge) badge.textContent = gorunurTalepler.filter(t=>t.durum==='Yeni').length||'';
   if (typeof otoTalepHatirlatGuncelle === 'function') otoTalepHatirlatGuncelle();
   if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
 }
 
 function filterTalepler() { renderTalepler(); }
@@ -8252,6 +8267,7 @@ function rolUygula() {
   const marjBtn = document.querySelector('[onclick*="fiyatKurallari"]');
   if (marjBtn) marjBtn.style.display = isAdmin ? '' : 'none';
   onayBekleyenBadgeGuncelle();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
   crmNavGuncelle();
 }
 
@@ -8615,6 +8631,49 @@ function onayBekleyenBadgeGuncelle() {
   if (badge) {
     badge.textContent = sayisi;
     badge.style.display = sayisi > 0 ? 'inline' : 'none';
+  }
+}
+
+// ✅ Admin ONAYLADI ama müşteriye HENÜZ gönderilmedi → satıcı dikkati.
+// Revize sonrası tekrar onayda da görünür: onay tarihi son gönderimden yeniyse.
+function onayliGonderimBekliyorMu(t) {
+  if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
+  const onayT     = t.fiyatOnayTalep?.adminTarih ? Date.parse(t.fiyatOnayTalep.adminTarih) : 0;
+  const gonderimT = t.musteriTeklifTarih ? Date.parse(t.musteriTeklifTarih) : 0;
+  if (!t.musteriTeklifGonderildi) return true;        // hiç gönderilmedi
+  return onayT > 0 && onayT > gonderimT;               // onay, son gönderimden YENİ (revize)
+}
+// Talep listesi durum hücresine küçük "✅ Gönder" rozeti
+function onayliRozet(t) {
+  return onayliGonderimBekliyorMu(t)
+    ? ' <span class="badge badge-green onayli-yanip" style="font-weight:600;" title="Admin onayladı — müşteriye gönderin">✅ Gönder</span>'
+    : '';
+}
+// Nav rozeti + Panel afişini güncelle (renderTalepler sonunda + giriş/tazelemede çağrılır)
+function onayliGonderimGuncelle() {
+  const liste = TALEPLER
+    .map((t, idx) => ({ t, idx }))
+    .filter(({ t }) => onayliGonderimBekliyorMu(t));
+  const n = liste.length;
+  const badge = document.getElementById('badge-onayli-gonder');
+  if (badge) { badge.textContent = n; badge.style.display = n > 0 ? 'inline-flex' : 'none'; }
+  const card = document.getElementById('panel-onayli-gonder-card');
+  const ic   = document.getElementById('panel-onayli-gonder-icerik');
+  if (card && ic) {
+    if (n === 0) { card.style.display = 'none'; ic.innerHTML = ''; }
+    else {
+      card.style.display = '';
+      ic.innerHTML = liste.map(({ t, idx }) => {
+        const revize = t.fiyatOnayTalep?.adminDegisiklik;
+        return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border:1px solid rgba(62,207,142,0.3);border-radius:var(--radius);">'
+          + '<span class="mono" style="font-weight:600;">#' + (t.no || '') + '</span>'
+          + '<span style="font-weight:500;">' + (t.musteri || '') + '</span>'
+          + '<span style="font-size:12px;color:var(--text3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (t.urun || '') + '</span>'
+          + (revize ? '<span style="font-size:11px;color:var(--amber);">✏ Admin revize etti</span>' : '')
+          + '<button class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="talepDetayAc(' + idx + ')">📧 Müşteriye Gönder →</button>'
+          + '</div>';
+      }).join('');
+    }
   }
 }
 
