@@ -6322,10 +6322,23 @@ function parseTrSayi(s) {
 }
 
 // Marj input — blur/Enter ile tetiklenir (onchange), virgül/nokta her ikisi de kabul
+// Fiyat (marj/birim satış) KULLANICI tarafından değişince önceki onayı geçersiz kıl →
+// buton "Müşteriye Gönder"den "Admin Onayı İste"ye döner. Programatik açılış (müşteri
+// marjı otomatik uygula) bu yoldan geçmediği için tetiklenmez.
+function _fiyatDuzenlemeSonrasi() {
+  const onayDustu = fiyatOnayiniGecersizKil();
+  satisHesaplaTablosu();
+  if (onayDustu) {
+    veriKaydet();
+    satisBolumunuGuncelle();
+    if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+    if (aktifKullanici?.rol !== 'admin') showToast('ℹ Fiyat değişti — tekrar admin onayı gerekiyor.');
+  }
+}
 function marjInputGuncelle(uIdx, deger) {
   const sayi = parseTrSayi(deger);
   satisUrunMarjlari[uIdx] = isNaN(sayi) ? 0 : sayi;
-  satisHesaplaTablosu();
+  _fiyatDuzenlemeSonrasi();
 }
 
 function birimSatisManuel(uIdx, deger, para, topMaliyetTL, kdv) {
@@ -6337,7 +6350,7 @@ function birimSatisManuel(uIdx, deger, para, topMaliyetTL, kdv) {
   // Marjı TAM değer olarak sakla — yuvarlama yaparsak geri hesapta birim satış kaymalı (örn. 150 → 150,03)
   // Marj input'ında zaten Math.round(marj*10)/10 ile gösteriliyor
   satisUrunMarjlari[uIdx] = (birimSatisTL / (topMaliyetTL * (1 + kdv/100)) - 1) * 100;
-  satisHesaplaTablosu();
+  _fiyatDuzenlemeSonrasi();
 }
 
 function kargoModuGuncelle(uIdx, mod) {
@@ -7002,27 +7015,20 @@ async function musteriTeklifMaili() {
       }
       const err = await resp.text();
       console.error('Graph mail hata:', resp.status, err);
-    } catch (e) { console.error('Teklif maili hatasi:', e); }
+      showToast('⚠ Mail gönderilemedi (Graph ' + resp.status + '). Microsoft 365 bağlantısını kontrol edip tekrar deneyin.');
+      return;
+    } catch (e) {
+      console.error('Teklif maili hatasi:', e);
+      showToast('⚠ Mail gönderilemedi: ' + (e.message || 'bağlantı hatası') + '. Tekrar deneyin.');
+      return;
+    }
   }
 
-  // Fallback: mailto
-  const bodyText = 'Sayin ' + adSoyad + ',\n\nTalebinize (' + t.no + (t.musteriNo?' / '+t.musteriNo:'') + ') istinaden fiyat teklifimizi sunuyoruz:\n\n'
-    + urunSatirlari.map((u,idx) => (idx+1)+'. '+(u.kod?'['+u.kod+'] ':'')+u.aciklama+' - '+u.adet+' '+u.birim+' x '+fmt(u.birimFiyat)+' = '+fmt(u.toplam)).join('\n')
-    + '\n\nTOPLAM: '+fmt(toplamTutar)
-    + '\n\nAksi tarafinizca talep edilmedigi surece urunler TCMB gunluk Doviz Satis Kuru uzerinden fiyatlanacaktir.'
-    + '\nTum Turkiye\'ye lojistik bedel teklife dahildir.'
-    + '\n\nGecerlilik: '+gecerlilik+'\n\nSaygilarimizla,\n'+(iz.ad||'')+'\n'+(iz.firma||AYARLAR.sirket||'');
-  window.open('mailto:'+mail+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(bodyText));
-  TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
-  TALEPLER[aktifTalepIdx].musteriTeklifGonderildi = true;
-  TALEPLER[aktifTalepIdx].musteriTeklifTarih = new Date().toISOString();
-  TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({ birimFiyat: u.birimFiyat, para: u.para }));
-  TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
-  TALEPLER[aktifTalepIdx].teklifGonderimSayisi = (TALEPLER[aktifTalepIdx].teklifGonderimSayisi || 0) + 1;
-  renderWorkflow('Müşteriye İletildi');
-  document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Müşteriye İletildi');
-  renderTalepler(); veriKaydet();
-  showToast('Teklif maili hazirlandi!');
+  // Microsoft 365 bağlı değil → gerçek gönderim yapılamaz. ESKİDEN burada mailto ile bir
+  // taslak açılıp teklif "İletildi/gönderildi" diye işaretleniyordu — bu SAHTE başarıydı:
+  // mailto yalnız e-posta uygulamasında taslak açar, mail MÜŞTERİYE GİTMEZ. Artık net uyarı
+  // veriyoruz ve hiçbir şey "gönderildi" işaretlenmiyor (yalnız Graph başarısında işaretlenir).
+  showToast('⚠ Müşteriye teklif göndermek için Microsoft 365 bağlantısı gerekli — topbar\'daki bağlantıdan giriş yapın.');
 }
 
 // ═══════════════════════════════════════
