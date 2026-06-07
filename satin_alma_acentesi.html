@@ -3685,7 +3685,7 @@ function musteriFormAc(idx) {
     const isAdmin = aktifKullanici?.rol === 'admin';
     const aktifKls = KULLANICILAR.filter(k => k.durum !== 'pasif' && (k.rol === 'admin' || k.rol === 'satici'));
     saticiSel.innerHTML = '<option value="">— Atanmamış —</option>' +
-      aktifKls.map(k => `<option value="${k.id}">${k.ad}${k.rol==='admin' ? ' (admin)' : ''}</option>`).join('');
+      aktifKls.map(k => `<option value="${(k.email||'').toLowerCase()}">${k.ad}${k.rol==='admin' ? ' (admin)' : ''}</option>`).join('');
     saticiSel.disabled = !isAdmin;
     const uyari = document.getElementById('mf-satici-yetki-uyari');
     if (uyari) uyari.style.display = isAdmin ? 'none' : 'inline';
@@ -3696,7 +3696,7 @@ function musteriFormAc(idx) {
     ['mf-firma','mf-vergino','mf-vergidaire','mf-adres','mf-not'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
     // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
-    if (saticiSel) saticiSel.value = String(aktifKullanici?.id || '');
+    if (saticiSel) saticiSel.value = (aktifKullanici?.email || '').toLowerCase();
     ['mf-odeme-havale','mf-odeme-kk','mf-odeme-kkkom','mf-odeme-vadeli'].forEach(id=>document.getElementById(id).checked=false);
     document.getElementById('mf-kkkom-oran').value=''; document.getElementById('mf-kkkom-oran').disabled=true;
     document.getElementById('mf-vade-gun').value=''; document.getElementById('mf-vade-gun').disabled=true;
@@ -3710,7 +3710,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-vergino').value=m.vergino||''; document.getElementById('mf-vergidaire').value=m.vergidaire||'';
     document.getElementById('mf-adres').value=m.adres||''; document.getElementById('mf-fiyatgrup').value=m.fiyatgrup||'';
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
-    if (saticiSel) saticiSel.value = String(m.satici ?? '');
+    if (saticiSel) { const _sk = saticiKullaniciBul(m.satici); saticiSel.value = _sk ? (_sk.email||'').toLowerCase() : ''; }
     const o=m.odeme||{};
     document.getElementById('mf-odeme-havale').checked=!!o.havale; document.getElementById('mf-odeme-kk').checked=!!o.kk;
     document.getElementById('mf-odeme-kkkom').checked=!!o.kkkom; document.getElementById('mf-kkkom-oran').value=o.kkkomOran||''; document.getElementById('mf-kkkom-oran').disabled=!o.kkkom;
@@ -3800,6 +3800,41 @@ function onayBadgeGuncelle() {
 }
 onayBekleyenleriYukle();
 
+// Sorumlu satıcıyı çöz. KALICI kimlik = e-posta (istemciler arası taşınabilir; yerel k.id değil).
+// Geriye dönük: eski kayıtlarda m.satici sayısal yerel id tutabilir → ona da düş.
+function saticiKullaniciBul(satici) {
+  if (satici == null || satici === '') return null;
+  const s = String(satici).trim().toLowerCase();
+  if (!s) return null;
+  let k = KULLANICILAR.find(u => (u.email || '').toLowerCase() === s);
+  if (k) return k;
+  if (/^\d+$/.test(s)) { // eski sayısal yerel id (yalnız aynı istemcide anlamlı)
+    const n = parseInt(s, 10);
+    k = KULLANICILAR.find(u => u.id === n);
+    if (k) return k;
+  }
+  return null;
+}
+
+// Tek seferlik (idempotent) migrasyon: eski sayısal yerel id'leri kalıcı e-postaya çevir.
+// Yalnız admin çalıştırır — sayısal id'ler yalnız admin'in yerel KULLANICILAR'ında anlamlı.
+// Çözülemeyen (artık hiçbir kullanıcıya denk gelmeyen) id'ler dokunulmadan bırakılır → admin yeniden atayabilir.
+function saticiMigrasyonu() {
+  if (aktifKullanici?.rol !== 'admin') return;
+  let migre = 0, cozulemeyen = 0;
+  MUSTERILER.forEach(m => {
+    if (m.satici == null || m.satici === '') return;
+    if (String(m.satici).includes('@')) return; // zaten e-posta
+    const k = saticiKullaniciBul(m.satici);
+    if (k && k.email) { m.satici = k.email.toLowerCase(); migre++; }
+    else cozulemeyen++;
+  });
+  if (migre > 0) {
+    veriKaydet();
+    showToast(`🔄 ${migre} müşterinin sorumlu satıcısı kalıcı kimliğe (e-posta) taşındı${cozulemeyen ? ` · ${cozulemeyen} kayıt çözülemedi, yeniden atayın` : ''}.`);
+  }
+}
+
 function musteriKaydet() {
   const firma = document.getElementById('mf-firma').value.trim();
   const hata = document.getElementById('mf-hata');
@@ -3839,9 +3874,11 @@ function musteriKaydet() {
     const isAdmin = aktifKullanici?.rol === 'admin';
     const sv = document.getElementById('mf-satici')?.value || '';
     if (isAdmin) {
-      kayit.satici = sv ? (parseInt(sv) || sv) : '';
+      // KALICI kimlik = e-posta (dropdown value artık e-posta tutuyor)
+      kayit.satici = sv ? sv.toLowerCase() : '';
     } else {
-      kayit.satici = (idx >= 0 ? (MUSTERILER[idx]?.satici ?? '') : (aktifKullanici?.id ?? ''));
+      // Satıcı: düzenliyorsa mevcut atamayı korur; yeni oluşturuyorsa kendi e-postasıyla sahiplenir
+      kayit.satici = (idx >= 0 ? (MUSTERILER[idx]?.satici ?? '') : ((aktifKullanici?.email || '').toLowerCase()));
     }
   }
 
@@ -3960,7 +3997,9 @@ function filterMusteriler() {
     if((q===''||text.includes(q))&&(durum===''||m.durum===durum)){
       const ilk=m.yetkililer&&m.yetkililer[0]||{};
       const ek=m.yetkililer&&m.yetkililer.length>1?`<span style="font-size:10px;color:var(--text3);"> +${m.yetkililer.length-1} kişi</span>`:'';
-      const saticiAd = (m.satici != null && m.satici !== '') ? (KULLANICILAR.find(k => k.id === m.satici)?.ad || '') : '';
+      // Önce kullanıcı nesnesinden ad; bulunamazsa (ör. satıcı, listede olmayan başka satıcıya atanmış müşteriyi görüyor) atama e-postasını göster — atanmışı yanlışlıkla "Atanmamış" gösterme
+      const saticiAd = saticiKullaniciBul(m.satici)?.ad
+        || (m.satici && String(m.satici).includes('@') ? String(m.satici) : '');
       const saticiSatir = saticiAd
         ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;">👤 ${saticiAd}</div>`
         : `<div style="font-size:10px;color:var(--amber);margin-top:2px;">👤 Atanmamış</div>`;
@@ -8098,6 +8137,7 @@ async function loginYap() {
     // Admin ise auth kullanıcılarını çekip yerel kayıtlara sunucu id'sini eşle
     // (sonraki düzenleme/şifre/sil işlemleri PUT için bu id'yi kullanır)
     if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
+    try { saticiMigrasyonu(); } catch(_) {} // eski yerel-id satıcı atamalarını e-postaya taşı
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
@@ -9750,6 +9790,7 @@ async function _msalGirisisle(result) {
     document.getElementById('login-screen').style.display = 'none';
     await apiVeriYukle();
     if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
+    try { saticiMigrasyonu(); } catch(_) {} // eski yerel-id satıcı atamalarını e-postaya taşı
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
