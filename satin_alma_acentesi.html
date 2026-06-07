@@ -11545,11 +11545,18 @@ async function mailIceriginiGoster(mailIdx) {
         + '</div>'
         + '</div>';
 
-      // İçerik: HTML ise iframe srcdoc ile renderla; text ise pre olarak göster
-      let icerikBlok = '';
-      if (bodyType.toLowerCase() === 'html') {
-        // Güvenlik: sandbox ile script/form bloklu, dış istek yok
-        // İçeriği bir base stiliyle sar — mail rendering tutarlı olsun
+      // İçerik. HTML gövdeyi iframe.srcdoc'a STRING ATTRIBUTE değil JS PROPERTY olarak
+      // ver: eski yöntem yalnız (") kaçırıp (&)'i kaçırmıyordu → & ile dolu (Outlook/
+      // Exchange) HTML mailleri attribute ayrıştırmasını bozup açılmıyordu. Property
+      // atamada tarayıcı kaçışı kendi halleder (oto-talep görüntüleyici de böyle yapıyor).
+      tamMetin.innerHTML = baslik;
+      if (!bodyContent.trim()) {
+        // Boş gövde (ör. S/MIME imzalı/şifreli mail → gerçek içerik smime.p7m ekinde)
+        const bos = document.createElement('div');
+        bos.style.cssText = 'padding:16px;color:var(--text3);font-size:13px;line-height:1.6;';
+        bos.textContent = 'Mail gövdesi boş görünüyor (imzalı/şifreli mail olabilir). Varsa ekleri açın.';
+        tamMetin.appendChild(bos);
+      } else if (bodyType.toLowerCase() === 'html') {
         const safe = bodyContent
           .replace(/<script[\s\S]*?<\/script>/gi, '')
           .replace(/<meta[^>]*http-equiv[^>]*>/gi, '');
@@ -11558,15 +11565,17 @@ async function mailIceriginiGoster(mailIdx) {
           '<base target="_blank">' +
           '<style>html,body{margin:0;padding:14px;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1a1a1a;background:#fff;}img{max-width:100%;height:auto;}table{max-width:100%;border-collapse:collapse;}*{box-sizing:border-box;}</style>' +
           '</head><body>' + safe + '</body></html>';
-        const srcdoc = wrapped.replace(/"/g, '&quot;');
-        icerikBlok = '<iframe sandbox="allow-same-origin allow-popups" srcdoc="' + srcdoc + '" style="width:100%;height:70vh;border:0;background:#fff;display:block;"></iframe>';
+        const iframe = document.createElement('iframe');
+        iframe.setAttribute('sandbox', 'allow-same-origin allow-popups');
+        iframe.style.cssText = 'width:100%;height:70vh;border:0;background:#fff;display:block;';
+        iframe.srcdoc = wrapped; // PROPERTY → manuel " / & kaçışı gerekmez
+        tamMetin.appendChild(iframe);
       } else {
-        icerikBlok = '<pre style="margin:0;padding:14px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;background:#fff;color:#1a1a1a;max-height:70vh;overflow:auto;">'
-          + bodyContent.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-          + '</pre>';
+        const pre = document.createElement('pre');
+        pre.style.cssText = 'margin:0;padding:14px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;background:#fff;color:#1a1a1a;max-height:70vh;overflow:auto;';
+        pre.textContent = bodyContent; // textContent → otomatik kaçış
+        tamMetin.appendChild(pre);
       }
-
-      tamMetin.innerHTML = baslik + icerikBlok;
     } catch (e) {
       tamMetin.innerHTML = '<div style="padding:14px;color:var(--red);font-size:12px;">Yüklenemedi: ' + e.message + '</div>';
     }
