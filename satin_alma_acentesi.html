@@ -11389,10 +11389,11 @@ async function mailEkleriniGoster(mailIdx) {
   eklerDiv.innerHTML = '<div style="padding:12px 14px;font-size:12px;color:var(--text3);">Ekler yükleniyor...</div>';
 
   try {
-    const mail = window._tumMailler?.[mailIdx];
+    const mail = window._outlookMailler?.[mailIdx];
     if (!mail?.id) throw new Error('Mail ID bulunamadı');
+    try { if (aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount); } catch {}
 
-    const resp = await fetch(GRAPH_API + '/me/messages/' + mail.id + '/attachments', {
+    const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mail.id) + '/attachments', {
       headers: { Authorization: 'Bearer ' + msGraphToken }
     });
     if (!resp.ok) throw new Error('Graph API hatası: ' + resp.status);
@@ -11445,7 +11446,7 @@ async function mailEkleriniGoster(mailIdx) {
 async function mailEkIndir(mailId, ekId, nameEncoded, contentType) {
   const name = decodeURIComponent(nameEncoded);
   try {
-    const resp = await fetch(GRAPH_API + '/me/messages/' + mailId + '/attachments/' + ekId + '/$value', {
+    const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mailId) + '/attachments/' + encodeURIComponent(ekId) + '/$value', {
       headers: { Authorization: 'Bearer ' + msGraphToken }
     });
     if (!resp.ok) throw new Error('İndirme hatası: ' + resp.status);
@@ -11478,7 +11479,7 @@ async function pdfInlineToggle(previewId, mailId, ekId) {
   div.innerHTML = '<div style="padding:14px;text-align:center;color:var(--text3);font-size:12px;">📄 PDF yükleniyor...</div>';
 
   try {
-    const resp = await fetch(GRAPH_API + '/me/messages/' + mailId + '/attachments/' + ekId + '/$value', {
+    const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mailId) + '/attachments/' + encodeURIComponent(ekId) + '/$value', {
       headers: { Authorization: 'Bearer ' + msGraphToken }
     });
     if (!resp.ok) throw new Error('Graph API: ' + resp.status);
@@ -11500,7 +11501,7 @@ async function pdfInlineToggle(previewId, mailId, ekId) {
 async function mailIceriginiGoster(mailIdx) {
   const onizleme = document.getElementById('mail-onizleme-' + mailIdx);
   const tamMetin = document.getElementById('mail-tam-metin-' + mailIdx);
-  if (!tamMetin) return;
+  if (!tamMetin) { showToast('Mail paneli bulunamadı (idx ' + mailIdx + ')'); return; }
 
   // Açıksa kapat
   if (tamMetin.style.display !== 'none') {
@@ -11509,14 +11510,23 @@ async function mailIceriginiGoster(mailIdx) {
     return;
   }
 
-  // İlk açılış — içeriği çek ve iframe olarak render et
-  if (!tamMetin.dataset.yuklendi) {
-    tamMetin.style.display = 'block';
-    tamMetin.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">📨 Mail içeriği yükleniyor...</div>';
+  // Aç — geri bildirim HER ZAMAN görünsün (sessiz "hiçbir şey olmuyor" durumu olmasın)
+  tamMetin.style.display = 'block';
+  if (onizleme) onizleme.style.display = 'none';
+
+  // Zaten yüklendiyse tekrar çekme — sadece görünür yap
+  if (tamMetin.dataset.yuklendi) return;
+
+  tamMetin.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">📨 Mail içeriği yükleniyor...</div>';
+  {
     try {
       const mail = window._outlookMailler?.[mailIdx];
-      if (!mail) throw new Error('Mail bulunamadı');
-      const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages/' + mail.id + '?$select=body,from,subject,receivedDateTime,toRecipients,ccRecipients',
+      if (!mail?.id) throw new Error('Mail bulunamadı');
+      // Token tazele — liste yüklendiğinden beri süresi dolmuş olabilir (yoksa 401 → açılmaz)
+      try { if (aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount); } catch {}
+      if (!msGraphToken) throw new Error('MS 365 oturumu yok — yeniden bağlanın');
+      // mail.id Graph'ta '/','+','=' içerebilir → encode etmezsek URL bozulur, mail açılmaz
+      const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mail.id) + '?$select=body,from,subject,receivedDateTime,toRecipients,ccRecipients',
         { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
       if (!resp.ok) throw new Error('Graph API: ' + resp.status);
       const d = await resp.json();
@@ -11577,12 +11587,10 @@ async function mailIceriginiGoster(mailIdx) {
         tamMetin.appendChild(pre);
       }
     } catch (e) {
+      tamMetin.dataset.yuklendi = ''; // başarısızsa tekrar denenebilsin
       tamMetin.innerHTML = '<div style="padding:14px;color:var(--red);font-size:12px;">Yüklenemedi: ' + e.message + '</div>';
     }
-  } else {
-    tamMetin.style.display = 'block';
   }
-  if (onizleme) onizleme.style.display = 'none';
 }
 
 // Tek bir mail için AI ile fiyat çıkar
@@ -11605,7 +11613,7 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
     mailBody = tamMetin.dataset.icerik;
   } else {
     try {
-      const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages/' + mail.id + '?$select=body',
+      const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mail.id) + '?$select=body',
         { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
       if (resp.ok) {
         const d = await resp.json();
@@ -11622,7 +11630,7 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
       // Cache yoksa ekleri çek
       let ekler = window._mailEkleri?.[mailIdx];
       if (!ekler) {
-        const resp = await fetch(GRAPH_API + '/me/messages/' + mail.id + '/attachments',
+        const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mail.id) + '/attachments',
           { headers: { Authorization: 'Bearer ' + msGraphToken } });
         if (resp.ok) {
           const d = await resp.json();
@@ -11639,7 +11647,7 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
         if ((ek.size||0) > 5 * 1024 * 1024) continue;
         let b64 = ek.contentBytes;
         if (!b64) {
-          const r = await fetch(GRAPH_API + '/me/messages/' + mail.id + '/attachments/' + ek.id,
+          const r = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mail.id) + '/attachments/' + encodeURIComponent(ek.id),
             { headers: { Authorization: 'Bearer ' + msGraphToken } });
           if (r.ok) {
             const dd = await r.json();
