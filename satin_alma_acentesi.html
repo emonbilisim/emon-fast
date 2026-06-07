@@ -4198,16 +4198,20 @@ function crmRender() {
     tipSel.innerHTML = CRM_TIPLER.map(t => `<option value="${t.key}">${t.label}</option>`).join('');
     tipSel.dataset.dolu = '1';
   }
-  // Özet
-  const talepler   = TALEPLER.filter(t => t.musteri === m.firma);
-  const teklifVer  = talepler.filter(t => ['Teklif Hazır','Müşteriye İletildi','Sipariş Verildi','Tamamlandı'].includes(t.durum));
-  const tamamlanan = talepler.filter(t => t.durum === 'Tamamlandı');
+  // Özet — CRM istatistik tablosuyla AYNI tanımlar (tutarlı + doğru).
+  // Eşleştirme boşluk/büyük-küçük harfe dayanıklı; "dönülen" müşteriye gönderildi,
+  // "siparişe dönen" Sipariş Verildi+Tamamlandı'yı da kapsar (eski özet bunları yanlış sayıyordu).
+  const _norm = s => String(s||'').trim().toLocaleLowerCase('tr');
+  const talepler   = TALEPLER.filter(t => _norm(t.musteri) === _norm(m.firma));
+  const mm         = crmMetrikHesapla(talepler);
+  const tamamlanan = talepler.filter(t => t.durum === 'Tamamlandı').length;
   const akt = crmMusteriAktiviteleri(m.firma);
   const satir = (l,v) => `<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:var(--text3);">${l}</span><span style="font-weight:600;">${v}</span></div>`;
   const ozetEl = document.getElementById('crm-ozet');
-  if (ozetEl) ozetEl.innerHTML = satir('Toplam talep', talepler.length)
-    + satir('Teklif verilen', teklifVer.length)
-    + satir('Tamamlanan sipariş', tamamlanan.length)
+  if (ozetEl) ozetEl.innerHTML = satir('Toplam talep', mm.talep)
+    + satir('Teklif verilen (dönülen)', mm.donulen)
+    + satir('Siparişe dönen', mm.siparis)
+    + satir('Tamamlanan', tamamlanan)
     + satir('Etkileşim sayısı', akt.length)
     + satir('Son etkileşim', akt[0] ? tarihFmt(akt[0].tarih) : '—');
   // Pipeline aşaması
@@ -4468,12 +4472,17 @@ function crmDonemTabloRender() {
 function crmMusteriTabloRender() {
   const tablo = document.getElementById('crm-stat-musteri-tablo');
   if (!tablo) return;
-  const kova = {};
-  TALEPLER.forEach(t => { if (t && t.musteri) (kova[t.musteri] = kova[t.musteri] || []).push(t); });
-  const veriler = Object.keys(kova).map(firma => {
-    const m = crmMetrikHesapla(kova[firma]);
-    const sonTarih = kova[firma].map(t => t.tarih).filter(Boolean).sort().reverse()[0] || '';
-    return { firma, m, sonTarih };
+  const kova = {}, adlar = {};
+  TALEPLER.forEach(t => {
+    if (!t || !t.musteri) return;
+    const key = String(t.musteri).trim().toLocaleLowerCase('tr');
+    if (!adlar[key]) adlar[key] = String(t.musteri).trim();
+    (kova[key] = kova[key] || []).push(t);
+  });
+  const veriler = Object.keys(kova).map(key => {
+    const m = crmMetrikHesapla(kova[key]);
+    const sonTarih = kova[key].map(t => t.tarih).filter(Boolean).sort().reverse()[0] || '';
+    return { firma: adlar[key], m, sonTarih };
   }).sort((a,b) => b.m.talep - a.m.talep).slice(0, 60);
   const kols = ['Müşteri','Talep','Dönülen','Sipariş Dönüşümü','18s','Son Talep'];
   const baslik = '<thead><tr style="background:var(--bg3);">'
