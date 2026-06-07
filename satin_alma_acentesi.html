@@ -4688,19 +4688,21 @@ function talepDetayAc(idx) {
     if (mkcb) mkcb.checked = false;
 
     const musteriObj = MUSTERILER.find(x => x.firma === t.musteri);
-    // Admin ONAYLADIYSA/işlediyse o veriyi AYNEN geri yükle (kilitli fiyat).
-    const adminVeri = t.fiyatOnayTalep?.adminSatisData;
+    const adminVeri  = t.fiyatOnayTalep?.adminSatisData;
+    const saticiVeri = t.fiyatOnayTalep?.saticiSatisData;
     if (adminVeri && satisTabloDurumuYukle(adminVeri)) {
+      // Admin ONAYLADIYSA/işlediyse o veriyi AYNEN geri yükle (kilitli fiyat)
+      satisHesaplaTablosu();
+    } else if (t.fiyatOnayDurumu === 'bekliyor' && saticiVeri && satisTabloDurumuYukle(saticiVeri)) {
+      // Onay BEKLİYOR: satıcının onaya gönderdiği fiyatları AYNEN göster (admin inceleyip
+      // onaylayacak). Müşteri marjıyla EZME — yoksa admin satıcının revize fiyatını göremez.
       satisHesaplaTablosu();
     } else {
-      // KDV varsayılan: hariç
+      // Taze talep / onaya gönderilmemiş satıcı taslağı: KDV varsayılan hariç,
+      // taslak KDV/nakliye ayarlarını koru, müşteri HEDEF marjını otomatik uygula.
       const kdvEl = document.getElementById('satis-kdv');
       if (kdvEl) kdvEl.value = '0';
-      // Satıcı taslağı varsa KDV/nakliye/kargo gibi ayarlarını koru...
-      const saticiVeri = t.fiyatOnayTalep?.saticiSatisData;
       if (saticiVeri) satisTabloDurumuYukle(saticiVeri);
-      // ...ama müşteri HEDEF marjını OTOMATİK uygula → satıcı "Müşteri Marjı" butonuna
-      // basmadan müşteri-marjlı birim fiyat/toplamı görür; onay öncesi yine değiştirebilir.
       if (musteriObj) musteriMarjUygula(true); // sessiz — açılışta toast gösterme
       else satisHesaplaReset();
     }
