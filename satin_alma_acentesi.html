@@ -4201,8 +4201,7 @@ function crmRender() {
   // Özet — CRM istatistik tablosuyla AYNI tanımlar (tutarlı + doğru).
   // Eşleştirme boşluk/büyük-küçük harfe dayanıklı; "dönülen" müşteriye gönderildi,
   // "siparişe dönen" Sipariş Verildi+Tamamlandı'yı da kapsar (eski özet bunları yanlış sayıyordu).
-  const _norm = s => String(s||'').trim().toLocaleLowerCase('tr');
-  const talepler   = TALEPLER.filter(t => _norm(t.musteri) === _norm(m.firma));
+  const talepler   = TALEPLER.filter(t => _musteriNorm(t.musteri) === _musteriNorm(m.firma));
   const mm         = crmMetrikHesapla(talepler);
   const tamamlanan = talepler.filter(t => t.durum === 'Tamamlandı').length;
   const akt = crmMusteriAktiviteleri(m.firma);
@@ -4384,6 +4383,15 @@ function crmSla18Mi(t) {
   if (isNaN(t0) || isNaN(t1) || t1 < t0) return false;
   return (t1 - t0) <= 18 * 3600 * 1000;
 }
+// Müşteri adı eşleştirme için dayanıklı normalize: Türkçe diakritikleri ASCII'ye katlar
+// (Ü→u, Ş→s, İ/I/ı→i, Ğ→g, Ö→o, Ç→c), boşlukları sıkıştırır, küçük harfe çevirir.
+// Böylece "EMON DEMO MÜŞTERİ 1" ile "Emon Demo Musteri 1" aynı müşteri sayılır.
+function _musteriNorm(s) {
+  return String(s == null ? '' : s)
+    .replace(/[İIı]/g, 'i').replace(/[Şş]/g, 's').replace(/[Ğğ]/g, 'g')
+    .replace(/[Üü]/g, 'u').replace(/[Öö]/g, 'o').replace(/[Çç]/g, 'c')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
 function crmMetrikHesapla(talepler) {
   let donulen = 0, siparis = 0, sla = 0;
   const musteriler = new Set();
@@ -4475,7 +4483,8 @@ function crmMusteriTabloRender() {
   const kova = {}, adlar = {};
   TALEPLER.forEach(t => {
     if (!t || !t.musteri) return;
-    const key = String(t.musteri).trim().toLocaleLowerCase('tr');
+    const key = _musteriNorm(t.musteri);
+    if (!key) return;
     if (!adlar[key]) adlar[key] = String(t.musteri).trim();
     (kova[key] = kova[key] || []).push(t);
   });
