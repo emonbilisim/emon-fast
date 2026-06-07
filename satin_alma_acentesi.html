@@ -1110,6 +1110,8 @@
         <button class="btn btn-primary" style="flex:1;display:none;" id="btn-satici-onay-talep" onclick="fiyatOnayTalep()">📤 Admin Onayı İste</button>
         <!-- Onaylandıysa satıcı gönderebilir -->
         <button class="btn btn-primary" style="flex:1;display:none;" id="btn-satici-gonder" onclick="musteriTeklifMaili()">📧 Müşteriye Teklif Maili Gönder</button>
+        <!-- Sipariş verildiyse satıcı kargo bilgisi girebilir -->
+        <button class="btn" style="flex:1;display:none;" id="btn-satici-tamamla" onclick="kargoModalAc()">📦 Kargo Bilgisi Gir</button>
         <button class="btn" style="display:none;" id="btn-pdf-indir-satici" onclick="teklifPdfIndir(aktifTalepIdx)">📥 PDF İndir</button>
       </div>
     </div>
@@ -8303,7 +8305,7 @@ function satisBolumunuGuncelle() {
   const headerAks = document.getElementById('satis-header-aksiyonlar');
 
   // Tüm aksiyonları gizle
-  ['btn-admin-gonder','btn-admin-tamamla','btn-satici-onay-talep','btn-satici-gonder'].forEach(id => {
+  ['btn-admin-gonder','btn-admin-tamamla','btn-satici-onay-talep','btn-satici-gonder','btn-satici-tamamla'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -8413,6 +8415,14 @@ function satisBolumunuGuncelle() {
       const talepBtn = document.getElementById('btn-satici-onay-talep');
       if (talepBtn) talepBtn.style.display = 'flex';
       if (subEl) subEl.textContent = 'Hesapla ve admin onayına gönder';
+    }
+    // Sipariş verildiyse satıcı da kargo bilgisi girebilsin (gönder butonu gizlenir)
+    if (t.durum === 'Sipariş Verildi') {
+      const g = document.getElementById('btn-satici-gonder'); if (g) g.style.display = 'none';
+      const tm = document.getElementById('btn-satici-tamamla'); if (tm) tm.style.display = 'flex';
+      const pdfBtnS = document.getElementById('btn-pdf-indir-satici'); if (pdfBtnS) pdfBtnS.style.display = 'flex';
+      if (hesapBol) hesapBol.style.display = 'block';
+      if (subEl) subEl.textContent = '📦 Sipariş verildi — kargo bilgisi girebilirsiniz';
     }
   }
 }
