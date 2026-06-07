@@ -7073,7 +7073,7 @@ function kargoModalAc(idx) {
   const kodEl    = document.getElementById('kargo-takip-kodu');
   const faturaEl = document.getElementById('kargo-fatura-no');
   const notEl    = document.getElementById('kargo-not');
-  if (firmaEl)  firmaEl.value  = k?.firma    || '';
+  if (firmaEl)  firmaEl.value  = k?.firma    || 'yurtici'; // varsayılan: Yurtiçi Kargo (takip bununla)
   if (kodEl)    kodEl.value     = k?.kod      || '';
   if (faturaEl) faturaEl.value  = k?.faturaNo || '';
   if (notEl)    notEl.value     = k?.not      || '';
@@ -7082,7 +7082,7 @@ function kargoModalAc(idx) {
   openModal('kargoGir');
 }
 
-function kargoKaydetVeTamamla() {
+async function kargoKaydetVeTamamla() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
   const firma  = document.getElementById('kargo-firma')?.value || '';
@@ -7094,7 +7094,7 @@ function kargoKaydetVeTamamla() {
   if (!kod)    { hata.textContent = 'Takip / gönderi kodu girilmesi zorunludur.'; hata.style.display = 'block'; return; }
   if (!fatura) { hata.textContent = 'Fatura numarası girilmesi zorunludur.';      hata.style.display = 'block'; return; }
 
-  t.kargoGonderi = { firma: firma || 'diger', kod, faturaNo: fatura, not, tarih: new Date().toISOString() };
+  t.kargoGonderi = { firma: firma || 'yurtici', kod, faturaNo: fatura, not, tarih: new Date().toISOString() };
   t.durum = 'Tamamlandı';
   closeModal('kargoGir');
   veriKaydet();
@@ -7102,6 +7102,50 @@ function kargoKaydetVeTamamla() {
   renderKargoTakip();
   if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
   showToast('📦 Kargo + fatura kaydedildi. Talep tamamlandı → Arşiv\'e taşındı.');
+  // Müşteriye teşekkür + kargo/fatura bilgisi maili (Yurtiçi takip linki ile)
+  const ok = await kargoTesekkurMailiGonder(t);
+  if (ok === true)       showToast('📧 Müşteriye teşekkür + kargo takip maili gönderildi.');
+  else if (ok === 'no-mail') showToast('⚠ Teşekkür maili gönderilemedi — müşteri e-postası kayıtlı değil.');
+  else                   showToast('⚠ Teşekkür maili gönderilemedi (Microsoft 365 bağlantısı gerekli). Talep yine de tamamlandı.');
+}
+
+// Talep tamamlanınca müşteriye teşekkür + kargo/fatura bilgisi maili.
+// Takip linki Yurtiçi Kargo üzerinden (kullanıcı tercihi); seçili firma farklıysa onun linki.
+async function kargoTesekkurMailiGonder(t) {
+  if (!t) return false;
+  const m       = MUSTERILER.find(x => x.firma === t.musteri);
+  const yetkili = m?.yetkililer?.[0];
+  const mail    = (yetkili?.mail || '').trim();
+  if (!mail) return 'no-mail';
+  const k = t.kargoGonderi || {};
+  const adSoyad = yetkili?.ad || 'İlgili';
+  // Yurtiçi varsayılan; seçili firma farklı ve takip linki varsa onu kullan
+  const firmaBilgi = (KARGO_FIRMALARI[k.firma] && KARGO_FIRMALARI[k.firma].takipUrl) ? KARGO_FIRMALARI[k.firma] : KARGO_FIRMALARI.yurtici;
+  const takipUrl   = firmaBilgi.takipUrl ? firmaBilgi.takipUrl(k.kod || '') : KARGO_FIRMALARI.yurtici.takipUrl(k.kod || '');
+  const subject = '[' + (t.no || '') + '] Siparişiniz Kargoya Verildi — Teşekkür Ederiz';
+
+  const html = '<!DOCTYPE html><html><body style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;margin:0;padding:20px;">'
+    + '<div style="max-width:680px;">'
+    + '<p>Sayın ' + adSoyad + ',</p>'
+    + '<p>' + (t.musteriNo ? '<strong>' + t.musteriNo + '</strong> numaralı talebinize istinaden ' : '')
+    + 'siparişiniz hazırlanıp kargoya teslim edilmiştir. Bizi tercih ettiğiniz için teşekkür ederiz.</p>'
+    + '<table style="border-collapse:collapse;margin:16px 0;font-size:13px;">'
+    + '<tr><td style="padding:6px 16px 6px 0;color:#757575;">Teklif No</td><td style="padding:6px 0;"><strong>' + (t.no || '—') + '</strong></td></tr>'
+    + (t.musteriNo ? '<tr><td style="padding:6px 16px 6px 0;color:#757575;">Talep No</td><td style="padding:6px 0;">' + t.musteriNo + '</td></tr>' : '')
+    + '<tr><td style="padding:6px 16px 6px 0;color:#757575;">Fatura No</td><td style="padding:6px 0;"><strong>' + (k.faturaNo || '—') + '</strong></td></tr>'
+    + '<tr><td style="padding:6px 16px 6px 0;color:#757575;">Kargo Firması</td><td style="padding:6px 0;">' + firmaBilgi.ad + '</td></tr>'
+    + '<tr><td style="padding:6px 16px 6px 0;color:#757575;">Takip Kodu</td><td style="padding:6px 0;font-family:monospace;font-weight:600;letter-spacing:1px;">' + (k.kod || '—') + '</td></tr>'
+    + '</table>'
+    + (k.kod ? '<p><a href="' + takipUrl + '" target="_blank" style="display:inline-block;background:#E53935;color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:6px;font-weight:600;">🔍 Kargonuzu ' + firmaBilgi.ad + ' ile Takip Edin</a></p>'
+    + '<p style="font-size:12px;color:#757575;">Takip kodunuzu ' + firmaBilgi.ad + ' sorgu sayfasında kullanarak gönderinizi anlık izleyebilirsiniz.</p>' : '')
+    + '<p>Herhangi bir sorunuz olması halinde bizimle iletişime geçmekten çekinmeyiniz.</p>'
+    + '<p>Saygılarımızla,</p>'
+    + imzaHtml()
+    + '</div></body></html>';
+
+  try {
+    return await graphMailHtmlGonder([mail], subject, html);
+  } catch (e) { console.error('Teşekkür maili hatası:', e); return false; }
 }
 
 function renderKargoTakip() {
