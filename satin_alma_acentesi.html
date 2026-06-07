@@ -11557,10 +11557,12 @@ async function mailIceriginiGoster(mailIdx) {
         + '</div>'
         + '</div>';
 
-      // İçerik. HTML gövdeyi iframe.srcdoc'a STRING ATTRIBUTE değil JS PROPERTY olarak
-      // ver: eski yöntem yalnız (") kaçırıp (&)'i kaçırmıyordu → & ile dolu (Outlook/
-      // Exchange) HTML mailleri attribute ayrıştırmasını bozup açılmıyordu. Property
-      // atamada tarayıcı kaçışı kendi halleder (oto-talep görüntüleyici de böyle yapıyor).
+      // İçerik render — oto-talep görüntüleyicideki (otoTalepMailGoster) ÇALIŞAN deseni
+      // BİREBİR taklit et: (1) HTML'i DOMParser ile ayrıştır, tam <html> belgesini iç içe
+      // sarmak yerine yalnız body.innerHTML'i kullan (iç içe sarma stilleri bozup maili
+      // düz metin gibi gösteriyordu), (2) iframe.srcdoc'u DOM'a EKLEDİKTEN SONRA ata
+      // (önce atamak bazı tarayıcılarda boş/biçimsiz render ediyor), (3) text gövdeyi
+      // monospace değil Calibri/Arial <pre> ile göster.
       tamMetin.innerHTML = baslik;
       if (!bodyContent.trim()) {
         // Boş gövde (ör. S/MIME imzalı/şifreli mail → gerçek içerik smime.p7m ekinde)
@@ -11568,25 +11570,23 @@ async function mailIceriginiGoster(mailIdx) {
         bos.style.cssText = 'padding:16px;color:var(--text3);font-size:13px;line-height:1.6;';
         bos.textContent = 'Mail gövdesi boş görünüyor (imzalı/şifreli mail olabilir). Varsa ekleri açın.';
         tamMetin.appendChild(bos);
-      } else if (bodyType.toLowerCase() === 'html') {
-        const safe = bodyContent
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<meta[^>]*http-equiv[^>]*>/gi, '');
-        const wrapped =
-          '<!doctype html><html><head><meta charset="utf-8">' +
-          '<base target="_blank">' +
-          '<style>html,body{margin:0;padding:14px;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1a1a1a;background:#fff;}img{max-width:100%;height:auto;}table{max-width:100%;border-collapse:collapse;}*{box-sizing:border-box;}</style>' +
-          '</head><body>' + safe + '</body></html>';
-        const iframe = document.createElement('iframe');
-        iframe.setAttribute('sandbox', 'allow-same-origin allow-popups');
-        iframe.style.cssText = 'width:100%;height:70vh;border:0;background:#fff;display:block;';
-        iframe.srcdoc = wrapped; // PROPERTY → manuel " / & kaçışı gerekmez
-        tamMetin.appendChild(iframe);
       } else {
-        const pre = document.createElement('pre');
-        pre.style.cssText = 'margin:0;padding:14px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;background:#fff;color:#1a1a1a;max-height:70vh;overflow:auto;';
-        pre.textContent = bodyContent; // textContent → otomatik kaçış
-        tamMetin.appendChild(pre);
+        let onizleme;
+        if (bodyType.toLowerCase() === 'html') {
+          const doc = new DOMParser().parseFromString(bodyContent, 'text/html');
+          doc.querySelectorAll('script, link[rel="stylesheet"]').forEach(n => n.remove());
+          // E-postanın <head> içindeki <style> bloklarını da koru (Outlook bazen sınıf bazlı stil kullanır)
+          const headStyles = Array.from(doc.querySelectorAll('head style')).map(s => s.outerHTML).join('');
+          onizleme = '<base target="_blank">' + headStyles + (doc.body ? doc.body.innerHTML : bodyContent);
+        } else {
+          const esc = s => String(s||'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+          onizleme = '<base target="_blank"><pre style="white-space:pre-wrap;font-family:Calibri,Arial,sans-serif;font-size:13px;color:#212121;margin:0;padding:12px;">' + esc(bodyContent) + '</pre>';
+        }
+        const iframe = document.createElement('iframe');
+        iframe.setAttribute('sandbox', 'allow-popups');
+        iframe.style.cssText = 'width:100%;height:70vh;border:0;background:#fff;display:block;';
+        tamMetin.appendChild(iframe);
+        iframe.srcdoc = onizleme; // DOM'a EKLEDİKTEN SONRA ata
       }
     } catch (e) {
       tamMetin.dataset.yuklendi = ''; // başarısızsa tekrar denenebilsin
