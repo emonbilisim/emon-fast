@@ -11526,8 +11526,10 @@ async function mailIceriginiGoster(mailIdx) {
       try { if (aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount); } catch {}
       if (!msGraphToken) throw new Error('MS 365 oturumu yok — yeniden bağlanın');
       // mail.id Graph'ta '/','+','=' içerebilir → encode etmezsek URL bozulur, mail açılmaz
+      // Prefer html → gövdeyi 'text' yerine HTML olarak iste; aksi halde bazı mailler
+      // düz metin (pre) olarak geliyor, mail formatında (tablo/logo/renk) görünmüyordu.
       const resp = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mail.id) + '?$select=body,from,subject,receivedDateTime,toRecipients,ccRecipients',
-        { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
+        { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Prefer': 'outlook.body-content-type="html"' } });
       if (!resp.ok) throw new Error('Graph API: ' + resp.status);
       const d = await resp.json();
       const bodyType = d.body?.contentType || 'text';
