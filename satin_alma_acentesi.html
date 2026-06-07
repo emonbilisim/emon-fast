@@ -7620,7 +7620,7 @@ function talepYeniMusteriKapat() {
   document.getElementById('talep-musteri-ara').value = '';
 }
 
-function talepKaydet() {
+async function talepKaydet() {
   const hata = document.getElementById('talep-hata');
   const musteriIdx = parseInt(document.getElementById('talep-musteri-idx').value);
   hata.style.display = 'none';
@@ -7700,8 +7700,7 @@ function talepKaydet() {
     : `${urunler.reduce((s,u)=>s+parseInt(u.adet||1),0)} kalem toplam`;
 
   closeModal('yeniTalep');
-  talepSayac++;
-  const no = 'TLB-' + String(talepSayac).padStart(3,'0');
+  const no = await apiSonrakiTalepNo(); // sunucu-taraflı atomik numara — çakışma önlenir
   TALEPLER.unshift({
     no,
     musteri: musteriAd,
@@ -8138,6 +8137,7 @@ async function loginYap() {
     // (sonraki düzenleme/şifre/sil işlemleri PUT için bu id'yi kullanır)
     if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
     try { saticiMigrasyonu(); } catch(_) {} // eski yerel-id satıcı atamalarını e-postaya taşı
+    try { await otoTalepDurumYukle(); } catch(_) {} // kullanıcı-başına oto-talep durumu (taslaklar/işlenenler)
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
@@ -9791,6 +9791,7 @@ async function _msalGirisisle(result) {
     await apiVeriYukle();
     if (k.rol === 'admin') { try { await apiKullanicilarYukle(); } catch(_) {} }
     try { saticiMigrasyonu(); } catch(_) {} // eski yerel-id satıcı atamalarını e-postaya taşı
+    try { await otoTalepDurumYukle(); } catch(_) {} // kullanıcı-başına oto-talep durumu (taslaklar/işlenenler)
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
@@ -11938,15 +11939,89 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
 //   Tüm durum AYARLAR.otoTalep altında tutulur → ek persistence gerekmez.
 // ═══════════════════════════════════════════════════════════════════
 
+// Oto-talep ÇALIŞMA durumu (taslaklar/işlenen mailler/son tarama) artık KULLANICI-BAŞINA
+// sunucuda tutulur (/api/oto-talep). Eskiden admin-sahipli AYARLAR.otoTalep altındaydı ve
+// satıcıda her pull'da sıfırlanıyordu (yoksayılanlar tekrar soruluyordu). Yalnız aktif/aralikDk
+// (admin ayarı) AYARLAR'da kalır. otoTalepCfg() getter/setter'larla ikisini birleştirir.
+let OTO_DURUM = { taslaklar: [], islenenMailIdler: [], sonTarama: null };
+let _otoCfgView = null;
 function otoTalepCfg() {
-  if (!AYARLAR.otoTalep) {
-    AYARLAR.otoTalep = { aktif: false, taslaklar: [], islenenMailIdler: [], sonTarama: null, aralikDk: 10 };
+  if (!AYARLAR.otoTalep) AYARLAR.otoTalep = { aktif: false, aralikDk: 10 };
+  const a = AYARLAR.otoTalep;
+  if (!(a.aralikDk > 0)) a.aralikDk = 10; // dakika (periyodik tarama)
+  // Eski sürümden kalan runtime alanlarını paylaşımlı AYARLAR'dan ayıkla (artık OTO_DURUM'da)
+  if ('taslaklar' in a) delete a.taslaklar;
+  if ('islenenMailIdler' in a) delete a.islenenMailIdler;
+  if ('sonTarama' in a) delete a.sonTarama;
+  if (!Array.isArray(OTO_DURUM.taslaklar)) OTO_DURUM.taslaklar = [];
+  if (!Array.isArray(OTO_DURUM.islenenMailIdler)) OTO_DURUM.islenenMailIdler = [];
+  if (_otoCfgView) return _otoCfgView;
+  _otoCfgView = {
+    get aktif()    { return !!AYARLAR.otoTalep.aktif; },
+    set aktif(v)   { AYARLAR.otoTalep.aktif = !!v; },
+    get aralikDk() { return AYARLAR.otoTalep.aralikDk; },
+    set aralikDk(v){ AYARLAR.otoTalep.aralikDk = v; },
+    get taslaklar()         { return OTO_DURUM.taslaklar; },
+    set taslaklar(v)        { OTO_DURUM.taslaklar = v; },
+    get islenenMailIdler()  { return OTO_DURUM.islenenMailIdler; },
+    set islenenMailIdler(v) { OTO_DURUM.islenenMailIdler = v; },
+    get sonTarama()         { return OTO_DURUM.sonTarama; },
+    set sonTarama(v)        { OTO_DURUM.sonTarama = v; },
+  };
+  return _otoCfgView;
+}
+
+// Kullanıcı-başına oto-talep durumunu sunucudan yükle / sunucuya yaz (debounce'lu)
+async function otoTalepDurumYukle() {
+  const token = apiTokenAl();
+  if (!token) return;
+  try {
+    const r = await fetch(API_URL + '/api/oto-talep', { headers: { Authorization: 'Bearer ' + token } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const durum = (d && d.durum) || {};
+    OTO_DURUM.taslaklar        = Array.isArray(durum.taslaklar) ? durum.taslaklar : [];
+    OTO_DURUM.islenenMailIdler = Array.isArray(durum.islenenMailIdler) ? durum.islenenMailIdler : [];
+    OTO_DURUM.sonTarama        = durum.sonTarama || null;
+    otoTalepDurumGuncelle();
+  } catch (_) {}
+}
+let _otoDurumKaydetTimer = null;
+function otoTalepDurumKaydet() {
+  if (_otoDurumKaydetTimer) clearTimeout(_otoDurumKaydetTimer);
+  _otoDurumKaydetTimer = setTimeout(async () => {
+    const token = apiTokenAl();
+    if (!token) return;
+    try {
+      await fetch(API_URL + '/api/oto-talep', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ taslaklar: OTO_DURUM.taslaklar, islenenMailIdler: OTO_DURUM.islenenMailIdler, sonTarama: OTO_DURUM.sonTarama }),
+      });
+    } catch (_) {}
+  }, 800);
+}
+
+// Sunucu-taraflı talep numarası (atomik sequence) — çakışmasız, kullanıcılar arası benzersiz.
+// Sunucuya ulaşılamazsa yerel max+1'e düşer (çevrimdışı emniyet).
+async function apiSonrakiTalepNo() {
+  const token = apiTokenAl();
+  if (token) {
+    try {
+      const r = await fetch(API_URL + '/api/next-talep-no', { headers: { Authorization: 'Bearer ' + token } });
+      if (r.ok) {
+        const d = await r.json();
+        if (d && d.ok && d.no) { talepSayac = Math.max(Number(talepSayac) || 0, Number(d.n) || 0); return d.no; }
+      }
+    } catch (_) {}
   }
-  const c = AYARLAR.otoTalep;
-  if (!Array.isArray(c.taslaklar)) c.taslaklar = [];
-  if (!Array.isArray(c.islenenMailIdler)) c.islenenMailIdler = [];
-  if (!(c.aralikDk > 0)) c.aralikDk = 10; // dakika (Faz 2 periyodik tarama)
-  return c;
+  return yerelSonrakiTalepNo();
+}
+function yerelSonrakiTalepNo() {
+  let maxN = Number(talepSayac) || 0;
+  TALEPLER.forEach(t => { const m = /TLB-0*(\d+)/.exec(t.no || ''); if (m) maxN = Math.max(maxN, parseInt(m[1], 10)); });
+  talepSayac = maxN + 1;
+  return 'TLB-' + String(talepSayac).padStart(3, '0');
 }
 
 // ── Faz 2: periyodik otomatik tarama ──
@@ -12122,7 +12197,7 @@ async function otoTalepTara(sessiz = false) {
 
     if (adaylar.length === 0) {
       cfg.sonTarama = new Date().toISOString();
-      veriKaydet(); otoTalepDurumGuncelle();
+      otoTalepDurumKaydet(); otoTalepDurumGuncelle();
       if (!sessiz) showToast('✅ Kayıtlı müşterilerden yeni mail yok.');
       return;
     }
@@ -12189,7 +12264,7 @@ async function otoTalepTara(sessiz = false) {
 
     if (cfg.islenenMailIdler.length > 500) cfg.islenenMailIdler = cfg.islenenMailIdler.slice(-500);
     cfg.sonTarama = new Date().toISOString();
-    veriKaydet(); otoTalepDurumGuncelle();
+    otoTalepDurumKaydet(); otoTalepDurumGuncelle();
 
     if (!sessiz) {
       showToast(yeniTaslak > 0 ? `✅ ${yeniTaslak} yeni taslak talep oluşturuldu.` : '✅ Tarama bitti — talep maili bulunamadı.');
@@ -12472,7 +12547,7 @@ function otoOnayRevizeUygula(taslakId, revize) {
     t.teklifKabulTarih = new Date().toISOString();
   }
   cfg.taslaklar.splice(ix, 1);
-  veriKaydet();
+  veriKaydet(); otoTalepDurumKaydet();
   if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
   otoTalepTaslakRender(); otoTalepDurumGuncelle();
   showToast(revize
@@ -12502,12 +12577,14 @@ function otoTalepSil(taslakId) {
   const cfg = otoTalepCfg();
   const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
   if (ix < 0) return;
+  const mid = cfg.taslaklar[ix]?.mailId;
+  if (mid && !cfg.islenenMailIdler.includes(mid)) cfg.islenenMailIdler.push(mid); // yoksayılan mail tekrar taranmasın
   cfg.taslaklar.splice(ix, 1);
-  veriKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
   showToast('Taslak yoksayıldı.');
 }
 
-function otoTalepOnayla(taslakId) {
+async function otoTalepOnayla(taslakId) {
   const cfg = otoTalepCfg();
   const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
   if (ix < 0) return;
@@ -12532,8 +12609,7 @@ function otoTalepOnayla(taslakId) {
     ? `${urunler[0].adet} ${urunler[0].birim}`
     : `${urunler.reduce((s, u) => s + (parseInt(u.adet) || 1), 0)} kalem toplam`;
 
-  talepSayac++;
-  const no = 'TLB-' + String(talepSayac).padStart(3, '0');
+  const no = await apiSonrakiTalepNo(); // sunucu-taraflı atomik numara — çakışma/kaybolma önlenir
   const stz = stzOtomatikHesapla(new Date());
   // STZ inputları: önce kullanıcının girdiği (varsa mailden algılanan ön-doldurulu) değer, yoksa otomatik
   const stzInpTarih = (document.getElementById('ott-stz-tarih-' + taslakId)?.value || '').trim();
@@ -12558,8 +12634,10 @@ function otoTalepOnayla(taslakId) {
     satici: aktifKullanici?.id, // sahibi — yalnızca kendi taleplerini görsün
   });
 
-  cfg.taslaklar.splice(ix, 1);
-  renderTalepler(); veriKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  if (ts.mailId && !cfg.islenenMailIdler.includes(ts.mailId)) cfg.islenenMailIdler.push(ts.mailId); // kaynak mail tekrar taranmasın
+  const _ix = cfg.taslaklar.findIndex(x => x.id === taslakId); // await sonrası taslak indeksini yeniden bul
+  if (_ix >= 0) cfg.taslaklar.splice(_ix, 1);
+  renderTalepler(); veriKaydet(); otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
   showToast(`✅ #${no} talebi oluşturuldu (${musteriAd}).`);
 }
 
@@ -13919,6 +13997,7 @@ msalBaslat();
               filterMusteriler(); filterTedarikciler(); renderTalepler();
               renderPanelMetrikler(); onayBadgeGuncelle();
               ayarlariYukle();
+              otoTalepDurumYukle(); // kullanıcı-başına oto-talep durumunu sunucudan getir
               // API'den taze veri geldi — bugünün snapshot'ını taze veriyle güncelle
               try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
             }
