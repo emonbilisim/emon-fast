@@ -8398,6 +8398,24 @@ function satisBolumunuGuncelle() {
   }
 }
 
+// Revizyon / fiyat değişimi → ÖNCEKİ admin fiyat onayını GEÇERSİZ kıl.
+// Onaylı bir teklif revizyona düşünce, satıcı revize fiyatı admin onayı olmadan
+// müşteriye gönderememeli; tekrar "Admin Onayı İste" akışına düşmeli. Admin kilidi
+// (adminSatisData) de temizlenir ki tablo yeniden düzenlenebilsin. Yalnız 'onaylandi'
+// durumunu sıfırlar → admin onay-öncesi düzenlemesini (bekliyor) bozmaz.
+function fiyatOnayiniGecersizKil(t) {
+  t = t || TALEPLER[aktifTalepIdx];
+  if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
+  t.fiyatOnayDurumu = null;
+  if (t.fiyatOnayTalep) {
+    delete t.fiyatOnayTalep.adminSatisData;
+    delete t.fiyatOnayTalep.adminTarih;
+    delete t.fiyatOnayTalep.adminNot;
+    delete t.fiyatOnayTalep.adminDegisiklik;
+  }
+  return true;
+}
+
 // Mevcut satış tablosu durumunu (marj/baz/KDV/nakliye/toplam para) yakala
 function satisTabloDurumuYakala() {
   return {
@@ -9540,9 +9558,14 @@ function teklifRevizeIste(idx) {
   t.teklifDurumu = 'revize';
   t.teklifRevizeNot = neden;
   t.teklifRevizeTarih = new Date().toISOString();
+  const onayDustu = fiyatOnayiniGecersizKil(t); // revizyon → fiyat tekrar admin onayına düşsün
   veriKaydet();
   renderMusteriTeklifleri();
-  showToast('✏️ Revize istendi olarak işaretlendi.');
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  if (aktifTalepIdx === idx && typeof satisBolumunuGuncelle === 'function') satisBolumunuGuncelle();
+  showToast(onayDustu
+    ? '✏️ Revize istendi — fiyat tekrar admin onayına düşürüldü.'
+    : '✏️ Revize istendi olarak işaretlendi.');
 }
 
 function teklifKabulEt(idx) {
@@ -12770,6 +12793,7 @@ function otoOnayRevizeUygula(taslakId, revize) {
     t.teklifDurumu = 'revize';
     t.teklifRevizeNot = ts.not || '';
     t.teklifRevizeTarih = new Date().toISOString();
+    fiyatOnayiniGecersizKil(t); // revizyon → fiyat tekrar admin onayına düşsün
   } else {
     t.teklifDurumu = 'kabul';
     t.teklifKabulTarih = new Date().toISOString();
