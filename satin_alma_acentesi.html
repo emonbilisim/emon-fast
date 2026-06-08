@@ -1475,6 +1475,22 @@
       <div style="font-size:11px;color:var(--text3);margin-top:10px;">Dönüşümler, talebin oluşturulduğu döneme göre (kohort) hesaplanır. "18 saatte dönüş" talep günü 00:00'dan teklif gönderim anına kadardır.</div>
     </div>
 
+    <!-- 🎯 YENİ MÜŞTERİ KAZANIMI -->
+    <div class="card" style="margin-bottom:20px;border-left:3px solid var(--green);">
+      <div class="card-header" style="margin-bottom:12px;">
+        <div>
+          <div class="card-title">🎯 Yeni Müşteri Kazanımı</div>
+          <div class="card-sub">Yeni müşteri, dönüşüm, kaynak ve hedef</div>
+        </div>
+      </div>
+      <div id="crm-kazanim-hedef" style="margin-bottom:14px;"></div>
+      <div id="crm-kazanim-kartlar" style="margin-bottom:14px;"></div>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin:6px 0 8px;">Kaynak Bazlı Dönüşüm</div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;" id="crm-kaynak-tablo"></table>
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:20px;">
       <div class="card-header" style="margin-bottom:12px;">
         <div class="card-title">📅 Dönem Kırılımı</div>
@@ -1677,6 +1693,11 @@
           <input type="checkbox" id="ayar-crm-aktif" onchange="crmAktifToggle(this)" style="width:16px;height:16px;accent-color:var(--accent);">
           <span>CRM'i ekibe aç</span>
         </label>
+      </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label class="form-label" style="margin:0;">🎯 Aylık Yeni Müşteri Hedefi</label>
+        <input type="number" id="ayar-crm-hedef" min="0" placeholder="örn. 10" style="max-width:120px;" onchange="crmHedefKaydet()">
+        <span style="font-size:11px;color:var(--text3);">CRM kazanım panosunda ilerleme çubuğu olarak gösterilir.</span>
       </div>
     </div>
 
@@ -2464,6 +2485,20 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
           <option value="Pasif">Pasif</option>
         </select>
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Kaynak <span style="font-size:11px;color:var(--text3);font-weight:400;">(müşteri nereden geldi)</span></label>
+      <select id="mf-kaynak">
+        <option value="">— Seçin —</option>
+        <option value="Referans">Referans</option>
+        <option value="Web sitesi">Web sitesi</option>
+        <option value="Fuar / Etkinlik">Fuar / Etkinlik</option>
+        <option value="Soğuk arama">Soğuk arama</option>
+        <option value="Gelen e-posta">Gelen e-posta</option>
+        <option value="Sosyal medya">Sosyal medya</option>
+        <option value="Mevcut müşteri">Mevcut müşteri (referans)</option>
+        <option value="Diğer">Diğer</option>
+      </select>
     </div>
     <div class="form-group">
       <label class="form-label">Sorumlu Satıcı <span id="mf-satici-yetki-uyari" style="font-size:11px;color:var(--text3);font-weight:400;display:none;">(yalnızca admin değiştirebilir)</span></label>
@@ -3795,6 +3830,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-baslik').textContent = '👥 Yeni Müşteri Ekle';
     ['mf-firma','mf-vergino','mf-vergidaire','mf-adres','mf-not'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
+    { const k=document.getElementById('mf-kaynak'); if(k) k.value=''; }
     // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
     if (saticiSel) saticiSel.value = (aktifKullanici?.email || '').toLowerCase();
     ['mf-odeme-havale','mf-odeme-kk','mf-odeme-kkkom','mf-odeme-vadeli'].forEach(id=>document.getElementById(id).checked=false);
@@ -3810,6 +3846,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-vergino').value=m.vergino||''; document.getElementById('mf-vergidaire').value=m.vergidaire||'';
     document.getElementById('mf-adres').value=m.adres||''; document.getElementById('mf-fiyatgrup').value=m.fiyatgrup||'';
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
+    { const k=document.getElementById('mf-kaynak'); if(k) k.value=m.kaynak||''; }
     if (saticiSel) { const _sk = saticiKullaniciBul(m.satici); saticiSel.value = _sk ? (_sk.email||'').toLowerCase() : ''; }
     const o=m.odeme||{};
     document.getElementById('mf-odeme-havale').checked=!!o.havale; document.getElementById('mf-odeme-kk').checked=!!o.kk;
@@ -3962,6 +3999,7 @@ function musteriKaydet() {
     adres:document.getElementById('mf-adres').value.trim(), vergino:document.getElementById('mf-vergino').value.trim(), vergidaire:document.getElementById('mf-vergidaire').value.trim(),
     odeme:{havale:document.getElementById('mf-odeme-havale').checked,kk:document.getElementById('mf-odeme-kk').checked,kkkom:document.getElementById('mf-odeme-kkkom').checked,kkkomOran:document.getElementById('mf-kkkom-oran').value.trim(),vadeli:document.getElementById('mf-odeme-vadeli').checked,vadeGun:document.getElementById('mf-vade-gun').value},
     ozelSartlar, fiyatgrup:document.getElementById('mf-fiyatgrup').value, durum:document.getElementById('mf-durum').value,
+    kaynak:document.getElementById('mf-kaynak')?.value || '',
     not:document.getElementById('mf-not').value.trim(), tarih:new Date().toISOString().slice(0,10),
     fpKurallari: fpKurallariOku(),
   };
@@ -4255,6 +4293,8 @@ function crmRender() {
     + satir('Teklif verilen (dönülen)', mm.donulen)
     + satir('Siparişe dönen', mm.siparis)
     + satir('Tamamlanan', tamamlanan)
+    + (m.kaynak ? satir('Kaynak', m.kaynak) : '')
+    + (m.crmAsama === 'kaybedildi' && m.kaybetmeNedeni ? satir('Kaybetme nedeni', '<span style="color:var(--red);">' + m.kaybetmeNedeni + '</span>') : '')
     + satir('Etkileşim sayısı', akt.length)
     + satir('Son etkileşim', akt[0] ? tarihFmt(akt[0].tarih) : '—');
 
@@ -4344,6 +4384,11 @@ function crmAsamaDegistir(key) {
   const m = MUSTERILER[aktifMusteriDetayIdx];
   if (!m) return;
   m.crmAsama = key;
+  // Kaybedildi → neden sor (öğrenme/analiz); başka aşamaya geçince temizle
+  if (key === 'kaybedildi') {
+    const neden = (prompt('Kaybetme nedeni (fiyat / termin / rakip / bütçe yok ...):', m.kaybetmeNedeni || '') || '').trim();
+    if (neden) m.kaybetmeNedeni = neden;
+  }
   veriKaydet(); crmRender(); filterMusteriler();
   showToast('Aşama: ' + crmAsamaBilgi(key).label);
 }
@@ -4497,10 +4542,97 @@ function renderCrmIstatistik() {
   }
   crmDonemTabloRender();
   crmMusteriTabloRender();
+  renderCrmKazanim();
   ['gunluk','aylik','yillik'].forEach(gr => {
     const b = document.getElementById('crm-gran-' + gr);
     if (b) b.classList.toggle('btn-primary', gr === _crmStatGran);
   });
+}
+
+// 🎯 Yeni müşteri kazanımı: yeni müşteri/dönem, açık aday, kazanılan, huni, kaynak, hedef
+function renderCrmKazanim() {
+  const simdi = new Date();
+  const ayKey = simdi.toISOString().slice(0,7);
+  const yilKey = String(simdi.getFullYear());
+  // Talepleri müşteri (normalize) başına bir kez grupla
+  const talepByMusteri = {};
+  TALEPLER.forEach(t => { if (t && t.musteri) { const k = _musteriNorm(t.musteri); (talepByMusteri[k] = talepByMusteri[k] || []).push(t); } });
+
+  const acikAsamalar = ['aday','ilgileniyor','teklif'];
+  let buAyYeni = 0, buYilYeni = 0, acikAday = 0, kazanilanMusteri = 0, sureTop = 0, sureN = 0;
+  MUSTERILER.forEach(m => {
+    const ct = String(m.tarih || '').slice(0,10);
+    if (ct.slice(0,7) === ayKey)  buAyYeni++;
+    if (ct.slice(0,4) === yilKey) buYilYeni++;
+    const asama = m.crmAsama || 'aday';
+    if ((m.durum === 'Potansiyel' || acikAsamalar.includes(asama)) && asama !== 'kazanildi' && asama !== 'kaybedildi') acikAday++;
+    const tl = talepByMusteri[_musteriNorm(m.firma)] || [];
+    const ilkSiparis = tl.filter(crmSiparisMi)
+      .map(t => String(t.siparisTarih || t.musteriTeklifTarih || t.tarih || '').slice(0,10)).filter(Boolean).sort()[0];
+    if (ilkSiparis) {
+      kazanilanMusteri++;
+      const d0 = ct ? new Date(ct+'T00:00:00').getTime() : NaN;
+      const d1 = new Date(ilkSiparis+'T00:00:00').getTime();
+      if (!isNaN(d0) && !isNaN(d1) && d1 >= d0) { sureTop += (d1-d0)/86400000; sureN++; }
+    }
+  });
+  const toplam = MUSTERILER.length;
+  const kazanimOran = toplam ? kazanilanMusteri/toplam*100 : 0;
+  const ortSure = sureN ? Math.round(sureTop/sureN) : null;
+  const kazanildi  = MUSTERILER.filter(m => m.crmAsama === 'kazanildi').length;
+  const kaybedildi = MUSTERILER.filter(m => m.crmAsama === 'kaybedildi').length;
+  const winRate = (kazanildi+kaybedildi) ? kazanildi/(kazanildi+kaybedildi)*100 : 0;
+
+  // Hedef / KPI
+  const hedef = parseInt(AYARLAR.crmHedefAylikYeniMusteri, 10) || 0;
+  const hedefEl = document.getElementById('crm-kazanim-hedef');
+  if (hedefEl) {
+    if (hedef > 0) {
+      const oran = Math.min(100, buAyYeni/hedef*100);
+      const renk = oran >= 100 ? 'var(--green)' : (oran >= 60 ? 'var(--amber)' : 'var(--accent2)');
+      hedefEl.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;"><span style="color:var(--text3);">Bu ay yeni müşteri hedefi</span><span style="font-weight:700;">' + buAyYeni + ' / ' + hedef + '</span></div>'
+        + '<div style="height:10px;background:var(--bg3);border-radius:6px;overflow:hidden;"><div style="height:100%;width:' + oran + '%;background:' + renk + ';transition:width .3s;"></div></div>';
+    } else {
+      hedefEl.innerHTML = '<div style="font-size:11px;color:var(--text3);">💡 Aylık yeni müşteri hedefi için: Ayarlar → "CRM — Aylık Yeni Müşteri Hedefi".</div>';
+    }
+  }
+  const kartEl = document.getElementById('crm-kazanim-kartlar');
+  if (kartEl) {
+    kartEl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;';
+    kartEl.innerHTML =
+        crmStatKart('Bu Ay Yeni Müşteri', buAyYeni.toLocaleString('tr-TR'), 'Bu yıl: ' + buYilYeni)
+      + crmStatKart('Açık Aday', acikAday.toLocaleString('tr-TR'), 'potansiyel / takipte')
+      + crmStatKart('Kazanılan Müşteri', kazanilanMusteri.toLocaleString('tr-TR'), '%' + (Math.round(kazanimOran*10)/10).toLocaleString('tr-TR') + ' sipariş veren')
+      + crmStatKart('Huni Kazanma Oranı', crmPct(winRate), kazanildi + ' kazanıldı · ' + kaybedildi + ' kayıp')
+      + crmStatKart('Ort. İlk Siparişe', ortSure != null ? ortSure + ' gün' : '—', 'kayıt → ilk sipariş');
+  }
+  crmKaynakTabloRender(talepByMusteri);
+}
+function crmKaynakTabloRender(talepByMusteri) {
+  const tablo = document.getElementById('crm-kaynak-tablo');
+  if (!tablo) return;
+  const kova = {};
+  MUSTERILER.forEach(m => {
+    const k = (m.kaynak || '').trim() || 'Belirtilmemiş';
+    const g = kova[k] = kova[k] || { musteri: 0, kazanan: 0 };
+    g.musteri++;
+    const tl = talepByMusteri[_musteriNorm(m.firma)] || [];
+    if (tl.some(crmSiparisMi)) g.kazanan++;
+  });
+  const anahtarlar = Object.keys(kova).sort((a,b) => kova[b].musteri - kova[a].musteri);
+  const baslik = '<thead><tr style="background:var(--bg3);">'
+    + ['Kaynak','Müşteri','Kazanılan','Dönüşüm'].map((h,i) => '<th style="padding:8px 10px;text-align:' + (i===0?'left':'right') + ';border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);white-space:nowrap;">' + h + '</th>').join('')
+    + '</tr></thead>';
+  const satirlar = anahtarlar.map(k => {
+    const g = kova[k], oran = g.musteri ? g.kazanan/g.musteri*100 : 0;
+    return '<tr style="border-bottom:1px solid var(--border);">'
+      + '<td style="padding:8px 10px;">' + k + '</td>'
+      + '<td style="padding:8px 10px;text-align:right;">' + g.musteri + '</td>'
+      + '<td style="padding:8px 10px;text-align:right;">' + g.kazanan + '</td>'
+      + '<td style="padding:8px 10px;text-align:right;">' + crmPct(oran) + '</td>'
+      + '</tr>';
+  }).join('');
+  tablo.innerHTML = baslik + '<tbody>' + (satirlar || '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text3);">Müşteri yok.</td></tr>') + '</tbody>';
 }
 function crmDonemTabloRender() {
   const tablo = document.getElementById('crm-stat-donem-tablo');
@@ -10562,6 +10694,7 @@ let AYARLAR = {
   awayMode: false,
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
   talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
+  crmHedefAylikYeniMusteri: 0,             // CRM: aylık yeni müşteri hedefi (0 = belirsiz)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
 };
 
@@ -10699,6 +10832,13 @@ function crmGorunur() {
   return AYARLAR.crmAktif === true || aktifKullanici?.rol === 'admin';
 }
 
+function crmHedefKaydet() {
+  const v = parseInt(document.getElementById('ayar-crm-hedef')?.value, 10);
+  AYARLAR.crmHedefAylikYeniMusteri = (!isNaN(v) && v >= 0) ? v : 0;
+  veriKaydet();
+  if (typeof renderCrmKazanim === 'function' && crmGorunur()) { try { renderCrmKazanim(); } catch(_){} }
+  showToast('🎯 Aylık yeni müşteri hedefi kaydedildi.');
+}
 function crmAktifToggle(cb) {
   AYARLAR.crmAktif = !!cb.checked;
   veriKaydet();
@@ -10733,6 +10873,7 @@ function ayarlariYukle() {
   setVal('ayar-tel',    AYARLAR.tel);
   setVal('ayar-adres',  AYARLAR.adres);
   setVal('ayar-kargo-usd', AYARLAR.standartKargoUSD ? String(AYARLAR.standartKargoUSD) : '');
+  setVal('ayar-crm-hedef', AYARLAR.crmHedefAylikYeniMusteri ? String(AYARLAR.crmHedefAylikYeniMusteri) : '');
   // Talep numarası biçimi
   const tb = talepNoBicimAl();
   const onekEl = document.getElementById('ayar-talepno-onek'); if (onekEl) onekEl.value = tb.onek;
