@@ -5597,7 +5597,7 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
       td0.style.position = 'relative';
     }
 
-    // Ürün adı (+ tedarikçi muadil/alternatif ürün — manuel girilebilir ad + kod)
+    // Ürün adı (+ tedarikçi alternatif ürün — manuel girilebilir ad + kod)
     const _attr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
     const altUrun = tk.urunFiyatlari?.['fiyat_' + urunIdx + '_alt'] || '';
     const altKod  = tk.urunFiyatlari?.['fiyat_' + urunIdx + '_altkod'] || '';
@@ -5605,8 +5605,8 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     tdUrun.style.cssText = 'padding:7px 10px;vertical-align:middle;font-size:12px;color:var(--text2);max-width:190px;';
     tdUrun.innerHTML = '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _attr(urun.aciklama) + '">' + (urun.aciklama||'—') + '</div>'
       + (urun.kod ? '<div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);">' + urun.kod + '</div>' : '')
-      + '<div style="display:flex;gap:3px;margin-top:3px;" title="Tedarikçi istenen ürün yerine muadil/alternatif önerdiyse adını ve kodunu yazın — fiyat muadile aittir">'
-      +   '<input type="text" value="' + _attr(altUrun) + '" placeholder="↹ Muadil ürün (varsa)" style="flex:1;min-width:0;font-size:10px;padding:2px 5px;" onchange="talepTeklifMuadilGuncelle(' + tkIdx + ',' + urunIdx + ',\'ad\',this.value)">'
+      + '<div style="display:flex;gap:3px;margin-top:3px;" title="Tedarikçi istenen ürün yerine alternatif bir ürün önerdiyse adını ve kodunu yazın — fiyat alternatife aittir">'
+      +   '<input type="text" value="' + _attr(altUrun) + '" placeholder="↹ Alternatif ürün (varsa)" style="flex:1;min-width:0;font-size:10px;padding:2px 5px;" onchange="talepTeklifMuadilGuncelle(' + tkIdx + ',' + urunIdx + ',\'ad\',this.value)">'
       +   '<input type="text" value="' + _attr(altKod) + '" placeholder="Kod" style="width:62px;font-size:10px;padding:2px 5px;font-family:var(--font-mono);" onchange="talepTeklifMuadilGuncelle(' + tkIdx + ',' + urunIdx + ',\'kod\',this.value)">'
       + '</div>';
 
@@ -5685,7 +5685,7 @@ function talepTeklifParaDegistir(tkIdx, urunIdx, yeniPara) {
   setTimeout(veriKaydet, 300);
 }
 
-// ↹ Muadil/alternatif ürün manuel girişi (ad / kod) — karşılaştırma tablosundan
+// ↹ Alternatif ürün manuel girişi (ad / kod) — karşılaştırma tablosundan
 function talepTeklifMuadilGuncelle(tkIdx, urunIdx, alan, deger) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t || !talepTeklifleri[t.no]?.[tkIdx]) return;
@@ -5695,7 +5695,7 @@ function talepTeklifMuadilGuncelle(tkIdx, urunIdx, alan, deger) {
   const v = (deger || '').trim();
   if (v) tk.urunFiyatlari[key] = v; else delete tk.urunFiyatlari[key];
   veriKaydet();
-  if (typeof satisHesaplaTablosu === 'function') satisHesaplaTablosu(); // satış tablosundaki muadil rozeti tazelensin
+  if (typeof satisHesaplaTablosu === 'function') satisHesaplaTablosu(); // satış tablosundaki alternatif rozeti tazelensin
 }
 
 function talepTeklifUrunFiyatGuncelle(tkIdx, urunIdx, deger, para) {
@@ -6511,7 +6511,7 @@ function satisHesaplaTablosu() {
       const kkOran     = m.kkOran || 0;
       const tlHam      = m.tlHam || tlFiyat;
       td1.innerHTML = '<div style="font-size:12px;color:var(--text2);font-weight:500;">' + m.ted + '</div>'
-        + ((m.alt || m.altkod) ? '<div style="font-size:10px;color:var(--amber);font-weight:600;" title="Tedarikçi istenen ürün yerine muadil önerdi — fiyat muadile aittir, müşteriye göndermeden kontrol edin">↹ Muadil: ' + String(m.alt||'—').replace(/</g,'&lt;') + (m.altkod ? ' (' + String(m.altkod).replace(/</g,'&lt;') + ')' : '') + '</div>' : '')
+        + ((m.alt || m.altkod) ? '<div style="font-size:10px;color:var(--amber);font-weight:600;" title="Tedarikçi istenen ürün yerine alternatif bir ürün önerdi — fiyat alternatife aittir, müşteriye göndermeden kontrol edin">↹ Alternatif: ' + String(m.alt||'—').replace(/</g,'&lt;') + (m.altkod ? ' (' + String(m.altkod).replace(/</g,'&lt;') + ')' : '') + '</div>' : '')
         + '<div style="font-size:12px;color:var(--green);font-weight:600;">'
         + (para !== 'TRY' && m.hamFiyat
             ? fmt2(m.hamFiyat, sembol) + ' <span style="font-size:10px;color:var(--text3);">('+fmt2(tlHam,'₺')+')</span>'
@@ -12366,7 +12366,7 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
       const paraEl  = document.getElementById('mail-para-' + mailIdx + '-' + f.urunIdx);
       if (fiyatEl && f.birimFiyat > 0) { fiyatEl.value = f.birimFiyat; dolanSayisi++; }
       if (paraEl && f.para && ['TRY','USD','EUR'].includes(f.para)) paraEl.value = f.para;
-      // ↹ Tedarikçi muadil/alternatif ürün önerdiyse yakala + göster (ad + kod)
+      // ↹ Tedarikçi alternatif ürün önerdiyse yakala + göster (ad + kod)
       const alt    = (f.alternatif || '').toString().trim();
       const altKod = (f.alternatifKod || '').toString().trim();
       const altEl    = document.getElementById('mail-alt-' + mailIdx + '-' + f.urunIdx);
@@ -12375,7 +12375,7 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
       if (altEl)    altEl.value = alt;
       if (altKodEl) altKodEl.value = altKod;
       if (altNot) {
-        if (alt || altKod) { altNot.textContent = '↹ Muadil önerildi: ' + alt + (altKod ? ' (Kod: ' + altKod + ')' : ''); altNot.style.display = 'block'; }
+        if (alt || altKod) { altNot.textContent = '↹ Alternatif ürün önerildi: ' + alt + (altKod ? ' (Kod: ' + altKod + ')' : ''); altNot.style.display = 'block'; }
         else { altNot.textContent = ''; altNot.style.display = 'none'; }
       }
     });
@@ -12623,7 +12623,7 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
       '- Bir ürün için fiyat yoksa O ÜRÜNÜ ATLAMA, birimFiyat:0 olarak ekle.\n' +
       '- PDF ek varsa onu da incele — proforma fatura, teklif formu vb. PDF içindeki fiyatlara öncelik ver.\n' +
       '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n' +
-      '- ALTERNATİF/MUADİL: Tedarikçi, talep edilen ürün YERİNE FARKLI bir ürün (başka marka/model/muadil) teklif ediyorsa, o ürünün ADINI ilgili urunIdx için "alternatif" alanına, varsa STOK/PARÇA KODUNU "alternatifKod" alanına yaz (fiyatı yine birimFiyat\'a). Tam istenen ürünse ikisi de boş kalsın.\n' +
+      '- ALTERNATİF ÜRÜN: Tedarikçi, talep edilen ürün YERİNE FARKLI bir ürün (başka marka/model) teklif ediyorsa, o ürünün ADINI ilgili urunIdx için "alternatif" alanına, varsa STOK/PARÇA KODUNU "alternatifKod" alanına yaz (fiyatı yine birimFiyat\'a). Tam istenen ürünse ikisi de boş kalsın.\n' +
       '- ÖNEMLİ: Mail bir YANIT olabilir ve altında alıntılanmış eski yazışma (bizim fiyatsız sorgu/talep mailimiz) bulunabilir. Bu alıntı kısmını YOK SAY; yalnızca gönderenin yeni yazdığı bölümdeki fiyatları al. Bizim ürün listemizi/sorgumuzu fiyat olarak alma — gerçek fiyat yoksa birimFiyat:0 bırak.\n\n' +
       'MAİL İÇERİĞİ:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON formatında cevap ver (markdown veya açıklama yok):\n' +
@@ -13576,7 +13576,7 @@ async function seciliOutlookTeklifleriEkle() {
         urunFiyatlari[`fiyat_${uIdx}`]      = tryToTL(fiyat, para);
         urunFiyatlari[`fiyat_${uIdx}_ham`]  = fiyat;
         urunFiyatlari[`fiyat_${uIdx}_para`] = para;
-        // ↹ Muadil/alternatif ürün (AI yakaladıysa) — ad + kod
+        // ↹ Alternatif ürün (AI yakaladıysa) — ad + kod
         const alt    = (document.getElementById('mail-alt-' + mailIdx + '-' + uIdx)?.value || '').trim();
         const altKod = (document.getElementById('mail-altkod-' + mailIdx + '-' + uIdx)?.value || '').trim();
         if (alt)    urunFiyatlari[`fiyat_${uIdx}_alt`] = alt;
