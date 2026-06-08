@@ -5601,10 +5601,12 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     const _attr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
     const altUrun = tk.urunFiyatlari?.['fiyat_' + urunIdx + '_alt'] || '';
     const altKod  = tk.urunFiyatlari?.['fiyat_' + urunIdx + '_altkod'] || '';
+    const hasAlt  = !!(altUrun || altKod);
     const tdUrun = tr.insertCell();
-    tdUrun.style.cssText = 'padding:7px 10px;vertical-align:middle;font-size:12px;color:var(--text2);max-width:190px;';
+    tdUrun.style.cssText = 'padding:7px 10px;vertical-align:middle;font-size:12px;color:var(--text2);max-width:190px;' + (hasAlt ? 'background:rgba(245,166,35,0.13);box-shadow:inset 3px 0 0 var(--amber);' : '');
     tdUrun.innerHTML = '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _attr(urun.aciklama) + '">' + (urun.aciklama||'—') + '</div>'
       + (urun.kod ? '<div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);">' + urun.kod + '</div>' : '')
+      + (hasAlt ? '<div style="display:inline-block;background:var(--amber);color:#241a05;font-weight:700;font-size:9px;letter-spacing:0.03em;padding:2px 7px;border-radius:10px;margin-top:4px;" title="Bu tedarikçi istenen ürün yerine ALTERNATİF bir ürün veriyor — fiyat alternatife aittir">↹ ALTERNATİF ÜRÜN</div>' : '')
       + '<div style="display:flex;gap:3px;margin-top:3px;" title="Tedarikçi istenen ürün yerine alternatif bir ürün önerdiyse adını ve kodunu yazın — fiyat alternatife aittir">'
       +   '<input type="text" value="' + _attr(altUrun) + '" placeholder="↹ Alternatif ürün (varsa)" style="flex:1;min-width:0;font-size:10px;padding:2px 5px;" onchange="talepTeklifMuadilGuncelle(' + tkIdx + ',' + urunIdx + ',\'ad\',this.value)">'
       +   '<input type="text" value="' + _attr(altKod) + '" placeholder="Kod" style="width:62px;font-size:10px;padding:2px 5px;font-family:var(--font-mono);" onchange="talepTeklifMuadilGuncelle(' + tkIdx + ',' + urunIdx + ',\'kod\',this.value)">'
@@ -6496,6 +6498,9 @@ function satisHesaplaTablosu() {
 
     const tr = tbody.insertRow();
     tr.style.borderBottom = '1px solid var(--border)';
+    // ↹ Bu satırın maliyeti bir ALTERNATİF ürüne aitse satırı belirginleştir
+    const altVar = !!(m && (m.alt || m.altkod));
+    if (altVar) { tr.style.background = 'rgba(245,166,35,0.10)'; tr.style.boxShadow = 'inset 3px 0 0 var(--amber)'; }
 
     // Ürün adı
     const td0 = tr.insertCell();
@@ -6511,7 +6516,7 @@ function satisHesaplaTablosu() {
       const kkOran     = m.kkOran || 0;
       const tlHam      = m.tlHam || tlFiyat;
       td1.innerHTML = '<div style="font-size:12px;color:var(--text2);font-weight:500;">' + m.ted + '</div>'
-        + ((m.alt || m.altkod) ? '<div style="font-size:10px;color:var(--amber);font-weight:600;" title="Tedarikçi istenen ürün yerine alternatif bir ürün önerdi — fiyat alternatife aittir, müşteriye göndermeden kontrol edin">↹ Alternatif: ' + String(m.alt||'—').replace(/</g,'&lt;') + (m.altkod ? ' (' + String(m.altkod).replace(/</g,'&lt;') + ')' : '') + '</div>' : '')
+        + (altVar ? '<div style="display:inline-block;background:var(--amber);color:#241a05;font-weight:700;font-size:9px;letter-spacing:0.03em;padding:2px 8px;border-radius:10px;margin:3px 0;" title="Tedarikçi istenen ürün yerine ALTERNATİF bir ürün önerdi — fiyat alternatife aittir, müşteriye göndermeden kontrol edin">↹ ALTERNATİF ÜRÜN' + (m.alt ? ': ' + String(m.alt).replace(/</g,'&lt;') : '') + (m.altkod ? ' (' + String(m.altkod).replace(/</g,'&lt;') + ')' : '') + '</div>' : '')
         + '<div style="font-size:12px;color:var(--green);font-weight:600;">'
         + (para !== 'TRY' && m.hamFiyat
             ? fmt2(m.hamFiyat, sembol) + ' <span style="font-size:10px;color:var(--text3);">('+fmt2(tlHam,'₺')+')</span>'
