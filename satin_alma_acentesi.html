@@ -24,6 +24,23 @@
     --radius: 10px;
     --radius-lg: 14px;
   }
+  /* ☀️ AÇIK TEMA — değişkenleri ezerek tüm arayüzü çevirir (kullanıcı başına localStorage) */
+  [data-theme="light"] {
+    --bg: #f3f5fa;
+    --bg2: #ffffff;
+    --bg3: #eceff5;
+    --border: rgba(22,30,55,0.10);
+    --border2: rgba(22,30,55,0.16);
+    --text: #1b2232;
+    --text2: #525a70;
+    --text3: #8089a0;
+    --accent: #2f6fe0;
+    --accent2: #2f6fe0;
+    --green: #12a06a;
+    --amber: #b9770b;
+    --red: #d64545;
+    --purple: #6f54cf;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; }
 
@@ -467,6 +484,7 @@
     .logo { padding: 12px 10px; }
   }
 </style>
+<script>(function(){try{if(localStorage.getItem("emonfast_tema")==="light")document.documentElement.setAttribute("data-theme","light");}catch(e){}})();</script>
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -572,6 +590,7 @@
       </div>
       <button onclick="event.stopPropagation();cikisYap()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;padding:2px 4px;" title="Çıkış">⏻</button>
     </div>
+    <button id="tema-btn" onclick="temaToggle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;padding:7px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text2);cursor:pointer;font-size:12px;font-weight:500;" title="Açık / koyu tema arası geçiş">☀️ Açık Tema</button>
     <div style="font-size:12px;color:var(--text3);"><span class="status-dot"></span>Sistem aktif</div>
     <div style="margin-top:8px;padding:6px 8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg3);border-radius:var(--radius);">
       <span id="sidebar-versiyon" style="font-size:10px;color:var(--text3);font-weight:500;">EMON FAST v2.5.0</span>
@@ -3672,6 +3691,21 @@ function sidebarKapat() {
   document.querySelector('.sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('open');
   document.body.style.overflow = '';
+}
+
+// 🎨 Tema (açık / koyu) — kullanıcı başına localStorage'da saklanır
+function temaUygula(tema) {
+  const t = (tema === 'light') ? 'light' : 'dark';
+  if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('emonfast_tema', t); } catch (_) {}
+  const btn = document.getElementById('tema-btn');
+  // Buton, geçilecek temayı gösterir
+  if (btn) btn.innerHTML = (t === 'light') ? '🌙 Koyu Tema' : '☀️ Açık Tema';
+}
+function temaToggle() {
+  const suan = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  temaUygula(suan === 'light' ? 'dark' : 'light');
 }
 
 // Mobil: sola kaydırarak sidebar kapat
@@ -14778,6 +14812,7 @@ veriYukle();
 filterMusteriler();
 filterTedarikciler();
 renderTalepler();
+temaUygula(localStorage.getItem('emonfast_tema') === 'light' ? 'light' : 'dark'); // tema + buton etiketi
 taleplerAutoRefreshDurumYukle();
 otoTalepPollingKur(); // Faz 2: özellik açıksa periyodik mail taramasını başlat
 fpInit();
