@@ -5353,7 +5353,7 @@ function renderTalepler() {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td data-label="No" class="mono" style="white-space:nowrap;">
-          #${t.no}
+          ${talepNoEtiket(t)}
           ${t.musteriNo ? '<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-top:2px;" title="Müşteri talep no">📎 ' + t.musteriNo + '</div>' : ''}
         </td>
         <td data-label="Müşteri" style="font-weight:500;">${t.musteri}</td>
@@ -5468,8 +5468,8 @@ function talepDetayAc(idx) {
   const t = TALEPLER[idx];
   if (!talepTeklifleri[t.no]) talepTeklifleri[t.no] = [];
 
-  // Başlık
-  document.getElementById('td-baslik').textContent = `#${t.no} — ${t.urun}`;
+  // Başlık (geçici no'da temiz numara + GEÇİCİ rozeti gösterilir)
+  document.getElementById('td-baslik').innerHTML = `${talepNoEtiket(t)} — ${String(t.urun||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}`;
   document.getElementById('td-alt').textContent = `${t.musteri} · ${t.miktar||''} · Oluşturma: ${talepTarihFmt(t.tarih)}`;
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(t.durum);
 
@@ -8763,7 +8763,8 @@ async function talepKaydet() {
     satici: aktifKullanici?.id, // sahibi — yalnızca kendi taleplerini görsün
   });
   renderTalepler();
-  showToast(`"${musteriAd}" için #${no} numaralı talep oluşturuldu!`); veriKaydet();
+  const _gosNo = noKesin ? no : talepNoBicimle(talepNoSayi(no));
+  showToast(`"${musteriAd}" için #${_gosNo} numaralı talep oluşturuldu!`); veriKaydet();
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ göndermeden önce bağlantı sağlanmalı (çakışma önlemi).');
 }
 
@@ -13245,10 +13246,21 @@ function talepNoBicimle(n) {
   const { onek, hane } = talepNoBicimAl();
   return onek + String(n).padStart(hane, '0');
 }
-// Herhangi bir talep no'sundan sayısal kısmı çıkar (önekten bağımsız)
+// Talep no'sundan asıl SAYIYI çıkar = İLK rakam grubu (önekten bağımsız).
+// Not: tüm rakamları birleştirmiyoruz — geçici no soneki (örn. "TLB-00012-G4kx9")
+// içindeki rakamlar yerel max+1'i şişirmesin diye yalnız baştaki numara alınır.
 function talepNoSayi(no) {
-  const d = parseInt(String(no || '').replace(/\D/g, ''), 10);
-  return Number.isFinite(d) ? d : 0;
+  const m = String(no || '').match(/\d+/);
+  return m ? (parseInt(m[0], 10) || 0) : 0;
+}
+// Kullanıcıya gösterilecek talep no etiketi (HTML). Geçici (çevrimdışı) no'da
+// karmaşık benzersizlik soneki gizlenir, temiz numara + "GEÇİCİ" rozeti gösterilir.
+function talepNoEtiket(t) {
+  if (t && t.noKesin === false) {
+    return '#' + talepNoBicimle(talepNoSayi(t.no))
+      + ' <span style="font-size:9px;font-weight:700;background:var(--amber);color:#1a1a1a;border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle;" title="Numara geçici — RFQ göndermeden önce sunucudan kesinleşecek (çakışma önlemi)">GEÇİCİ</span>';
+  }
+  return '#' + ((t && t.no) || '');
 }
 
 // Sunucu-taraflı talep numarası (atomik sequence) — çakışmasız, kullanıcılar arası benzersiz.
@@ -13306,11 +13318,20 @@ async function talepNoKesinlestir(t) {
   renderTalepler();
   return true;
 }
+// Geçici (çevrimdışı) talep no'su için satıcıya özgü BENZERSİZ sonek.
+// İki satıcı aynı anda çevrimdışı talep açsa da no'ları çakışmaz → merge'de
+// (no anahtarlı) biri diğerini EZMEZ. Sonek RFQ öncesi talepNoKesinlestir ile
+// temiz sunucu numarasıyla değiştirilir; tedarikçiye asla bu sonekli no gitmez.
+function _gecisNoKodu() {
+  const u = String(aktifKullanici?.id || aktifKullanici?.username || 'x').replace(/[^a-zA-Z0-9]/g, '').slice(0, 5) || 'x';
+  return u + '-' + Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 5);
+}
 function yerelSonrakiTalepNo() {
   let maxN = Number(talepSayac) || 0;
-  TALEPLER.forEach(t => { maxN = Math.max(maxN, talepNoSayi(t.no)); });
+  // Yalnız KESİN (sunucu-onaylı/eski) numaralardan max al — geçici no'lar sayaca dahil edilmez.
+  TALEPLER.forEach(t => { if (t.noKesin !== false) maxN = Math.max(maxN, talepNoSayi(t.no)); });
   talepSayac = maxN + 1;
-  return talepNoBicimle(talepSayac);
+  return talepNoBicimle(talepSayac) + '-G' + _gecisNoKodu(); // "-G…" = geçici, benzersiz
 }
 
 // ── Admin: Talep numarası biçimi + sayaç sıfırlama ──
@@ -14067,7 +14088,7 @@ async function otoTalepOnayla(taslakId) {
   const _ix = cfg.taslaklar.findIndex(x => x.id === taslakId); // await sonrası taslak indeksini yeniden bul
   if (_ix >= 0) cfg.taslaklar.splice(_ix, 1);
   renderTalepler(); veriKaydet(); otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
-  showToast(`✅ #${no} talebi oluşturuldu (${musteriAd}).`);
+  showToast(`✅ #${noKesin ? no : talepNoBicimle(talepNoSayi(no))} talebi oluşturuldu (${musteriAd}).`);
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ öncesi bağlantı gerekli (çakışma önlemi).');
 }
 
