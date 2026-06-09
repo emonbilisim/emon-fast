@@ -1845,12 +1845,23 @@
       <div style="flex:1;"></div>
       <button class="btn btn-primary" onclick="gorevModalAc()">➕ Yeni Görev</button>
     </div>
-    <div id="gorev-filtre-tablar" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-      <button class="btn btn-sm gorev-tab active" onclick="gorevFiltreSec('bana',this)">📥 Bana Atananlar</button>
-      <button class="btn btn-sm gorev-tab" onclick="gorevFiltreSec('benim',this)">📤 Benim Atadıklarım</button>
-      <button class="btn btn-sm gorev-tab" onclick="gorevFiltreSec('tum',this)">🗂 Tümü</button>
+    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-bottom:18px;cursor:pointer;">
+      <input type="checkbox" id="gorev-kapanan-goster" onchange="gorevKapananToggle(this)" style="width:auto;margin:0;"> Kapanan görevleri de göster
+    </label>
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:14px;font-weight:700;">📥 Bana Atananlar</span>
+        <span class="badge badge-blue" id="gorev-bana-sayi">0</span>
+      </div>
+      <div id="gorev-bana-liste" style="display:flex;flex-direction:column;gap:10px;"></div>
     </div>
-    <div id="gorev-liste" style="display:flex;flex-direction:column;gap:10px;"></div>
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:14px;font-weight:700;">📤 Benim Atadıklarım</span>
+        <span class="badge badge-blue" id="gorev-benim-sayi">0</span>
+      </div>
+      <div id="gorev-benim-liste" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
   </div>
 
 </div><!-- /main -->
@@ -3937,31 +3948,11 @@ function _gorevDurumPill(durum) {
   return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;background:${bg};color:${fg};">${t}</span>`;
 }
 
-function gorevFiltreSec(f, el) {
-  _gorevFiltre = f;
-  document.querySelectorAll('#gorev-filtre-tablar .gorev-tab').forEach(b => b.classList.remove('active'));
-  if (el) el.classList.add('active');
-  renderGorevler();
-}
+let _gorevKapananGoster = false;
+function gorevKapananToggle(cb) { _gorevKapananGoster = !!(cb && cb.checked); renderGorevler(); }
 
-function renderGorevler() {
-  const cont = document.getElementById('gorev-liste');
-  if (!cont) return;
-  const ben = _benEmail();
-  let liste = GOREVLER.slice();
-  if (_gorevFiltre === 'bana') liste = liste.filter(g => g.atananEmail === ben);
-  else if (_gorevFiltre === 'benim') liste = liste.filter(g => g.atayanEmail === ben);
-  const rank = d => (d === 'acik' ? 0 : d === 'devam' ? 1 : d === 'beklemede' ? 2 : 3);
-  liste.sort((a, b) => rank(a.durum) - rank(b.durum)
-    || (a.sonTarih || '9999-99-99').localeCompare(b.sonTarih || '9999-99-99')
-    || (b.olusturma || '').localeCompare(a.olusturma || ''));
-  if (!liste.length) {
-    cont.innerHTML = '<div style="padding:28px;text-align:center;color:var(--text3);font-size:13px;">Bu görünümde görev yok.</div>';
-    return;
-  }
-  const bugun = new Date().toISOString().slice(0, 10);
-  const isAdmin = aktifKullanici?.rol === 'admin';
-  cont.innerHTML = liste.map(g => {
+// Tek görev kartının HTML'i (iki bölge de bunu kullanır)
+function _gorevKartHtml(g, ben, isAdmin, bugun) {
     const benimAtanan = g.atananEmail === ben;
     const benimAtayan = g.atayanEmail === ben;
     const gecikti = g.sonTarih && g.durum !== 'kapandi' && g.sonTarih < bugun;
@@ -4028,7 +4019,27 @@ function renderGorevler() {
       </div>
       ${notlarPanel}
     </div>`;
-  }).join('');
+}
+
+function renderGorevler() {
+  const ben = _benEmail();
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  const bugun = new Date().toISOString().slice(0, 10);
+  const rank = d => (d === 'acik' ? 0 : d === 'devam' ? 1 : d === 'beklemede' ? 2 : 3);
+  const sortFn = (a, b) => rank(a.durum) - rank(b.durum)
+    || (a.sonTarih || '9999-99-99').localeCompare(b.sonTarih || '9999-99-99')
+    || (b.olusturma || '').localeCompare(a.olusturma || '');
+  const gorunur = g => _gorevKapananGoster || g.durum !== 'kapandi';
+  // Bana atananlar (kendine atadıkların dahil) · Benim atadıklarım = başkalarına devrettiklerim
+  const bana  = GOREVLER.filter(g => g.atananEmail === ben && gorunur(g)).sort(sortFn);
+  const benim = GOREVLER.filter(g => g.atayanEmail === ben && g.atananEmail !== ben && gorunur(g)).sort(sortFn);
+  const bos = '<div style="padding:22px;text-align:center;color:var(--text3);font-size:13px;">Görev yok.</div>';
+  const banaCont  = document.getElementById('gorev-bana-liste');
+  const benimCont = document.getElementById('gorev-benim-liste');
+  if (banaCont)  banaCont.innerHTML  = bana.length  ? bana.map(g => _gorevKartHtml(g, ben, isAdmin, bugun)).join('')  : bos;
+  if (benimCont) benimCont.innerHTML = benim.length ? benim.map(g => _gorevKartHtml(g, ben, isAdmin, bugun)).join('') : bos;
+  const bc = document.getElementById('gorev-bana-sayi');  if (bc) bc.textContent = bana.length;
+  const yc = document.getElementById('gorev-benim-sayi'); if (yc) yc.textContent = benim.length;
 }
 
 function gorevTalepAc(no) {
@@ -4351,7 +4362,6 @@ let crmSayac = 0;
 // durum: 'acik' → (atanan bitirdim) 'beklemede' → (atayan onayla) 'kapandi'
 let GOREVLER = (() => { try { return JSON.parse(localStorage.getItem('emonfast_gorevler') || '[]') || []; } catch(_) { return []; } })();
 let gorevSayac = 0;
-let _gorevFiltre = 'bana';
 let _gorevDuzenleId = null;
 let _gorevAcikNot = null; // süreç notları paneli açık olan görevin id'si
 let aktifMusteriDetayIdx = -1;
