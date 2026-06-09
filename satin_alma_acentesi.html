@@ -3908,7 +3908,7 @@ function gorevBadgeGuncelle() {
   if (!el) return;
   const ben = _benEmail();
   const n = GOREVLER.filter(g =>
-    (g.atananEmail === ben && g.durum === 'acik') ||
+    (g.atananEmail === ben && (g.durum === 'acik' || g.durum === 'devam')) ||
     (g.atayanEmail === ben && g.durum === 'beklemede')
   ).length;
   el.textContent = n;
@@ -3918,10 +3918,10 @@ function gorevBadgeGuncelle() {
 // Giriş sonrası tek seferlik bilgi toast'u
 function gorevGirisBildirim() {
   const ben = _benEmail();
-  const aciklar = GOREVLER.filter(g => g.atananEmail === ben && g.durum === 'acik').length;
+  const aktif  = GOREVLER.filter(g => g.atananEmail === ben && (g.durum === 'acik' || g.durum === 'devam')).length;
   const onaylar = GOREVLER.filter(g => g.atayanEmail === ben && g.durum === 'beklemede').length;
   const parts = [];
-  if (aciklar) parts.push(`${aciklar} açık görevin var`);
+  if (aktif) parts.push(`${aktif} aktif görevin var`);
   if (onaylar) parts.push(`${onaylar} görev onayını bekliyor`);
   if (parts.length) setTimeout(() => showToast('📌 ' + parts.join(' · ')), 1300);
 }
@@ -3929,6 +3929,7 @@ function gorevGirisBildirim() {
 function _gorevDurumPill(durum) {
   const map = {
     acik:      ['Açık',          'var(--amber)',  '#1a1a1a'],
+    devam:     ['Devam Ediyor',  '#3b82f6',       '#fff'],
     beklemede: ['Onay Bekliyor', 'var(--accent2)','#fff'],
     kapandi:   ['Kapandı',       'var(--green)',  '#06281c'],
   };
@@ -3950,7 +3951,7 @@ function renderGorevler() {
   let liste = GOREVLER.slice();
   if (_gorevFiltre === 'bana') liste = liste.filter(g => g.atananEmail === ben);
   else if (_gorevFiltre === 'benim') liste = liste.filter(g => g.atayanEmail === ben);
-  const rank = d => (d === 'acik' ? 0 : d === 'beklemede' ? 1 : 2);
+  const rank = d => (d === 'acik' ? 0 : d === 'devam' ? 1 : d === 'beklemede' ? 2 : 3);
   liste.sort((a, b) => rank(a.durum) - rank(b.durum)
     || (a.sonTarih || '9999-99-99').localeCompare(b.sonTarih || '9999-99-99')
     || (b.olusturma || '').localeCompare(a.olusturma || ''));
@@ -3967,13 +3968,21 @@ function renderGorevler() {
     const seritRenk = g.durum === 'kapandi' ? 'var(--green)' : (gecikti ? 'var(--red)' : (g.oncelik === 'yuksek' ? 'var(--amber)' : 'var(--border2)'));
     const aks = [];
     if (benimAtanan && g.durum === 'acik')
+      aks.push(`<button class="btn btn-sm" style="color:#3b82f6;border-color:rgba(59,130,246,0.4);" onclick="gorevBasla('${g.id}')">▶ Başla</button>`);
+    if (benimAtanan && g.durum === 'devam')
+      aks.push(`<button class="btn btn-sm" style="color:var(--amber);" onclick="gorevBeklet('${g.id}')" title="Açığa al">⏸ Beklet</button>`);
+    if (benimAtanan && (g.durum === 'acik' || g.durum === 'devam'))
       aks.push(`<button class="btn btn-sm" style="color:var(--green);border-color:rgba(62,207,142,0.4);" onclick="gorevBitir('${g.id}')">✓ Bitirdim</button>`);
     if (benimAtayan && g.durum === 'beklemede') {
       aks.push(`<button class="btn btn-sm" style="color:var(--green);border-color:rgba(62,207,142,0.4);" onclick="gorevOnayla('${g.id}')">✓ Onayla</button>`);
-      aks.push(`<button class="btn btn-sm" style="color:var(--amber);" onclick="gorevGeriAc('${g.id}')">↩ Geri Aç</button>`);
+      aks.push(`<button class="btn btn-sm" style="color:var(--amber);" onclick="gorevReddet('${g.id}')" title="Tamamlanmadı, geri gönder">↩ Reddet</button>`);
     }
     if ((benimAtayan || isAdmin) && g.durum === 'kapandi')
       aks.push(`<button class="btn btn-sm" style="color:var(--amber);" onclick="gorevGeriAc('${g.id}')">↩ Yeniden Aç</button>`);
+    // Süreç notları: atanan, atayan veya admin görebilir/ekleyebilir
+    const notYetki = benimAtanan || benimAtayan || isAdmin;
+    const notSayi = (g.notlar || []).length;
+    aks.push(`<button class="btn btn-sm" onclick="gorevNotToggle('${g.id}')" title="Süreç notları">📝 Notlar${notSayi ? ' (' + notSayi + ')' : ''}</button>`);
     if (benimAtayan || isAdmin) {
       aks.push(`<button class="btn btn-sm" onclick="gorevModalAc('${g.id}')" title="Düzenle">✏</button>`);
       aks.push(`<button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="gorevSil('${g.id}')" title="Sil">🗑</button>`);
@@ -3987,6 +3996,21 @@ function renderGorevler() {
       ? `<span style="font-size:11px;color:var(--accent2);cursor:pointer;" onclick="gorevTalepAc('${_gorevEsc(g.talepNo)}')" title="Talebi aç">🔗 ${_gorevEsc(g.talepNo)}</span>` : '';
     const aciklamaStr = g.aciklama
       ? `<div style="font-size:13px;color:var(--text2);margin-top:4px;white-space:pre-wrap;">${_gorevEsc(g.aciklama)}</div>` : '';
+    const notlarPanel = (_gorevAcikNot === g.id) ? (() => {
+      const notlar = g.notlar || [];
+      const liste = notlar.length
+        ? notlar.map(n => `<div style="border-left:2px solid var(--border2);padding:4px 0 4px 9px;">
+            <div style="font-size:11px;color:var(--text3);">${_gorevEsc(n.yazanAd)} · ${tarihFmt(n.tarih, true)}</div>
+            <div style="font-size:13px;color:var(--text2);white-space:pre-wrap;">${_gorevEsc(n.metin)}</div>
+          </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text3);">Henüz süreç notu yok.</div>';
+      const ekle = notYetki
+        ? `<div style="display:flex;gap:6px;margin-top:8px;align-items:flex-end;">
+            <textarea id="gorev-not-input" rows="2" placeholder="Süreçle ilgili not ekle…" style="flex:1;min-height:38px;font-size:13px;"></textarea>
+            <button class="btn btn-sm btn-primary" onclick="gorevNotEkle('${g.id}')">Ekle</button>
+          </div>` : '';
+      return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;">${liste}${ekle}</div>`;
+    })() : '';
     return `<div class="card" style="padding:12px 14px;border-left:3px solid ${seritRenk};${g.durum === 'kapandi' ? 'opacity:0.72;' : ''}">
       <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;">
         <div style="flex:1;min-width:200px;">
@@ -4002,6 +4026,7 @@ function renderGorevler() {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start;">${aks.join('')}</div>
       </div>
+      ${notlarPanel}
     </div>`;
   }).join('');
 }
@@ -4093,11 +4118,40 @@ async function _gorevDurumKaydet(id, yeni) {
   return await apiGorevKaydet(g);
 }
 
+function gorevBasla(id) {
+  const g = GOREVLER.find(x => x.id === id);
+  if (!g || g.atananEmail !== _benEmail()) { showToast('Bu görevi yalnızca atanan kişi başlatabilir.'); return; }
+  _gorevDurumKaydet(id, 'devam');
+  showToast('▶ Görev "Devam Ediyor" olarak işaretlendi.');
+}
+
+function gorevBeklet(id) {
+  const g = GOREVLER.find(x => x.id === id);
+  if (!g || g.atananEmail !== _benEmail()) { showToast('Bu görevi yalnızca atanan kişi durdurabilir.'); return; }
+  _gorevDurumKaydet(id, 'acik');
+  showToast('⏸ Görev tekrar "Açık" durumuna alındı.');
+}
+
 function gorevBitir(id) {
   const g = GOREVLER.find(x => x.id === id);
   if (!g || g.atananEmail !== _benEmail()) { showToast('Bu görevi yalnızca atanan kişi bitirebilir.'); return; }
   _gorevDurumKaydet(id, 'beklemede');
   showToast('✓ Bitti olarak işaretlendi — atayanın onayına gönderildi.');
+}
+
+// Atayan reddederse: görev "Onay Bekliyor"dan çıkar, "Devam Ediyor"a döner
+// (atanan tarafta "bitirdim/onay bekliyor" durumu kalkar). İsteğe bağlı gerekçe notu eklenir.
+function gorevReddet(id) {
+  const g = GOREVLER.find(x => x.id === id);
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  if (!g || (g.atayanEmail !== _benEmail() && !isAdmin)) { showToast('Reddi yalnızca görevi atayan verebilir.'); return; }
+  const sebep = (prompt('Reddetme/geri gönderme gerekçesi (opsiyonel):', '') || '').trim();
+  if (sebep) {
+    if (!g.notlar) g.notlar = [];
+    g.notlar.push({ tarih: new Date().toISOString(), yazanEmail: _benEmail(), yazanAd: aktifKullanici?.ad || '', metin: '↩ Reddedildi: ' + sebep });
+  }
+  _gorevDurumKaydet(id, 'devam'); // tek kayıt: durum + (varsa) not birlikte gider
+  showToast('↩ Görev geri gönderildi — atanan kişiye "Devam Ediyor" olarak düştü.');
 }
 
 function gorevOnayla(id) {
@@ -4128,6 +4182,32 @@ async function gorevSil(id) {
   try { localStorage.setItem('emonfast_gorevler', JSON.stringify(GOREVLER)); } catch(_) {}
   await apiGorevSil(id);
   showToast('Görev silindi.');
+}
+
+// Süreç notları panelini aç/kapa (aynı anda tek panel açık)
+function gorevNotToggle(id) {
+  _gorevAcikNot = (_gorevAcikNot === id) ? null : id;
+  renderGorevler();
+  if (_gorevAcikNot === id) { const ta = document.getElementById('gorev-not-input'); if (ta) ta.focus(); }
+}
+
+async function gorevNotEkle(id) {
+  const g = GOREVLER.find(x => x.id === id);
+  if (!g) return;
+  const ben = _benEmail();
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  if (g.atananEmail !== ben && g.atayanEmail !== ben && !isAdmin) { showToast('Bu göreve not ekleme yetkiniz yok.'); return; }
+  const ta = document.getElementById('gorev-not-input');
+  const metin = (ta?.value || '').trim();
+  if (!metin) { showToast('Önce bir not yazın.'); return; }
+  if (!g.notlar) g.notlar = [];
+  g.notlar.push({ tarih: new Date().toISOString(), yazanEmail: ben, yazanAd: aktifKullanici?.ad || '', metin });
+  g.guncelleme = new Date().toISOString();
+  _gorevAcikNot = id; // panel açık kalsın
+  renderGorevler();
+  try { localStorage.setItem('emonfast_gorevler', JSON.stringify(GOREVLER)); } catch(_) {}
+  const ok = await apiGorevKaydet(g);
+  showToast(ok ? '📝 Not eklendi.' : '⚠ Not eklendi ama sunucuya gönderilemedi.');
 }
 
 // TABLE FİLTRE
@@ -4273,6 +4353,7 @@ let GOREVLER = (() => { try { return JSON.parse(localStorage.getItem('emonfast_g
 let gorevSayac = 0;
 let _gorevFiltre = 'bana';
 let _gorevDuzenleId = null;
+let _gorevAcikNot = null; // süreç notları paneli açık olan görevin id'si
 let aktifMusteriDetayIdx = -1;
 const CRM_ASAMALAR = [
   { key:'aday',        label:'Aday',         renk:'var(--text3)' },
