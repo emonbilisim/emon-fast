@@ -5899,6 +5899,13 @@ async function rfqMailGonder() {
   const toplamSecili = rfqSeciliTedarikciler.size + (rfqManuelTedarikciler?.length || 0);
   if (toplamSecili === 0) { showToast('Lütfen en az bir tedarikçi seçin.'); return; }
   const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  // ÇAKIŞMA ÖNLEMİ: tedarikçiye gidecek talep numarası sunucuca KESİN/benzersiz olmalı.
+  // Çevrimdışı üretilmiş geçici numara başka satıcıyla aynı olabilir → gönderme.
+  if (!(await talepNoKesinlestir(t))) {
+    showToast('⛔ Talep numarası sunucudan kesinleşmedi (çevrimdışı). Aynı numaranın iki talebe gitmemesi için RFQ gönderilmedi — bağlantı sağlanınca tekrar deneyin.');
+    return;
+  }
   const firmalar = Array.from(rfqSeciliTedarikciler);
   const firmaMap = rfqFirmaMap();
 
@@ -6271,6 +6278,10 @@ function renderRfqDurumu() {
 async function rfqTekrarGonder(firma) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
+  if (!(await talepNoKesinlestir(t))) { // çakışma önlemi (bkz. rfqMailGonder)
+    showToast('⛔ Talep numarası sunucudan kesinleşmedi (çevrimdışı). RFQ gönderilmedi — bağlantı sağlanınca tekrar deneyin.');
+    return;
+  }
   const firmaMap = rfqFirmaMap();
   const f = firmaMap[firma];
   if (!f || !f.mailler.length) { showToast(firma + ' için mail adresi bulunamadı.'); return; }
@@ -8732,9 +8743,10 @@ async function talepKaydet() {
     : `${urunler.reduce((s,u)=>s+parseInt(u.adet||1),0)} kalem toplam`;
 
   closeModal('yeniTalep');
-  const no = await apiSonrakiTalepNo(); // sunucu-taraflı atomik numara — çakışma önlenir
+  const { no, kesin: noKesin } = await apiTalepNoReserve(); // sunucu-taraflı atomik numara — çakışma önlenir
   TALEPLER.unshift({
     no,
+    noKesin, // false ise numara geçici (çevrimdışı) — RFQ öncesi sunucudan kesinleştirilir
     musteri: musteriAd,
     urun: urunOzet,
     urunler: urunler,       // tam ürün listesi
@@ -8752,6 +8764,7 @@ async function talepKaydet() {
   });
   renderTalepler();
   showToast(`"${musteriAd}" için #${no} numaralı talep oluşturuldu!`); veriKaydet();
+  if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ göndermeden önce bağlantı sağlanmalı (çakışma önlemi).');
 }
 
 // Dropdown dışına tıklanınca kapat
@@ -13240,21 +13253,58 @@ function talepNoSayi(no) {
 
 // Sunucu-taraflı talep numarası (atomik sequence) — çakışmasız, kullanıcılar arası benzersiz.
 // Sunucuya ulaşılamazsa yerel max+1'e düşer (çevrimdışı emniyet).
-async function apiSonrakiTalepNo() {
+// Sunucudan atomik (nextval) numara ayır. Döner: { no, kesin }.
+//   kesin=true  → numara sunucuca üretildi, kullanıcılar arası BENZERSİZ.
+//   kesin=false → sunucuya ulaşılamadı, numara YEREL fallback'tir; başka bir
+//                 satıcının ürettiğiyle ÇAKIŞABİLİR. Bu numara tedarikçiye GİTMEMELİ
+//                 (RFQ öncesi talepNoKesinlestir ile kesin numara alınır).
+async function apiTalepNoReserve() {
   const token = apiTokenAl();
   if (token) {
-    try {
-      const r = await fetch(API_URL + '/api/next-talep-no', { headers: { Authorization: 'Bearer ' + token } });
-      if (r.ok) {
-        const d = await r.json();
-        if (d && d.ok && Number.isFinite(Number(d.n))) {
-          talepSayac = Math.max(Number(talepSayac) || 0, Number(d.n) || 0);
-          return talepNoBicimle(Number(d.n)); // sunucu n'ini istemci biçimiyle formatla
+    for (let deneme = 0; deneme < 2; deneme++) { // kısa retry — geçici ağ hatası fallback'e düşmesin
+      try {
+        const r = await fetch(API_URL + '/api/next-talep-no', { headers: { Authorization: 'Bearer ' + token } });
+        if (r.status === 401) { oturumSuresiDoldu(); break; }
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.ok && Number.isFinite(Number(d.n))) {
+            talepSayac = Math.max(Number(talepSayac) || 0, Number(d.n) || 0);
+            return { no: talepNoBicimle(Number(d.n)), kesin: true };
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
   }
-  return yerelSonrakiTalepNo();
+  return { no: yerelSonrakiTalepNo(), kesin: false };
+}
+// Geriye dönük uyum: yalnız numara string'i isteyen çağrılar için.
+async function apiSonrakiTalepNo() {
+  return (await apiTalepNoReserve()).no;
+}
+
+// RFQ ÖNCESİ GÜVENCE: talebin numarasının sunucuca kesinleşmiş (benzersiz) olduğunu
+// garanti eder. Çevrimdışı üretilmiş geçici numara (noKesin===false) başka satıcıyla
+// AYNI olabileceğinden, tedarikçiye gitmeden önce sunucudan kesin numara alınır.
+// Sunucuya hâlâ ulaşılamıyorsa false döner → çağıran RFQ'yu GÖNDERMEMELİ.
+async function talepNoKesinlestir(t) {
+  if (!t) return false;
+  if (t.noKesin !== false) return true; // sunucu-onaylı (true) veya eski kayıt (undefined) → zaten güvenli
+  const { no: yeniNo, kesin } = await apiTalepNoReserve();
+  if (!kesin) return false; // sunucu yok → çakışmayı önlemek için gönderme
+  const eskiNo = t.no;
+  if (yeniNo && yeniNo !== eskiNo) {
+    if (talepTeklifleri[eskiNo] && !talepTeklifleri[yeniNo]) { // RFQ aşamasında genelde boş
+      talepTeklifleri[yeniNo] = talepTeklifleri[eskiNo];
+      delete talepTeklifleri[eskiNo];
+    }
+    t.no = yeniNo;
+    const bEl = document.getElementById('td-baslik'); // detay başlığını tazele (açıksa)
+    if (bEl && TALEPLER[aktifTalepIdx] === t) bEl.textContent = `#${t.no} — ${t.urun}`;
+  }
+  t.noKesin = true;
+  veriKaydet();
+  renderTalepler();
+  return true;
 }
 function yerelSonrakiTalepNo() {
   let maxN = Number(talepSayac) || 0;
@@ -13987,13 +14037,14 @@ async function otoTalepOnayla(taslakId) {
     ? `${urunler[0].adet} ${urunler[0].birim}`
     : `${urunler.reduce((s, u) => s + (parseInt(u.adet) || 1), 0)} kalem toplam`;
 
-  const no = await apiSonrakiTalepNo(); // sunucu-taraflı atomik numara — çakışma/kaybolma önlenir
+  const { no, kesin: noKesin } = await apiTalepNoReserve(); // sunucu-taraflı atomik numara — çakışma/kaybolma önlenir
   const stz = stzOtomatikHesapla(new Date());
   // STZ inputları: önce kullanıcının girdiği (varsa mailden algılanan ön-doldurulu) değer, yoksa otomatik
   const stzInpTarih = (document.getElementById('ott-stz-tarih-' + taslakId)?.value || '').trim();
   const stzInpSaat  = (document.getElementById('ott-stz-saat-'  + taslakId)?.value || '').trim();
   TALEPLER.unshift({
     no,
+    noKesin, // false ise numara geçici (çevrimdışı) — RFQ öncesi sunucudan kesinleştirilir
     musteri: musteriAd,
     urun: urunOzet,
     urunler,
@@ -14017,6 +14068,7 @@ async function otoTalepOnayla(taslakId) {
   if (_ix >= 0) cfg.taslaklar.splice(_ix, 1);
   renderTalepler(); veriKaydet(); otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
   showToast(`✅ #${no} talebi oluşturuldu (${musteriAd}).`);
+  if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ öncesi bağlantı gerekli (çakışma önlemi).');
 }
 
 async function seciliOutlookTeklifleriEkle() {
