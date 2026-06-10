@@ -537,20 +537,20 @@
   </div>
   <nav class="nav">
     <div class="nav-label">Ana Menü</div>
-    <div class="nav-item active" onclick="goPage('panel',this)">
+    <div class="nav-item active" data-nav="panel" onclick="goPage('panel',this)">
       <span class="icon">◉</span> Panel
     </div>
-    <div class="nav-item" onclick="goPage('talepler',this)">
+    <div class="nav-item" data-nav="talepler" onclick="goPage('talepler',this)">
       <span class="icon">📋</span> Talepler
       <span class="nav-badge" id="badge-talepler">3</span>
       <span class="nav-badge" id="badge-oto-taslak" title="Gelen maillerden bekleyen taslak" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
       <span class="nav-badge onayli-yanip" id="badge-onayli-gonder" title="Admin onayladı — müşteriye gönderilmeyi bekliyor" style="display:none;background:var(--green);color:#06281c;">0</span>
     </div>
-    <div class="nav-item" onclick="goPage('teklifler',this)">
+    <div class="nav-item" data-nav="teklifler" onclick="goPage('teklifler',this)">
       <span class="icon">💬</span> Teklifler
       <span class="nav-badge" id="badge-teklifler" style="display:none;">0</span>
     </div>
-    <div class="nav-item" onclick="goPage('gorevler',this)">
+    <div class="nav-item" data-nav="gorevler" onclick="goPage('gorevler',this)">
       <span class="icon">✅</span> Görevler
       <span class="nav-badge" id="badge-gorevler" title="İlgilenmen gereken görevler" style="display:none;background:var(--red);color:#fff;">0</span>
     </div>
@@ -562,14 +562,14 @@
       <span class="icon">⏳</span> Kayıt Onayları
       <span id="onay-kayit-badge" style="background:var(--amber);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
     </div>
-    <div class="nav-item" onclick="goPage('arsiv',this)">
+    <div class="nav-item" data-nav="arsiv" onclick="goPage('arsiv',this)">
       <span class="icon">🗂</span> Arşiv
     </div>
-    <div class="nav-label" style="margin-top:8px;">Veri</div>
-    <div class="nav-item" onclick="goPage('tedarikciler',this)">
+    <div class="nav-label" data-nav-label="veri" style="margin-top:8px;">Veri</div>
+    <div class="nav-item" data-nav="tedarikciler" onclick="goPage('tedarikciler',this)">
       <span class="icon">🏢</span> Tedarikçiler
     </div>
-    <div class="nav-item" onclick="goPage('musteriler',this)">
+    <div class="nav-item" data-nav="musteriler" onclick="goPage('musteriler',this)">
       <span class="icon">👥</span> Müşteriler
     </div>
     <div class="nav-item" onclick="goPage('crm',this)" id="nav-crm" style="display:none;">
@@ -641,6 +641,18 @@
         </div>
       </div>
       <div id="panel-stz-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
+
+    <!-- ✅ Kullanıcının açık görevleri (son teklif zamanının hemen altında) -->
+    <div class="card" id="panel-gorev-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--green);">
+      <div class="card-header">
+        <div>
+          <div class="card-title">✅ Açık Görevlerim</div>
+          <div class="card-sub">Sana atanmış, devam eden işler</div>
+        </div>
+        <button class="btn btn-sm" onclick="goPage('gorevler', document.querySelector('.nav-item[data-nav=gorevler]'))">Tümünü Gör</button>
+      </div>
+      <div id="panel-gorev-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
     </div>
 
     <!-- 1b) Takip hatırlatıcıları (CRM — yaklaşan/geçmiş müşteri temasları) -->
@@ -2925,6 +2937,7 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
           <option value="">Seçin...</option>
           <option value="admin">👑 Admin</option>
           <option value="satici">🧑‍💼 Satıcı</option>
+          <option value="operasyon">⚙️ Operasyon</option>
         </select>
       </div>
       <div class="form-group">
@@ -3802,6 +3815,11 @@ function goPage(id, el) {
     showToast('Bu sayfaya erişim yetkiniz yok.');
     return;
   }
+  // Operasyon rolü: yalnız izinli sayfalara girebilir
+  if (aktifKullanici?.rol === 'operasyon' && !OPERASYON_SAYFALAR.includes(id)) {
+    showToast('Bu sayfaya erişim yetkiniz yok.');
+    return;
+  }
   if (id === 'crm' && !crmGorunur()) {
     showToast('CRM modülü şu an kapalı.');
     return;
@@ -3909,6 +3927,7 @@ async function gorevlerYenile() {
   const ok = await apiGorevlerYukle();
   gorevBadgeGuncelle();
   if (document.getElementById('page-gorevler')?.classList.contains('active')) renderGorevler();
+  if (document.getElementById('page-panel')?.classList.contains('active')) panelGorevlerGoster();
   return ok;
 }
 
@@ -3924,6 +3943,42 @@ function gorevBadgeGuncelle() {
   ).length;
   el.textContent = n;
   el.style.display = n > 0 ? 'inline-flex' : 'none';
+}
+
+// Panel: kullanıcıya atanmış AÇIK/DEVAM görevleri STZ'nin altında ayrı bölümde göster.
+function panelGorevlerGoster() {
+  const kart = document.getElementById('panel-gorev-card');
+  const icerik = document.getElementById('panel-gorev-icerik');
+  if (!kart || !icerik) return;
+  const ben = _benEmail();
+  const bugun = new Date().toISOString().slice(0, 10);
+  const liste = GOREVLER
+    .filter(g => g.atananEmail === ben && (g.durum === 'acik' || g.durum === 'devam'))
+    .sort((a, b) => (a.sonTarih || '9999-99-99').localeCompare(b.sonTarih || '9999-99-99')
+      || (b.olusturma || '').localeCompare(a.olusturma || ''));
+  if (!liste.length) { kart.style.display = 'none'; return; }
+  kart.style.display = 'block';
+  icerik.innerHTML = liste.map(g => {
+    const gecikti = g.sonTarih && g.sonTarih < bugun;
+    const renk = gecikti ? 'var(--red)' : (g.durum === 'devam' ? '#3b82f6' : 'var(--amber)');
+    const bg   = gecikti ? 'rgba(240,96,96,0.06)' : (g.durum === 'devam' ? 'rgba(59,130,246,0.06)' : 'rgba(251,191,36,0.06)');
+    const brd  = gecikti ? 'rgba(240,96,96,0.2)'  : (g.durum === 'devam' ? 'rgba(59,130,246,0.2)'  : 'rgba(251,191,36,0.2)');
+    const durumStr = g.durum === 'devam' ? 'Devam Ediyor' : 'Açık';
+    const sonStr = g.sonTarih
+      ? `<div style="font-size:10px;color:${gecikti ? 'var(--red)' : 'var(--text3)'};margin-top:1px;font-weight:${gecikti ? 700 : 400};">📅 ${_gorevEsc(g.sonTarih)}${gecikti ? ' · gecikti' : ''}</div>`
+      : '';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--radius);border:1px solid ${brd};background:${bg};cursor:pointer;" onclick="goPage('gorevler', document.querySelector('.nav-item[data-nav=gorevler]'))">
+      <div style="font-size:18px;">${gecikti ? '🔴' : (g.durum === 'devam' ? '🔵' : '🟡')}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_gorevEsc(g.baslik)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${_gorevEsc(g.atayanAd)} → sana</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div style="font-size:11px;font-weight:700;color:${renk};">${durumStr}</div>
+        ${sonStr}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // Giriş sonrası tek seferlik bilgi toast'u
@@ -8824,6 +8879,27 @@ const ROL_IZINLER_VARSAYILAN = {
     { key:'marj',        label:'Marj Kuralları (düzenle)', izin:false },
     { key:'sil',         label:'Kayıt Silme', izin:false },
   ],
+  // Operasyon: yalnız Tedarikçiler, Müşteriler, CRM ve Görevlere erişir.
+  operasyon: [
+    { key:'panel',       label:'Panel / Gösterge Paneli', izin:false },
+    { key:'talepler',    label:'Talepler (görüntüle)', izin:false },
+    { key:'talep_ekle',  label:'Talepler (ekle/düzenle)', izin:false },
+    { key:'talep_sil',   label:'Talepler (sil)', izin:false },
+    { key:'teklifler',   label:'Teklifler', izin:false },
+    { key:'fiyat_gör',   label:'Satış Fiyatlarını Gör', izin:false },
+    { key:'fiyat_düz',   label:'Fiyat Düzenle', izin:false },
+    { key:'fiyat_onayla',label:'Fiyat Onaylama', izin:false },
+    { key:'rfq',         label:'RFQ Gönder', izin:false },
+    { key:'tedarikciler',label:'Tedarikçiler', izin:true },
+    { key:'musteriler',  label:'Müşteriler', izin:true },
+    { key:'crm',         label:'CRM', izin:true },
+    { key:'gorevler',    label:'Görevler', izin:true },
+    { key:'arsiv',       label:'Arşiv', izin:false },
+    { key:'kullanicilar',label:'Kullanıcı Yönetimi', izin:false },
+    { key:'ayarlar',     label:'Sistem Ayarları', izin:false },
+    { key:'marj',        label:'Marj Kuralları (düzenle)', izin:false },
+    { key:'sil',         label:'Kayıt Silme', izin:false },
+  ],
 };
 
 // localStorage'dan yükle veya varsayılanı kullan
@@ -9246,9 +9322,12 @@ async function cikisYap() {
 // ═══════════════════════════════════════
 
 // Satış durumu bölümünü role göre güncelle
+// Operasyon rolünün erişebileceği sayfalar
+const OPERASYON_SAYFALAR = ['tedarikciler', 'musteriler', 'musteriDetay', 'crm', 'gorevler'];
 function rolUygula() {
   if (!aktifKullanici) return;
   const isAdmin = aktifKullanici.rol === 'admin';
+  const isOperasyon = aktifKullanici.rol === 'operasyon';
   const navKullanici = document.getElementById('nav-kullanicilar');
   if (navKullanici) navKullanici.style.display = isAdmin ? '' : 'none';
   const navOnay = document.getElementById('nav-fiyat-onaylari');
@@ -9258,9 +9337,22 @@ function rolUygula() {
   });
   const marjBtn = document.querySelector('[onclick*="fiyatKurallari"]');
   if (marjBtn) marjBtn.style.display = isAdmin ? '' : 'none';
+  // Operasyon: yalnız Tedarikçiler/Müşteriler/CRM/Görevler nav öğeleri görünsün
+  document.querySelectorAll('.nav-item[data-nav]').forEach(el => {
+    el.style.display = isOperasyon
+      ? (OPERASYON_SAYFALAR.includes(el.getAttribute('data-nav')) ? '' : 'none')
+      : '';
+  });
   onayBekleyenBadgeGuncelle();
   if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
   crmNavGuncelle();
+  // Operasyon yetkisiz/varsayılan (panel) bir sayfadaysa izinli sayfaya geçir
+  if (isOperasyon) {
+    const aktifSayfa = document.querySelector('.page.active')?.id?.replace('page-', '');
+    if (!aktifSayfa || !OPERASYON_SAYFALAR.includes(aktifSayfa)) {
+      goPage('gorevler', document.querySelector('.nav-item[data-nav="gorevler"]'));
+    }
+  }
 }
 
 function satisBolumunuGuncelle() {
@@ -9771,24 +9863,28 @@ function sidebarGuncelle() {
   if (!aktifKullanici) return;
   const k = aktifKullanici;
   const harf = k.ad.charAt(0).toUpperCase();
-  const renk = k.rol === 'admin' ? '#a78bfa' : '#4f8ef7';
+  const renk = _rolRenk(k.rol);
   document.getElementById('sb-avatar').textContent = harf;
   document.getElementById('sb-avatar').style.background = renk;
   document.getElementById('sb-ad').textContent = k.ad;
-  document.getElementById('sb-rol').textContent = k.rol === 'admin' ? '👑 Admin' : '🧑‍💼 Satıcı';
+  document.getElementById('sb-rol').textContent = _rolEtiket(k.rol);
 }
+// Rol → görünen etiket / avatar rengi (admin · satici · operasyon)
+function _rolEtiket(rol) { return rol === 'admin' ? '👑 Admin' : rol === 'operasyon' ? '⚙️ Operasyon' : '🧑‍💼 Satıcı'; }
+function _rolRenk(rol)   { return rol === 'admin' ? '#a78bfa' : rol === 'operasyon' ? '#10b981' : '#4f8ef7'; }
 
 function aktifOturumGoster() {
   if (!aktifKullanici) return;
   const k = aktifKullanici;
   const harf = k.ad.charAt(0).toUpperCase();
-  const renk = k.rol === 'admin' ? '#a78bfa' : '#4f8ef7';
+  const renk = _rolRenk(k.rol);
   const el = document.getElementById('aktif-avatar');
   if (el) { el.textContent = harf; el.style.background = renk; }
   const adEl = document.getElementById('aktif-kullanici-adi');
   if (adEl) adEl.textContent = k.ad;
   const detayEl = document.getElementById('aktif-kullanici-detay');
-  if (detayEl) detayEl.textContent = `${k.rol === 'admin' ? 'Admin' : 'Satıcı'} · ${k.username} · Son giriş: ${k.sonGiris||'—'}`;
+  const rolAd = k.rol === 'admin' ? 'Admin' : k.rol === 'operasyon' ? 'Operasyon' : 'Satıcı';
+  if (detayEl) detayEl.textContent = `${rolAd} · ${k.username} · Son giriş: ${k.sonGiris||'—'}`;
 }
 
 // KULLANICI LİSTESİ
@@ -9803,7 +9899,7 @@ function renderKullanicilar() {
     tr.innerHTML = `
       <td>
         <div style="display:flex;align-items:center;gap:10px;">
-          <div style="width:32px;height:32px;border-radius:50%;background:${k.rol==='admin'?'#a78bfa':'#4f8ef7'};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;">${k.ad.charAt(0)}</div>
+          <div style="width:32px;height:32px;border-radius:50%;background:${_rolRenk(k.rol)};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;">${k.ad.charAt(0)}</div>
           <div>
             <div style="font-size:13px;font-weight:500;">${k.ad} ${benimHesap?'<span style="font-size:10px;color:var(--green);">(Siz)</span>':''}</div>
           </div>
@@ -9811,7 +9907,7 @@ function renderKullanicilar() {
       </td>
       <td class="mono" style="font-size:12px;">${k.username}</td>
       <td style="font-size:12px;color:var(--accent2);">${k.email||'—'}</td>
-      <td>${k.rol==='admin'?'<span class="badge badge-purple">👑 Admin</span>':'<span class="badge badge-blue">🧑‍💼 Satıcı</span>'}</td>
+      <td>${k.rol==='admin'?'<span class="badge badge-purple">👑 Admin</span>':k.rol==='operasyon'?'<span class="badge badge-green">⚙️ Operasyon</span>':'<span class="badge badge-blue">🧑‍💼 Satıcı</span>'}</td>
       <td>${k.durum==='aktif'?'<span class="badge badge-green">Aktif</span>':'<span class="badge badge-gray">Pasif</span>'}</td>
       <td style="font-size:12px;color:var(--text3);">${k.sonGiris||'Henüz giriş yok'}</td>
       <td>
@@ -11389,7 +11485,7 @@ function awayModeDurumGuncelle() {
 
 // CRM ekranlarda görünsün mü? Admin her zaman görür; ekip (satıcı) sadece modül açıksa.
 function crmGorunur() {
-  return AYARLAR.crmAktif === true || aktifKullanici?.rol === 'admin';
+  return AYARLAR.crmAktif === true || aktifKullanici?.rol === 'admin' || aktifKullanici?.rol === 'operasyon';
 }
 
 function crmHedefKaydet() {
@@ -11739,6 +11835,8 @@ function renderPanelMetrikler() {
 
   // ─── SON TEKLİF ZAMANI UYARILARI ───
   sonTeklifUyarilariGoster();
+  // Kullanıcının açık görevleri (STZ'nin hemen altında ayrı bölüm)
+  panelGorevlerGoster();
   // Takip hatırlatıcıları (CRM)
   renderPanelTakip();
   crmNavGuncelle();
