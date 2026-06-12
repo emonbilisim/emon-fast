@@ -15278,6 +15278,7 @@ window.addEventListener('focus', () => sunucudanTazele());
 // Uygulama açıkken periyodik tazele (45 sn). Sunucuya yazılamamış yerel
 // değişiklik varsa önce onu göndermeyi tekrar dene (pull'dan önce push).
 _tazelemeTimer = setInterval(() => {
+  if (typeof window.surumKontrolEt === 'function') window.surumKontrolEt(); // yeni deploy bandı için sürüm kontrolü
   if (_kayitGerekli && apiTokenAl() && !_apiKaydetBekliyor) { veriKaydet(); return; }
   sunucudanTazele();
 }, 45000);
@@ -15862,7 +15863,8 @@ msalBaslat();
     document.getElementById('yeni-surum-yenile').onclick = () => location.reload();
     document.getElementById('yeni-surum-kapat').onclick  = () => bant.remove();
   }
-  setInterval(surumKontrolEt, 5 * 60 * 1000);   // 5 dakikada bir
+  window.surumKontrolEt = surumKontrolEt;        // canlı tazeleme de tetikleyebilsin
+  setInterval(surumKontrolEt, 60 * 1000);        // 60 saniyede bir (eskiden 5 dk → "çıkmıyor" denmişti)
   document.addEventListener('visibilitychange', () => { if (!document.hidden) surumKontrolEt(); });
   window.addEventListener('focus', surumKontrolEt);
   surumKontrolEt();                              // açılışta temel imzayı al
