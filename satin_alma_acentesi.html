@@ -1697,12 +1697,23 @@
       <div class="card-title" style="margin-bottom:4px;">🖨 HP Sarf Liste Fiyatları</div>
       <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:12px;">
         HP sarf ürünlerinin <b>TR LIST</b> liste fiyatları (KDV hariç). Talep ürününde "HP Sarf" işaretlenince bu liste kullanılır; tedarikçi teklifinde TL yerine <b>iskonto %</b> girilince net = liste × (1 − %) hesaplanır.
-        <br>Her satıra bir ürün: <b>HP_KOD&nbsp;&nbsp;fiyat</b> (Excel'den TR LIST'in kod ve fiyat sütunlarını kopyalayıp yapıştırabilir; ayraç olarak tab, virgül, noktalı virgül veya boşluk olabilir). Başlık satırları otomatik atlanır.
+        <br>En kolayı: <b>HP HESAPLAMA…xlsx</b> dosyasını olduğu gibi yükleyin — <b>"TR LIST"</b> sayfası otomatik bulunup kod + fiyat sütunları alınır, başlıklar atlanır.
       </div>
       <div id="hp-liste-durum" style="font-size:12px;margin-bottom:10px;"></div>
-      <textarea id="hp-liste-girdi" rows="6" placeholder="3ED58A&#9;342,74&#10;3ED67A&#9;47,40&#10;1VV21AE&#9;12,30" style="width:100%;font-family:var(--font-mono);font-size:12px;"></textarea>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <button class="btn btn-primary btn-sm" onclick="hpListeKaydet()">💾 Listeyi Kaydet/Güncelle</button>
+      <div style="margin-bottom:12px;">
+        <label class="btn btn-primary btn-sm" style="cursor:pointer;">📁 Excel (.xlsx/.xls) Yükle
+          <input type="file" accept=".xlsx,.xls" style="display:none;" onchange="hpListeXlsxYukle(this)">
+        </label>
+        <span style="font-size:11px;color:var(--text3);margin-left:8px;">"TR LIST" sayfası otomatik algılanır.</span>
+      </div>
+      <details style="margin-top:4px;">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text3);">veya elle yapıştır (HP_KOD&nbsp;&nbsp;fiyat — her satır bir ürün)</summary>
+        <textarea id="hp-liste-girdi" rows="6" placeholder="3ED58A&#9;342,74&#10;3ED67A&#9;47,40&#10;1VV21AE&#9;12,30" style="width:100%;font-family:var(--font-mono);font-size:12px;margin-top:8px;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="hpListeKaydet()">💾 Yapıştırılanı Kaydet</button>
+        </div>
+      </details>
+      <div style="margin-top:12px;">
         <button class="btn btn-sm" onclick="hpListeTemizle()" style="color:var(--red);border-color:rgba(240,96,96,0.3);">Listeyi Temizle</button>
       </div>
     </div>
@@ -6356,6 +6367,52 @@ function hpListeParse(raw) {
     map[kod] = fiyat; n++;
   });
   return { map, n };
+}
+// Excel satır dizilerinden (aoa) { KOD: fiyat } üret — kod = ilk hücre, fiyat = sağdan ilk pozitif sayı
+function hpListeAoaParse(rows) {
+  const map = {}; let n = 0;
+  (rows || []).forEach(r => {
+    if (!Array.isArray(r) || !r.length) return;
+    const kod = hpListeNormalKod(r[0]);
+    if (!kod || /^[0-9.,-]+$/.test(kod)) return;
+    let fiyat = null;
+    for (let i = r.length - 1; i >= 1; i--) { const f = hpFiyatParse(r[i]); if (f != null && f > 0) { fiyat = f; break; } }
+    if (fiyat == null) return;
+    map[kod] = fiyat; n++;
+  });
+  return { map, n };
+}
+// Admin: .xlsx/.xls dosyasından HP listesi yükle — "TR LIST" sayfasını otomatik bul
+function hpListeXlsxYukle(input) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin HP listesini güncelleyebilir.'); return; }
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (typeof XLSX === 'undefined') { showToast('Excel kütüphanesi henüz yüklenmedi, birkaç saniye sonra tekrar deneyin.'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const norm = s => String(s || '').toUpperCase().replace(/\s+/g, '');
+      const sheetName = wb.SheetNames.find(nm => norm(nm) === 'TRLIST')
+        || wb.SheetNames.find(nm => norm(nm).includes('TRLIST') || norm(nm).includes('TRLİST'))
+        || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const { map, n } = hpListeAoaParse(rows);
+      if (!n) { showToast('⚠ "' + sheetName + '" sayfasında kod + fiyat bulunamadı. Doğru dosya mı?'); input.value = ''; return; }
+      AYARLAR.hpListe = map;
+      AYARLAR.hpListeGuncelleme = new Date().toISOString();
+      veriKaydet();
+      hpListeDurumGuncelle();
+      input.value = '';
+      showToast('✅ HP liste "' + sheetName + '" sayfasından yüklendi — ' + n + ' ürün.');
+    } catch (err) {
+      showToast('❌ Dosya okunamadı: ' + (err.message || 'hata'));
+      input.value = '';
+    }
+  };
+  reader.onerror = () => { showToast('❌ Dosya okunamadı.'); input.value = ''; };
+  reader.readAsArrayBuffer(file);
 }
 // Admin: yapıştırılan/CSV HP listesini kaydet
 function hpListeKaydet() {
