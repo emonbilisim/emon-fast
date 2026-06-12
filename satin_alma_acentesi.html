@@ -4118,22 +4118,43 @@ function gorevTalepAc(no) {
   if (typeof talepDetayAc === 'function') talepDetayAc(idx);
 }
 
+// Ekip dizini — backend /api/veri KULLANICILAR'ı döndürmediğinden satıcılar tam
+// kullanıcı listesini göremez (sadece admin tohumu + kendileri). Admin, auth
+// tablosundan çektiği listeyi AYARLAR.ekip'e yazar (AYARLAR _adminSahipli →
+// herkese senkron). Görev atama listesi bundan beslenir → herkes herkese atayabilir.
+function ekipDizininiGuncelle() {
+  if (aktifKullanici?.rol !== 'admin') return;
+  AYARLAR.ekip = KULLANICILAR
+    .filter(k => k.username !== 'satici1')
+    .map(k => ({ ad: k.ad, email: (k.email || '').toLowerCase(), username: k.username, rol: k.rol, durum: k.durum }));
+}
+// Görev atamada gösterilecek (pasif olmayan) ekip üyeleri — AYARLAR.ekip (herkese
+// senkron) + yerel KULLANICILAR + aktif kullanıcı, e-postaya göre tekilleştirilir.
+function ekipUyeleri() {
+  const map = new Map();
+  [...((typeof AYARLAR !== 'undefined' && AYARLAR.ekip) || []), ...KULLANICILAR, ...(aktifKullanici ? [aktifKullanici] : [])]
+    .forEach(k => {
+      if (!k || k.username === 'satici1') return;
+      const email = (k.email || k.username || '').toLowerCase();
+      if (!email) return;
+      if (String(k.durum || '').toLowerCase() === 'pasif') return;
+      if (!map.has(email)) map.set(email, { ad: k.ad || email, email, rol: k.rol });
+    });
+  return [...map.values()].sort((a, b) => String(a.ad || '').localeCompare(String(b.ad || ''), 'tr'));
+}
+
 function gorevModalAc(id) {
   _gorevDuzenleId = id || null;
   const g = id ? GOREVLER.find(x => x.id === id) : null;
   if (id && !g) { showToast('Görev bulunamadı.'); return; }
   const sel = document.getElementById('gorev-atanan');
   sel.innerHTML = '';
-  KULLANICILAR
-    .filter(k => String(k.durum || '').toLowerCase() !== 'pasif')
-    .forEach(k => {
-      const email = (k.email || k.username || '').toLowerCase();
-      if (!email) return;
-      const o = document.createElement('option');
-      o.value = email;
-      o.textContent = k.ad + (k.rol === 'admin' ? ' (admin)' : '');
-      sel.appendChild(o);
-    });
+  ekipUyeleri().forEach(k => {
+    const o = document.createElement('option');
+    o.value = k.email;
+    o.textContent = k.ad + (k.rol === 'admin' ? ' (admin)' : k.rol === 'operasyon' ? ' (operasyon)' : '');
+    sel.appendChild(o);
+  });
   const tsel = document.getElementById('gorev-talep');
   tsel.innerHTML = '<option value="">— Talep bağla (opsiyonel) —</option>';
   TALEPLER.slice().reverse().slice(0, 300).forEach(t => {
@@ -4159,7 +4180,8 @@ async function gorevKaydet() {
   const hata = document.getElementById('gorev-hata');
   if (!baslik) { hata.textContent = 'Görev başlığı gerekli.'; hata.style.display = 'block'; return; }
   if (!atananEmail) { hata.textContent = 'Atanacak kişiyi seçin.'; hata.style.display = 'block'; return; }
-  const atananK = KULLANICILAR.find(k => (k.email || k.username || '').toLowerCase() === atananEmail);
+  const atananK = ekipUyeleri().find(k => k.email === atananEmail)
+    || KULLANICILAR.find(k => (k.email || k.username || '').toLowerCase() === atananEmail);
   const now = new Date().toISOString();
   const duzenle = _gorevDuzenleId;
   let g;
@@ -10134,6 +10156,7 @@ async function kullaniciKaydet() {
     closeModal('kullaniciForm');
     renderKullanicilar();
     aktifOturumGoster();
+    ekipDizininiGuncelle(); // yeni kullanıcı ekip dizinine girsin (görev atamada görünür)
     veriKaydet(); // yerel + offline yedek
     // Auth tablosuna yaz \u2014 yoksa bu kullan\u0131c\u0131 hi\u00e7bir zaman giri\u015f yapamaz
     const sonuc = await apiKullaniciEkle(yeni);
@@ -10158,6 +10181,7 @@ async function kullaniciKaydet() {
   closeModal('kullaniciForm');
   renderKullanicilar();
   aktifOturumGoster();
+  ekipDizininiGuncelle(); // g\u00fcncellenen kullan\u0131c\u0131 ekip dizinine yans\u0131s\u0131n
   veriKaydet();
   // Auth tablosuna yans\u0131t
   let mesaj = '"'+ad+'" g\u00fcncellendi!';
@@ -14797,6 +14821,8 @@ async function apiKullanicilarYukle() {
       }
     });
     renderKullanicilar(); // yeni gelen kullanıcılar ekrana yansısın
+    ekipDizininiGuncelle(); // ekip dizinini tazele → AYARLAR ile tüm kullanıcılara senkron
+    veriKaydet();
     return liste;
   } catch (e) { console.warn('Kullanıcı listesi yükleme hatası:', e); return null; }
 }
