@@ -1692,6 +1692,21 @@
       </div>
     </div>
 
+    <!-- HP Sarf Liste Fiyatları -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div class="card-title" style="margin-bottom:4px;">🖨 HP Sarf Liste Fiyatları</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:12px;">
+        HP sarf ürünlerinin <b>TR LIST</b> liste fiyatları (KDV hariç). Talep ürününde "HP Sarf" işaretlenince bu liste kullanılır; tedarikçi teklifinde TL yerine <b>iskonto %</b> girilince net = liste × (1 − %) hesaplanır.
+        <br>Her satıra bir ürün: <b>HP_KOD&nbsp;&nbsp;fiyat</b> (Excel'den TR LIST'in kod ve fiyat sütunlarını kopyalayıp yapıştırabilir; ayraç olarak tab, virgül, noktalı virgül veya boşluk olabilir). Başlık satırları otomatik atlanır.
+      </div>
+      <div id="hp-liste-durum" style="font-size:12px;margin-bottom:10px;"></div>
+      <textarea id="hp-liste-girdi" rows="6" placeholder="3ED58A&#9;342,74&#10;3ED67A&#9;47,40&#10;1VV21AE&#9;12,30" style="width:100%;font-family:var(--font-mono);font-size:12px;"></textarea>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="hpListeKaydet()">💾 Listeyi Kaydet/Güncelle</button>
+        <button class="btn btn-sm" onclick="hpListeTemizle()" style="color:var(--red);border-color:rgba(240,96,96,0.3);">Listeyi Temizle</button>
+      </div>
+    </div>
+
     <!-- Away (Uzakta) Modu -->
     <div class="card" style="margin-top:16px;" data-admin-only>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
@@ -3838,7 +3853,7 @@ function goPage(id, el) {
   if (id === 'teklifler') { renderMusteriTeklifleri(); teklifTaramaBaslat(); }
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
-  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); }
+  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); hpListeDurumGuncelle(); }
   if (id === 'crm') renderCRM();
   if (id === 'gorevler') { renderGorevler(); gorevlerYenile(); }
   // Liste/özet sayfalarına geçişte sunucudan taze veri çek (başka
@@ -6128,16 +6143,25 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
       + '</div>';
 
     // Birim fiyat — orijinal döviz göstergeli input
+    const hpListe = urun.hpSarf ? hpListeFiyat(urun.kod) : null;
+    const iskKayitli = tk.hpIskonto?.[urunIdx] || '';
     const td1 = tr.insertCell();
     td1.style.cssText = 'padding:5px 8px;vertical-align:middle;';
     td1.innerHTML = '<div style="display:flex;align-items:center;gap:4px;">'
-      + '<input type="number" value="' + (gosterFiyat||'') + '" placeholder="0" style="width:80px;" oninput="talepTeklifUrunFiyatGuncelle(' + tkIdx + ',' + urunIdx + ',this.value,\'' + para + '\')">'
+      + '<input type="number" id="tk-fiyat-' + tkIdx + '-' + urunIdx + '" value="' + (gosterFiyat||'') + '" placeholder="0" style="width:80px;" oninput="talepTeklifUrunFiyatGuncelle(' + tkIdx + ',' + urunIdx + ',this.value,\'' + para + '\')">'
       + '<select style="width:60px;padding:3px 4px;font-size:11px;" onchange="talepTeklifParaDegistir(' + tkIdx + ',' + urunIdx + ',this.value)">'
       + '<option value="TRY"' + (para==='TRY'?' selected':'') + '>₺</option>'
       + '<option value="USD"' + (para==='USD'?' selected':'') + '>$</option>'
       + '<option value="EUR"' + (para==='EUR'?' selected':'') + '>€</option>'
       + '</select>'
-      + '</div>';
+      + '</div>'
+      + (urun.hpSarf
+          ? '<div style="display:flex;align-items:center;gap:4px;margin-top:4px;" title="HP sarf: net = TR LIST liste × (1 − iskonto). İskonto %\'sini girin, net TL otomatik hesaplanır.">'
+            + '<span style="font-size:10px;color:var(--text3);white-space:nowrap;">İsk %</span>'
+            + '<input type="number" value="' + iskKayitli + '" placeholder="23" style="width:50px;font-size:11px;padding:3px 5px;" oninput="talepTeklifHpIskonto(' + tkIdx + ',' + urunIdx + ',this.value)">'
+            + '<span style="font-size:10px;white-space:nowrap;color:' + (hpListe!=null ? 'var(--text3)' : 'var(--amber)') + ';">' + (hpListe!=null ? ('Liste ' + hpListe.toLocaleString('tr-TR') + '₺') : 'liste yok') + '</span>'
+            + '</div>'
+          : '');
 
     // Toplam — orijinal para biriminde
     const td2 = tr.insertCell();
@@ -6258,6 +6282,121 @@ function talepTeklifUrunFiyatGuncelle(tkIdx, urunIdx, deger, para) {
 
   teklifleriKarsilastir();
   setTimeout(veriKaydet, 500);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   HP SARF — TR LIST liste fiyatı + iskontolu (net = liste×(1−%)) fiyatlama.
+   HP liste fiyatları AYARLAR.hpListe = { NORMALKOD: tlFiyat } içinde tutulur
+   (admin Ayarlar'dan yapıştır/CSV ile günceller, KDV hariç). Kod eşleşince
+   tedarikçi teklifi girişinde TL yerine iskonto % girilebilir.
+   ────────────────────────────────────────────────────────────── */
+function hpListeNormalKod(kod) { return String(kod || '').toUpperCase().replace(/\s+/g, '').trim(); }
+function hpFiyatParse(s) {
+  s = String(s == null ? '' : s).replace(/[^\d.,-]/g, '').trim();
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); // 1.234,56 → 1234.56
+  const f = parseFloat(s);
+  return isFinite(f) ? f : null;
+}
+function hpListeFiyat(kod) {
+  const m = (typeof AYARLAR !== 'undefined') && AYARLAR.hpListe;
+  if (!m) return null;
+  const k = hpListeNormalKod(kod);
+  if (!k) return null;
+  const v = m[k];
+  if (v == null) return null;
+  const f = (typeof v === 'number') ? v : parseFloat(v);
+  return isFinite(f) ? f : null;
+}
+function hpListeSayi() { return (typeof AYARLAR !== 'undefined' && AYARLAR.hpListe) ? Object.keys(AYARLAR.hpListe).length : 0; }
+// Yapıştırılan/CSV metni { KOD: fiyat } haritasına çevir (başlık/boş satırları atlar).
+// Ayraç önceliği: tab > noktalı virgül > boşluk > (tek) virgül. Virgül ÖNCELİKLE
+// ondalık ayracıdır (342,74) — bu yüzden son çare olarak ve yalnız tek virgül varsa
+// alan ayracı sayılır; Excel'den kopyalama zaten tab verir.
+function hpListeParse(raw) {
+  const map = {}; let n = 0;
+  String(raw || '').split(/\r?\n/).forEach(line => {
+    const ln = line.trim();
+    if (!ln) return;
+    let parts;
+    if (ln.includes('\t'))               parts = ln.split('\t');
+    else if (ln.includes(';'))           parts = ln.split(';');
+    else if (/\s/.test(ln))              parts = ln.split(/\s+/);
+    else if ((ln.match(/,/g) || []).length === 1) parts = ln.split(',');
+    else                                 parts = [ln];
+    parts = parts.map(s => s.trim()).filter(s => s !== '');
+    if (parts.length < 2) return;
+    const kod = hpListeNormalKod(parts[0]);
+    if (!kod || /^[0-9.,-]+$/.test(kod)) return;           // kod yok / kod sayıysa (başlık vb.) atla
+    let fiyat = null;
+    for (let i = parts.length - 1; i >= 1; i--) { const f = hpFiyatParse(parts[i]); if (f != null && f > 0) { fiyat = f; break; } }
+    if (fiyat == null) return;                              // fiyatsız satır (başlık) atla
+    map[kod] = fiyat; n++;
+  });
+  return { map, n };
+}
+// Admin: yapıştırılan/CSV HP listesini kaydet
+function hpListeKaydet() {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin HP listesini güncelleyebilir.'); return; }
+  const ta = document.getElementById('hp-liste-girdi');
+  const { map, n } = hpListeParse(ta?.value || '');
+  if (!n) { showToast('⚠ Geçerli satır bulunamadı. Biçim: HP_KOD  fiyat (her satır bir ürün).'); return; }
+  AYARLAR.hpListe = map;
+  AYARLAR.hpListeGuncelleme = new Date().toISOString();
+  veriKaydet();
+  if (ta) ta.value = '';
+  hpListeDurumGuncelle();
+  showToast('✅ HP liste kaydedildi — ' + n + ' ürün.');
+}
+function hpListeTemizle() {
+  if (aktifKullanici?.rol !== 'admin') return;
+  if (!confirm('HP liste fiyatları tamamen silinsin mi?')) return;
+  delete AYARLAR.hpListe; delete AYARLAR.hpListeGuncelleme;
+  veriKaydet();
+  hpListeDurumGuncelle();
+  showToast('HP liste temizlendi.');
+}
+function hpListeDurumGuncelle() {
+  const el = document.getElementById('hp-liste-durum');
+  if (!el) return;
+  const n = hpListeSayi();
+  if (!n) { el.innerHTML = '<span style="color:var(--text3);">Henüz HP liste yüklenmedi.</span>'; return; }
+  const g = AYARLAR.hpListeGuncelleme ? new Date(AYARLAR.hpListeGuncelleme).toLocaleString('tr-TR') : '—';
+  el.innerHTML = '<span style="color:var(--green);font-weight:600;">' + n + ' ürün yüklü</span> · son güncelleme: ' + g;
+}
+
+// ── Talep ürün satırı: HP Sarf kutucuğu durumunu güncelle (liste fiyatı ipucu) ──
+function hpSarfSatirGuncelle(el) {
+  const row = el.closest('tr'); if (!row) return;
+  const cb = row.querySelector('.turun-hpsarf');
+  const kodInp = row.querySelector('.turun-kod');
+  const hint = row.querySelector('.turun-hphint');
+  if (!hint) return;
+  if (!cb || !cb.checked) { hint.innerHTML = ''; if (kodInp) kodInp.placeholder = 'SKU / kod'; return; }
+  if (kodInp) kodInp.placeholder = 'HP kodu';
+  const kodVar = (kodInp?.value || '').trim();
+  const f = hpListeFiyat(kodInp?.value);
+  if (f != null) hint.innerHTML = '<span style="color:var(--green);">Liste: ' + f.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₺ (KDV hariç)</span>';
+  else if (kodVar) hint.innerHTML = '<span style="color:var(--amber);">⚠ Liste fiyatı bulunamadı' + (hpListeSayi() ? '' : ' — Ayarlar\'dan HP listesini yükleyin') + '</span>';
+  else hint.innerHTML = '<span style="color:var(--text3);">HP kodunu girin</span>';
+}
+
+// ── Tedarikçi teklifi: HP sarf ürüne iskonto % gir → net TL = liste×(1−%) ──
+function talepTeklifHpIskonto(tkIdx, urunIdx, pctRaw) {
+  const t = TALEPLER[aktifTalepIdx];
+  const tk = talepTeklifleri[t.no]?.[tkIdx];
+  if (!tk) return;
+  if (!tk.hpIskonto) tk.hpIskonto = {};
+  tk.hpIskonto[urunIdx] = pctRaw;   // iskonto girişini AYRI sakla (urunFiyatlari fiyat ortalamasını kirletmesin)
+  const urun = (t.urunler && t.urunler[urunIdx]) || null;
+  const liste = urun ? hpListeFiyat(urun.kod) : null;
+  const pct = parseFloat(String(pctRaw).replace(',', '.'));
+  if (liste == null) { showToast('⚠ HP liste fiyatı yok — kod "' + (urun?.kod || '') + '" eşleşmedi. Ayarlar > HP Liste\'yi güncelleyin.'); veriKaydet(); return; }
+  if (!Number.isFinite(pct)) { veriKaydet(); return; }
+  const net = Math.round(liste * (1 - pct / 100) * 100) / 100;
+  const fiyatInp = document.getElementById('tk-fiyat-' + tkIdx + '-' + urunIdx);
+  if (fiyatInp) fiyatInp.value = net;
+  talepTeklifUrunFiyatGuncelle(tkIdx, urunIdx, net, 'TRY');  // ham/TL/toplam/karşılaştırma güncellenir
 }
 
 function renderRfqDurumu() {
@@ -8228,8 +8367,12 @@ function talepUrunSatirEkle(d) {
         style="width:100%;padding:6px 8px;font-size:13px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);">
     </td>
     <td style="padding:6px 4px;">
-      <input type="text" class="turun-kod" placeholder="SKU / kod" value="${d?.kod||''}"
+      <input type="text" class="turun-kod" placeholder="${d?.hpSarf?'HP kodu':'SKU / kod'}" value="${d?.kod||''}" oninput="hpSarfSatirGuncelle(this)"
         style="width:100%;padding:6px 8px;font-size:13px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-family:var(--font-mono);">
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text3);margin-top:3px;cursor:pointer;" title="HP sarf malzemesi: TR LIST liste fiyatı üzerinden iskontolu fiyatlanır">
+        <input type="checkbox" class="turun-hpsarf" ${d?.hpSarf?'checked':''} onchange="hpSarfSatirGuncelle(this)" style="width:auto;margin:0;"> HP Sarf
+      </label>
+      <div class="turun-hphint" style="font-size:10px;margin-top:1px;line-height:1.3;"></div>
     </td>
     <td style="padding:6px 4px;">
       <input type="number" class="turun-adet" placeholder="1" min="1" value="${d?.adet||''}"
@@ -8252,6 +8395,7 @@ function talepUrunSatirEkle(d) {
         title="Satırı sil">✕</button>
     </td>`;
   tbody.appendChild(tr);
+  if (d?.hpSarf) { const cb = tr.querySelector('.turun-hpsarf'); if (cb) hpSarfSatirGuncelle(cb); }
   // İlk satırda odaklan
   if (idx === 0) tr.querySelector('.turun-aciklama').focus();
 }
@@ -8779,7 +8923,8 @@ async function talepKaydet() {
     const kod = tr.querySelector('.turun-kod')?.value.trim();
     const adet = tr.querySelector('.turun-adet')?.value.trim();
     const birim = tr.querySelector('.turun-birim')?.value || 'Adet';
-    if (aciklama) urunler.push({ aciklama, kod, adet: adet||'1', birim });
+    const hpSarf = !!tr.querySelector('.turun-hpsarf')?.checked;
+    if (aciklama) urunler.push({ aciklama, kod, adet: adet||'1', birim, hpSarf });
   });
 
   if (urunler.length === 0) {
