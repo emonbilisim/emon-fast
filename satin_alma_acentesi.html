@@ -2138,6 +2138,14 @@
         </div>
         <div class="form-group" id="ym-vade-wrap" style="display:none;"><label class="form-label">Vade (gün)</label><input type="number" id="ym-vade" placeholder="30"></div>
       </div>
+      <div class="grid2">
+        <div class="form-group"><label class="form-label">Müşteri Kaydı <span style="font-size:11px;color:var(--text3);font-weight:400;">(bilgi amaçlı)</span></label>
+          <select id="ym-musteritipi">
+            <option value="ilk">İlk Kayıt (yeni müşteri)</option>
+            <option value="mevcut">Mevcut Müşteri</option>
+          </select>
+        </div>
+      </div>
       <div id="ym-hata" style="display:none;font-size:12px;color:var(--red);margin-top:6px;"></div>
     </div>
 
@@ -2632,6 +2640,14 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
         <option value="Sosyal medya">Sosyal medya</option>
         <option value="Mevcut müşteri">Mevcut müşteri (referans)</option>
         <option value="Diğer">Diğer</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Müşteri Kaydı <span style="font-size:11px;color:var(--text3);font-weight:400;">(bilgi amaçlı)</span></label>
+      <select id="mf-musteritipi">
+        <option value="">— Seçin —</option>
+        <option value="ilk">İlk Kayıt (yeni müşteri)</option>
+        <option value="mevcut">Mevcut Müşteri</option>
       </select>
     </div>
     <div class="form-group">
@@ -4412,6 +4428,7 @@ function musteriFormAc(idx) {
     ['mf-firma','mf-vergino','mf-vergidaire','mf-adres','mf-not'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=''; }
+    { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value='ilk'; } // yeni müşteri → varsayılan İlk Kayıt
     // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
     if (saticiSel) saticiSel.value = (aktifKullanici?.email || '').toLowerCase();
     ['mf-odeme-havale','mf-odeme-kk','mf-odeme-kkkom','mf-odeme-vadeli'].forEach(id=>document.getElementById(id).checked=false);
@@ -4428,6 +4445,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-adres').value=m.adres||''; document.getElementById('mf-fiyatgrup').value=m.fiyatgrup||'';
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=m.kaynak||''; }
+    { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value=m.musteriTipi||''; }
     if (saticiSel) { const _sk = saticiKullaniciBul(m.satici); saticiSel.value = _sk ? (_sk.email||'').toLowerCase() : ''; }
     const o=m.odeme||{};
     document.getElementById('mf-odeme-havale').checked=!!o.havale; document.getElementById('mf-odeme-kk').checked=!!o.kk;
@@ -4590,6 +4608,7 @@ function musteriKaydet() {
     odeme:{havale:document.getElementById('mf-odeme-havale').checked,kk:document.getElementById('mf-odeme-kk').checked,kkkom:document.getElementById('mf-odeme-kkkom').checked,kkkomOran:document.getElementById('mf-kkkom-oran').value.trim(),vadeli:document.getElementById('mf-odeme-vadeli').checked,vadeGun:document.getElementById('mf-vade-gun').value},
     ozelSartlar, fiyatgrup:document.getElementById('mf-fiyatgrup').value, durum:document.getElementById('mf-durum').value,
     kaynak:document.getElementById('mf-kaynak')?.value || '',
+    musteriTipi:document.getElementById('mf-musteritipi')?.value || '',
     not:document.getElementById('mf-not').value.trim(), tarih:new Date().toISOString().slice(0,10),
     fpKurallari: fpKurallariOku(),
   };
@@ -4746,7 +4765,7 @@ function filterMusteriler() {
         : `<div style="font-size:10px;color:var(--amber);margin-top:2px;">👤 Atanmamış</div>`;
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${saticiSatir}</td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${saticiSatir}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
@@ -4789,7 +4808,7 @@ function musteriDetay(idx) {
   const ozelEl=document.getElementById('d-limit');
   ozelEl.innerHTML=m.ozelSartlar&&m.ozelSartlar.length?m.ozelSartlar.map(s=>`<div style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="color:var(--amber);">⚡</span><span>${s}</span></div>`).join(''):'—';
   document.getElementById('d-fiyatgrup').innerHTML=fiyatGrupBadge(m.fiyatgrup);
-  document.getElementById('d-durum').innerHTML=durumBadge(m.durum);
+  document.getElementById('d-durum').innerHTML=durumBadge(m.durum) + (m.musteriTipi ? ` <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);">${m.musteriTipi==='mevcut'?'Mevcut Müşteri':'İlk Kayıt'}</span>` : '');
   document.getElementById('d-tarih').textContent=m.tarih?tarihFmt(new Date(m.tarih)):'—';
   document.getElementById('d-not').textContent=m.not||'—';
   // FP kuralları
@@ -4884,6 +4903,7 @@ function crmRender() {
     + satir('Siparişe dönen', mm.siparis)
     + satir('Tamamlanan', tamamlanan)
     + (m.kaynak ? satir('Kaynak', m.kaynak) : '')
+    + (m.musteriTipi ? satir('Müşteri kaydı', m.musteriTipi === 'mevcut' ? 'Mevcut Müşteri' : 'İlk Kayıt') : '')
     + (m.crmAsama === 'kaybedildi' && m.kaybetmeNedeni ? satir('Kaybetme nedeni', '<span style="color:var(--red);">' + m.kaybetmeNedeni + '</span>') : '')
     + satir('Etkileşim sayısı', akt.length)
     + satir('Son etkileşim', akt[0] ? tarihFmt(akt[0].tarih) : '—');
@@ -8971,6 +8991,7 @@ async function talepKaydet() {
       adres: '', vergino: '', vergidaire: '',
       odeme: { havale: document.getElementById('ym-odeme').value==='Havale', kk: document.getElementById('ym-odeme').value==='KK Komisyonsuz', kkkom: document.getElementById('ym-odeme').value==='KK Komisyonlu', kkkomOran:'', vadeli: document.getElementById('ym-odeme').value==='Vadeli', vadeGun: document.getElementById('ym-vade').value },
       ozelSartlar: [], fiyatgrup: '', durum: 'Aktif', not: '',
+      musteriTipi: document.getElementById('ym-musteritipi')?.value || 'ilk',
       tarih: new Date().toISOString().slice(0,10),
     };
     // Satıcı inline yeni müşteri ekliyorsa → doğrudan listeye değil, admin onayına
