@@ -9550,6 +9550,7 @@ async function loginYap() {
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
     stzUyariBaslat(); onayBadgeGuncelle();
+    derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
     ayarlariYukle(); // ⚠ AYARLAR sunucudan geldi → Ayarlar formunu tazele (standartKargoUSD vb.)
     setTimeout(renderPanelMetrikler, 100);
     // API'den taze veri geldi — günlük snapshot'ı bu veriyle güncelle
@@ -9568,6 +9569,7 @@ async function loginYap() {
   document.getElementById('login-screen').style.display = 'none';
   rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
   stzUyariBaslat(); onayBadgeGuncelle(); gorevBadgeGuncelle();
+  derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
   showToast(`Hoşgeldiniz, ${k.ad.split(' ')[0]}! (Çevrimdışı)`);
 }
 
@@ -11350,6 +11352,7 @@ async function _msalGirisisle(result) {
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
+    derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
     ayarlariYukle(); setTimeout(renderPanelMetrikler, 100);
     try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
     const bilgi2 = document.getElementById('ms-giris-bilgi');
@@ -11384,6 +11387,7 @@ async function _msalGirisisle(result) {
   const bilgi3 = document.getElementById('ms-giris-bilgi');
   if (bilgi3) bilgi3.style.display = 'block';
   rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
+  derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
   ayarlariYukle();
   msStatusGuncelle(); msTokenAutoRefreshKur();
   showToast(`Hoşgeldiniz, ${msUser.ad.split(' ')[0]}! (⚠ Çevrimdışı — sunucuya bağlanılamadı, değişiklikler kaydedilmez)`);
@@ -11796,6 +11800,46 @@ function onayBildirimMailiKaydet() {
   showToast('📧 Onay bildirim e-postası kaydedildi.');
 }
 
+// Talebe doğrudan açan derin link (mail içine eklenir). Talep NO'suna göre
+// (indeks değil — cihazlar arası kararlı). Tıklayan girince #talep=NO ele alınır.
+function talepDerinLink(t) {
+  const no = (t?.no || '').trim();
+  if (!no) return location.origin + '/';
+  return location.origin + '/#talep=' + encodeURIComponent(no);
+}
+
+// Mail gövdesine yerleştirilecek "Talebi Aç" butonu (HTML)
+function talepLinkButonuHtml(t, etiket) {
+  const url = talepDerinLink(t);
+  return '<div style="margin-top:18px;">'
+    + '<a href="' + url + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;'
+    + 'padding:10px 18px;border-radius:6px;font-weight:600;font-size:14px;">' + (etiket || '🔗 Talebi Aç') + '</a>'
+    + '<div style="font-size:11px;color:#999;margin-top:6px;word-break:break-all;">' + url + '</div>'
+    + '</div>';
+}
+
+// Mail linkinden gelindiğinde (#talep=NO) ilgili talebi tek seferlik aç.
+// Veri/giriş hazır olmayan erken çağrılarda sessizce çıkar; sonraki çağrıda tekrar denenir.
+let _derinLinkIslendi = false;
+function derinLinkIsle() {
+  if (_derinLinkIslendi) return;
+  let h = '';
+  try { h = decodeURIComponent((location.hash || '').replace(/^#/, '')); }
+  catch(_) { h = (location.hash || '').replace(/^#/, ''); }
+  const m = h.match(/(?:^|[&])talep=([^&]+)/i);
+  if (!m) return;                         // link yok
+  if (!aktifKullanici) return;            // henüz giriş yok → giriş sonrası tekrar denenecek
+  if (typeof TALEPLER === 'undefined' || !TALEPLER.length) return; // veri henüz gelmedi
+  const no = m[1].trim().toLowerCase();
+  const idx = TALEPLER.findIndex(t => (t.no || '').trim().toLowerCase() === no);
+  if (idx < 0) return;                    // eşleşme yok (veri gelmemiş olabilir) → tekrar denenebilir
+  _derinLinkIslendi = true;
+  try { history.replaceState(null, '', location.pathname + location.search); } catch(_) { location.hash = ''; }
+  if (typeof talepDetayAc === 'function') talepDetayAc(idx);
+}
+// Açık sekmede link tıklanınca (hash değişir, sayfa yenilenmez) talebi aç
+window.addEventListener('hashchange', () => { _derinLinkIslendi = false; derinLinkIsle(); });
+
 // Onaylayan (admin) e-postasını çöz: ayar > KULLANICILAR içindeki ilk admin > AYARLAR.mail
 function onaylayanMailiCoz() {
   const ayar = (AYARLAR.onayBildirimMaili || '').trim();
@@ -11823,6 +11867,7 @@ async function onayTalepBildirimGonder(t) {
           ${oT.not ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Satıcı Notu</td><td>${oT.not}</td></tr>` : ''}
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${oT.tarih ? new Date(oT.tarih).toLocaleString('tr-TR') : '—'}</td></tr>
         </table>
+        ${talepLinkButonuHtml(t, '🔗 Talebi İncele ve Onayla')}
       </div>`;
     await graphMailHtmlGonder([to], `[Fiyat Onayı] ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
   } catch (e) { console.error('onayTalepBildirimGonder hatası:', e); }
@@ -11852,6 +11897,7 @@ async function onayOnaylandiBildirimGonder(t) {
           ${oT.adminNot ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Admin Notu</td><td>${oT.adminNot}</td></tr>` : ''}
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Onay Tarihi</td><td>${oT.adminTarih ? new Date(oT.adminTarih).toLocaleString('tr-TR') : '—'}</td></tr>
         </table>
+        ${talepLinkButonuHtml(t, '🔗 Talebi Aç ve Müşteriye Gönder')}
       </div>`;
     await graphMailHtmlGonder([to], `[Fiyat Onaylandı] ${t.no || ''} — ${t.musteri || ''}`, html);
   } catch (e) { console.error('onayOnaylandiBildirimGonder hatası:', e); }
@@ -15961,6 +16007,7 @@ msalBaslat();
             if (basarili) {
               filterMusteriler(); filterTedarikciler(); renderTalepler();
               renderPanelMetrikler(); onayBadgeGuncelle();
+              derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
               ayarlariYukle();
               otoTalepDurumYukle(); // kullanıcı-başına oto-talep durumunu sunucudan getir
               gorevlerYenile().then(() => gorevGirisBildirim()).catch(()=>{}); // ekip içi görevler
