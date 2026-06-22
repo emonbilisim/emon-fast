@@ -9711,7 +9711,11 @@ function satisBolumunuGuncelle() {
         const revize = !!t.fiyatOnayTalep?.adminDegisiklik;
         bandi.innerHTML = '✅ <strong>Admin onayladı</strong> — Müşteriye teklif gönderilebilir.'
           + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti — tablodaki değerler admin\'in onayladığı değerlerdir.</span>' : '')
-          + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Admin notu: ' + t.fiyatOnayTalep.adminNot + '</span>' : '');
+          + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Admin notu: ' + t.fiyatOnayTalep.adminNot + '</span>' : '')
+          + '<div style="margin-top:8px;border-top:1px solid rgba(62,207,142,0.25);padding-top:8px;">'
+          + '<span style="font-size:12px;color:var(--text2);">Başka tedarikçiden farklı fiyat mı geldi?</span><br>'
+          + '<button class="btn btn-sm" style="margin-top:6px;" onclick="fiyatOnayiniYenidenAc()" title="Onaylanan fiyatı güncelleyip tekrar admin onayına gönder">🔄 Fiyatı Güncelle / Yeni Onaya Gönder</button>'
+          + '</div>';
       }
       // Fiyat admin tarafından onaylandı → satıcı müşteriye kendi Outlook'undan gönderebilir.
       const saticiGonderebilir = true;
@@ -9792,6 +9796,23 @@ function fiyatOnayiniGecersizKil(t) {
     delete t.fiyatOnayTalep.adminDegisiklik;
   }
   return true;
+}
+
+// Satıcı: admin onayından SONRA fiyatı güncelleyip TEKRAR onaya göndermek için
+// onayı yeniden açar (örn. başka tedarikçiden daha iyi/farklı fiyat geldi).
+// Onay sıfırlanır, tablo tekrar düzenlenebilir hale gelir; satıcı yeni fiyatla
+// "Admin Onayı İste"ye basabilir.
+function fiyatOnayiniYenidenAc() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t || t.fiyatOnayDurumu !== 'onaylandi') return;
+  if (!confirm('Onaylanan fiyatı güncelleyip tekrar admin onayına göndermek istiyor musunuz?\n\nMevcut onay geçersiz olacak ve fiyat tablosunu yeniden düzenleyebileceksiniz.')) return;
+  fiyatOnayiniGecersizKil(t);   // durum → null, admin kilidi (adminSatisData vb.) temizlenir
+  veriKaydet();
+  // Kilitli tablo inputlarını tekrar düzenlenebilir yap
+  const satirlar = document.getElementById('satis-urun-tbody');
+  if (satirlar) satirlar.querySelectorAll('input,select,button').forEach(el => el.disabled = false);
+  satisBolumunuGuncelle();
+  showToast('🔄 Onay geri alındı — fiyatı güncelleyip tekrar onaya gönderebilirsiniz.');
 }
 
 // Mevcut satış tablosu durumunu (marj/baz/KDV/nakliye/toplam para) yakala
