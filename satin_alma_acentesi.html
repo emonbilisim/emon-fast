@@ -5658,6 +5658,22 @@ function talepSil(idx) {
   }
 }
 
+// Admin: Panel "Son Aktiviteler" listesinden talebi sil (aktivite = talep).
+function aktiviteTalepSil(idx) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin silebilir.'); return; }
+  const t = TALEPLER[idx];
+  if (!t) return;
+  if (!confirm(`"${t.no} — ${t.musteri}" talebi KALICI olarak silinsin mi?\n\nBu işlem geri alınamaz; talep ve ona bağlı teklif/onay verileri silinir.`)) return;
+  TALEPLER.splice(idx, 1);
+  _taleplerKastenSilindi = true; // kasıtlı silme → azalmış liste sunucuya yazılabilsin
+  veriKaydet();
+  renderPanelMetrikler();
+  renderTalepler();
+  onayBekleyenBadgeGuncelle();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  showToast('🗑 Talep silindi.');
+}
+
 // ═══════════════════════════════════════════
 // TALEP DETAY + RFQ ALTYAPISI
 // ═══════════════════════════════════════════
@@ -12482,10 +12498,12 @@ function renderPanelMetrikler() {
 
   const aktiviteEl = document.getElementById('panel-aktiviteler-icerik');
   if (aktiviteEl) {
+    const isAdmin = aktifKullanici?.rol === 'admin';
     if (aktiviteler.length === 0) {
       aktiviteEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Henüz aktivite yok.</div>';
     } else {
       aktiviteEl.innerHTML = aktiviteler.map(t => {
+        const idx = TALEPLER.indexOf(t);
         const renk = durumRenk[t.durum] || 'var(--text3)';
         const teklifSayisi = (talepTeklifleri[t.no]||[]).length;
         const rfqSayisi = (t.rfqTedarikciler||[]).length;
@@ -12495,12 +12513,13 @@ function renderPanelMetrikler() {
         else if (t.durum === 'Teklif Hazır') aciklama += ' · Müşteriye teklif hazır';
         else if (t.durum === 'Tamamlandı') aciklama += ' · Sipariş tamamlandı';
         else aciklama += ' · ' + t.durum;
-        return `<div class="activity-item" style="cursor:pointer;" onclick="talepDetayAc(${TALEPLER.indexOf(t)})">
+        return `<div class="activity-item" style="cursor:pointer;" onclick="talepDetayAc(${idx})">
           <div class="activity-dot" style="background:${renk}"></div>
-          <div>
+          <div style="flex:1;min-width:0;">
             <div class="activity-text">${aciklama}</div>
             <div class="activity-time">${t.urun} · ${zaman(t.tarih)}</div>
           </div>
+          ${isAdmin ? `<button class="btn btn-sm" onclick="event.stopPropagation();aktiviteTalepSil(${idx})" title="Bu talebi sil" style="padding:2px 8px;font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);flex-shrink:0;align-self:center;">🗑</button>` : ''}
         </div>`;
       }).join('');
     }
