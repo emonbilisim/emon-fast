@@ -3924,7 +3924,20 @@ function openModal(id) {
   document.getElementById('modal-' + id).classList.add('open');
 }
 function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
-document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
+// Veri girişi yapılan formlar — pencere dışına YANLIŞLIKLA tıklayınca veri kaybını
+// önlemek için arka plana tıklayınca önce onay sorulur (İptal butonu doğrudan kapatır).
+const _KORUMALI_MODALLAR = new Set([
+  'musteriForm','yeniTedarikci','duzenleTedarikci','yeniTalep','topluYapistir',
+  'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif'
+]);
+document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
+  if (e.target !== m) return; // yalnızca arka plana (içeriğe değil) tıklama
+  const id = m.id.replace(/^modal-/, '');
+  if (_KORUMALI_MODALLAR.has(id)) {
+    if (!confirm('Pencereyi kapatmak istiyor musunuz? Girdiğiniz bilgiler kaydedilmeden kaybolacak.')) return;
+  }
+  m.classList.remove('open');
+}));
 
 // TOAST
 function showToast(msg) {
