@@ -1096,6 +1096,9 @@
           <span style="font-size:11px;color:var(--text3);">EUR</span>
           <input type="number" id="satis-manuel-kur-eur" placeholder="36,00" min="0" step="0.0001" oninput="satisHesaplaTablosu()" style="width:70px;padding:4px 8px;font-size:12px;">
           <button class="btn btn-sm" onclick="teklifKuruGuncelle()" style="padding:3px 8px;font-size:11px;" title="USD ve EUR kurlarını sistem kurlarıyla yenile">🔄 Güncelle</button>
+          <span style="font-size:12px;color:var(--amber);margin-left:10px;font-weight:600;" title="Müşteri revize/indirim istediğinde TEK değer gir → her kaleme aynı oranda uygulanır. Birim fiyatlar liste fiyatı olarak kalır; müşteriye giden teklif satırları ve genel toplam bu oranda düşer.">✏️ Revize iskonto:</span>
+          <input type="number" id="satis-toplu-iskonto" placeholder="0" min="0" max="90" step="0.5" oninput="satisHesaplaTablosu()" style="width:62px;padding:4px 8px;font-size:12px;color:var(--amber);font-weight:600;">
+          <span style="font-size:11px;color:var(--text3);">%</span>
         </div>
       </div>
 
@@ -1735,6 +1738,21 @@
           <span>Away modunu aç</span>
         </label>
       </div>
+    </div>
+
+    <!-- Onay Bildirim E-postası -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div class="card-title" style="margin-bottom:4px;">📧 Fiyat Onayı Bildirim E-postası</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:12px;">
+        Bir satıcı fiyat onayı gönderdiğinde buradaki <b>onaylayan (admin) e-postasına</b> uyarı maili gider.
+        Admin onayladığında ise talebi gönderen satıcıya "fiyat onaylandı" maili otomatik iletilir.
+        <br><span style="color:var(--text3);">Mailler, işlemi yapan kişinin bağlı Outlook hesabından gönderilir; Outlook bağlı değilse sessizce atlanır.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label class="form-label" style="margin:0;">Onaylayan e-postası</label>
+        <input type="email" id="ayar-onay-mail" placeholder="ornek: onay@emon.com.tr" style="flex:1;min-width:220px;" onchange="onayBildirimMailiKaydet()" onblur="onayBildirimMailiKaydet()">
+      </div>
+      <div id="onay-mail-durum" style="font-size:12px;margin-top:8px;color:var(--text3);"></div>
     </div>
 
     <!-- CRM Modülü -->
@@ -5666,6 +5684,8 @@ function talepDetayAc(idx) {
   satisUrunMarjlari = {};
   satisUrunBaz = {};
   satisToplamPara = null;
+  const _iskEl0 = document.getElementById('satis-toplu-iskonto');
+  if (_iskEl0) _iskEl0.value = '';   // ✏️ revize iskontosu: yeni talepte sıfırla (kayıtlıysa satisTabloDurumuYukle geri getirir)
   setTimeout(() => {
     // 💱 Teklif (manuel) kuru varsayılan KAPALI → her açılışta güncel sistem kuru kullanılsın
     const mkcb = document.getElementById('satis-manuel-kur-cb');
@@ -7084,6 +7104,11 @@ function satisHesaplaTablosu() {
   const kdv    = parseFloat(document.getElementById('satis-kdv')?.value) || 0;
   const globalIkinci = document.getElementById('ikinci-fiyat-cb')?.checked;
 
+  // ✏️ Revize iskontosu — tek değer, her kaleme aynı oranda. Birim fiyat input'u liste
+  // fiyatı olarak kalır; iskonto yalnızca kalem toplamı, genel toplam ve müşteri çıktısına uygulanır.
+  const topluIsk  = Math.max(0, Math.min(90, parseFloat(document.getElementById('satis-toplu-iskonto')?.value) || 0));
+  const iskFactor = 1 - topluIsk / 100;
+
   const paraSembolu = { TRY:'₺', USD:'$', EUR:'€' };
   const usdKur = parseFloat(dovizKurlari.usdSatis) || 0;
   const eurKur = parseFloat(dovizKurlari.eurSatis) || 0;
@@ -7233,7 +7258,7 @@ function satisHesaplaTablosu() {
     const kdvTutar = netTL * kdv / 100;
     const birimSatisTL  = netTL + kdvTutar;
     const kalemToplamTL = birimSatisTL * adet;
-    genelToplamTL += kalemToplamTL;
+    genelToplamTL += kalemToplamTL * iskFactor;
 
     // Döviz gösterim
     const birimSatisDoviz  = para !== 'TRY' ? tlTo(birimSatisTL, para) : birimSatisTL;
@@ -7250,7 +7275,7 @@ function satisHesaplaTablosu() {
       }
       if (birimSatisTLManuel !== null) kalemToplamTLManuel = birimSatisTLManuel * adet;
     }
-    genelToplamTLManuel += (kalemToplamTLManuel !== null) ? kalemToplamTLManuel : kalemToplamTL;
+    genelToplamTLManuel += ((kalemToplamTLManuel !== null) ? kalemToplamTLManuel : kalemToplamTL) * iskFactor;
 
     const tumFiyatlar = fiyatlariBul(uIdx);
     const ikinciBaz   = satisUrunBaz[uIdx] === 'ikinci';
@@ -7442,6 +7467,9 @@ function satisHesaplaTablosu() {
         + 'onchange="birimSatisManuel(' + uIdx + ', this.value, \'' + dispPara + '\', ' + topMaliyetTL + ', ' + kdv + ')">'
         + '</div>'
         + altMetin
+        + (topluIsk > 0
+            ? '<div style="font-size:11px;color:var(--amber);font-weight:600;">↘ Revize: ' + fmt2(dispBirim * iskFactor, dispSembol) + ' <span style="font-weight:400;color:var(--text3);">(−%' + topluIsk.toLocaleString('tr-TR',{maximumFractionDigits:1}) + ')</span></div>'
+            : '')
         + kiyasNotu;
     } else {
       td4.textContent = '—';
@@ -7451,24 +7479,28 @@ function satisHesaplaTablosu() {
     const td5 = tr.insertCell();
     td5.style.cssText = 'padding:9px 10px;text-align:right;vertical-align:middle;font-weight:700;';
     if (tlFiyat > 0 && kalemToplamDoviz) {
+      // ✏️ Revize iskontosu kalem toplamına uygulanır (gösterim + müşteri çıktısıyla tutarlı)
+      const dKalemToplamDoviz   = kalemToplamDoviz * iskFactor;
+      const dKalemToplamTL      = kalemToplamTL * iskFactor;
+      const dKalemToplamTLManuel = kalemToplamTLManuel !== null ? kalemToplamTLManuel * iskFactor : null;
       // Tek döviz modu: kalem toplamı seçilen para birimine çevir
       if (tekDoviz) {
-        const cevrilenKalem = paraCevirGenel(kalemToplamDoviz, para, tekDoviz);
+        const cevrilenKalem = paraCevirGenel(dKalemToplamDoviz, para, tekDoviz);
         if (cevrilenKalem !== null) {
           const dispSym = paraSembolu[tekDoviz] || '₺';
           const altK = para !== tekDoviz
-            ? '<div style="font-size:11px;color:var(--text3);">' + fmt2(kalemToplamDoviz, sembol) + '</div>'
+            ? '<div style="font-size:11px;color:var(--text3);">' + fmt2(dKalemToplamDoviz, sembol) + '</div>'
             : '';
           td5.innerHTML = '<div>' + fmt2(cevrilenKalem, dispSym) + '</div>' + altK;
         } else {
-          td5.innerHTML = '<div>' + fmt2(kalemToplamDoviz, sembol) + '</div>';
+          td5.innerHTML = '<div>' + fmt2(dKalemToplamDoviz, sembol) + '</div>';
         }
       } else {
         // Manuel kur aktifse USD kalem toplamı bu kurla göster, değilse normal TCMB-TL
-        const kalemAltTL = kalemToplamTLManuel !== null
-          ? '<div style="font-size:11px;color:var(--accent2);font-weight:600;">'+fmt2(kalemToplamTLManuel,'₺')+'</div>'
-          : (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(kalemToplamTL,'₺')+'</div>' : '');
-        td5.innerHTML = '<div>' + fmt2(kalemToplamDoviz, sembol) + '</div>' + kalemAltTL;
+        const kalemAltTL = dKalemToplamTLManuel !== null
+          ? '<div style="font-size:11px;color:var(--accent2);font-weight:600;">'+fmt2(dKalemToplamTLManuel,'₺')+'</div>'
+          : (para !== 'TRY' ? '<div style="font-size:11px;color:var(--text3);">'+fmt2(dKalemToplamTL,'₺')+'</div>' : '');
+        td5.innerHTML = '<div>' + fmt2(dKalemToplamDoviz, sembol) + '</div>' + kalemAltTL;
       }
     } else {
       td5.textContent = '—';
@@ -7504,7 +7536,8 @@ function satisHesaplaTablosu() {
       + kurNotu
       + (kullanilanParalar.size > 1 ? ' <button class="btn btn-sm" style="padding:2px 7px;font-size:10px;margin-left:6px;" onclick="satisToplamPara=null;satisParaSecModal(new Set([\'TRY\',\'USD\',\'EUR\'])).then(()=>{})">💱 Değiştir</button>' : '');
   }
-  if (kdvNotuEl) kdvNotuEl.textContent = kdv > 0 ? '%' + kdv + ' KDV dahil' : 'KDV hariç';
+  if (kdvNotuEl) kdvNotuEl.textContent = (kdv > 0 ? '%' + kdv + ' KDV dahil' : 'KDV hariç')
+    + (topluIsk > 0 ? '  ·  ✏️ Revize iskontosu −%' + topluIsk.toLocaleString('tr-TR',{maximumFractionDigits:1}) + ' (her kaleme)' : '');
 }
 
 
@@ -7661,6 +7694,8 @@ function satisHesaplaReset() {
   satisUrunBaz = {};
   satisToplamPara = null;
   window.satisToplamParaBirimi = null;
+  const iskEl = document.getElementById('satis-toplu-iskonto');
+  if (iskEl) iskEl.value = '';
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
   const m = MUSTERILER.find(x => x.firma === t.musteri);
@@ -7764,9 +7799,15 @@ function musteriTeklifSatirlari(talepIdx) {
   const tbody = (idx === aktifTalepIdx) ? document.getElementById('satis-urun-tbody') : null;
   const satirlar = tbody ? Array.from(tbody.rows) : [];
   const semboller = { TRY:'₺', USD:'$', EUR:'€' };
+  // ✏️ Revize iskontosu — yalnızca canlı satış tablosundan gelen birim fiyatlara uygulanır.
+  // (musteriTeklifFiyatlar fallback'i, gönderim anında zaten iskontolu kaydedildiği için tekrar uygulanmaz.)
+  const topluIsk  = (idx === aktifTalepIdx)
+    ? Math.max(0, Math.min(90, parseFloat(document.getElementById('satis-toplu-iskonto')?.value) || 0))
+    : 0;
+  const iskFactor = 1 - topluIsk / 100;
   return urunler.map((u, i) => {
     let birimFiyat = 0, para = 'TRY';
-    if (satirlar[i]) { const r = satisSatirBirim(satirlar[i]); birimFiyat = r.birim; para = r.para; }
+    if (satirlar[i]) { const r = satisSatirBirim(satirlar[i]); birimFiyat = r.birim * iskFactor; para = r.para; }
     if (!(birimFiyat > 0)) {
       const k = t.musteriTeklifFiyatlar?.[i];
       if (k) { birimFiyat = k.birimFiyat || 0; para = k.para || para; }
@@ -9762,6 +9803,7 @@ function satisTabloDurumuYakala() {
     kdv:        parseFloat(document.getElementById('satis-kdv')?.value) || 0,
     nakliye:    parseFloat(document.getElementById('satis-nakliye')?.value) || 0,
     ikinciAll:  !!document.getElementById('ikinci-fiyat-cb')?.checked,
+    topluIskonto: parseFloat(document.getElementById('satis-toplu-iskonto')?.value) || 0,
     toplamStr:  document.getElementById('satis-toplam')?.textContent || '',
   };
 }
@@ -9778,6 +9820,8 @@ function satisTabloDurumuYukle(d) {
   if (nakEl) nakEl.value = d.nakliye ? d.nakliye : '';
   const cbEl = document.getElementById('ikinci-fiyat-cb');
   if (cbEl) cbEl.checked = !!d.ikinciAll;
+  const iskEl = document.getElementById('satis-toplu-iskonto');
+  if (iskEl) iskEl.value = d.topluIskonto ? d.topluIskonto : '';
   return true;
 }
 
@@ -9823,6 +9867,7 @@ function fiyatOnayTalep() {
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
   showToast('✅ Onay talebi admin\'e iletildi!');
+  onayTalepBildirimGonder(t); // admin e-postasına uyarı (fire-and-forget)
 }
 
 // Ekrandaki satış tablosunu (input/select/buton içeren) e-posta için temiz HTML'e çevirir
@@ -9941,6 +9986,7 @@ function adminFiyatOnayla() {
   showToast(degisiklikVar
     ? '✅ Admin\'in revize fiyatlarıyla onaylandı.'
     : '✅ Fiyat onaylandı! Satıcı artık müşteriye gönderebilir.');
+  onayOnaylandiBildirimGonder(t); // talebi gönderen satıcıya "onaylandı" maili (fire-and-forget)
   if (t.portalTalebi) portalArsivMailiGonder(t, _portalTablo, _portalToplam);
 }
 
@@ -11595,6 +11641,7 @@ let AYARLAR = {
   adres: '',
   standartKargoUSD: 0,
   awayMode: false,
+  onayBildirimMaili: '', // satıcı fiyat onayı gönderince uyarı maili gidecek admin e-postası
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
   talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
   crmHedefAylikYeniMusteri: 0,             // CRM: aylık yeni müşteri hedefi (0 = belirsiz)
@@ -11709,6 +11756,86 @@ function ayarlariKaydet() {
   }
 }
 
+function onayBildirimMailiKaydet() {
+  const el = document.getElementById('ayar-onay-mail');
+  const v = (el?.value || '').trim();
+  if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+    const durum = document.getElementById('onay-mail-durum');
+    if (durum) { durum.textContent = '⚠ Geçersiz e-posta adresi.'; durum.style.color = 'var(--red)'; }
+    return;
+  }
+  if ((AYARLAR.onayBildirimMaili || '') === v) return; // değişmediyse kaydetme
+  AYARLAR.onayBildirimMaili = v;
+  veriKaydet();
+  const durum = document.getElementById('onay-mail-durum');
+  if (durum) {
+    durum.textContent = v ? ('✅ Bildirimler ' + v + ' adresine gidecek.') : 'Bildirim e-postası temizlendi.';
+    durum.style.color = v ? 'var(--green)' : 'var(--text3)';
+  }
+  showToast('📧 Onay bildirim e-postası kaydedildi.');
+}
+
+// Onaylayan (admin) e-postasını çöz: ayar > KULLANICILAR içindeki ilk admin > AYARLAR.mail
+function onaylayanMailiCoz() {
+  const ayar = (AYARLAR.onayBildirimMaili || '').trim();
+  if (ayar) return ayar;
+  const adminK = (typeof KULLANICILAR !== 'undefined' ? KULLANICILAR : []).find(k => k.rol === 'admin' && k.email);
+  if (adminK?.email) return adminK.email.trim();
+  return (AYARLAR.mail || '').trim();
+}
+
+// Satıcı fiyat onayı gönderince → onaylayan (admin) e-postasına uyarı maili
+async function onayTalepBildirimGonder(t) {
+  try {
+    const to = onaylayanMailiCoz();
+    if (!to) return;
+    const oT = t.fiyatOnayTalep || {};
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;">⏳ Fiyat Onayı Bekliyor</h2>
+        <p style="color:#666;margin:0 0 16px;">Bir satıcı fiyat onayınızı bekliyor. EMON FAST > <b>Fiyat Onayları</b> ekranından inceleyebilirsiniz.</p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${t.no || '—'}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${t.musteri || '—'}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Satıcı</td><td>${oT.satici || '—'}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Toplam</td><td style="font-weight:700;">${oT.toplamStr || '—'}</td></tr>
+          ${oT.not ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Satıcı Notu</td><td>${oT.not}</td></tr>` : ''}
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${oT.tarih ? new Date(oT.tarih).toLocaleString('tr-TR') : '—'}</td></tr>
+        </table>
+      </div>`;
+    await graphMailHtmlGonder([to], `[Fiyat Onayı] ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
+  } catch (e) { console.error('onayTalepBildirimGonder hatası:', e); }
+}
+
+// Admin onaylayınca → talebi gönderen satıcının e-postasına "onaylandı" maili
+async function onayOnaylandiBildirimGonder(t) {
+  try {
+    const oT = t.fiyatOnayTalep || {};
+    let to = (oT.saticiMail || '').trim();
+    if (!to && oT.satici) {
+      const u = (typeof KULLANICILAR !== 'undefined' ? KULLANICILAR : [])
+        .find(k => k.ad === oT.satici || k.username === oT.saticiUsername);
+      to = (u?.email || '').trim();
+    }
+    if (!to) return;
+    const toplamStr = oT.adminSatisData?.toplamStr || oT.toplamStr || '—';
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;color:#1a7f4b;">✅ Fiyatınız Onaylandı</h2>
+        <p style="color:#666;margin:0 0 16px;">Gönderdiğiniz fiyat onaylandı. Artık müşteriye teklifi gönderebilirsiniz.</p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${t.no || '—'}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${t.musteri || '—'}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylanan Toplam</td><td style="font-weight:700;color:#1a7f4b;">${toplamStr}</td></tr>
+          ${oT.adminDegisiklik ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Not</td><td>Admin fiyat tablosunda değişiklik yaptı.</td></tr>` : ''}
+          ${oT.adminNot ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Admin Notu</td><td>${oT.adminNot}</td></tr>` : ''}
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Onay Tarihi</td><td>${oT.adminTarih ? new Date(oT.adminTarih).toLocaleString('tr-TR') : '—'}</td></tr>
+        </table>
+      </div>`;
+    await graphMailHtmlGonder([to], `[Fiyat Onaylandı] ${t.no || ''} — ${t.musteri || ''}`, html);
+  } catch (e) { console.error('onayOnaylandiBildirimGonder hatası:', e); }
+}
+
 function awayModeToggle(cb) {
   AYARLAR.awayMode = !!cb.checked;
   veriKaydet();
@@ -11777,6 +11904,14 @@ function ayarlariYukle() {
   setVal('ayar-adres',  AYARLAR.adres);
   setVal('ayar-kargo-usd', AYARLAR.standartKargoUSD ? String(AYARLAR.standartKargoUSD) : '');
   setVal('ayar-crm-hedef', AYARLAR.crmHedefAylikYeniMusteri ? String(AYARLAR.crmHedefAylikYeniMusteri) : '');
+  setVal('ayar-onay-mail', AYARLAR.onayBildirimMaili);
+  const onayDurumEl = document.getElementById('onay-mail-durum');
+  if (onayDurumEl) {
+    onayDurumEl.textContent = AYARLAR.onayBildirimMaili
+      ? ('✅ Bildirimler ' + AYARLAR.onayBildirimMaili + ' adresine gidecek.')
+      : 'Henüz e-posta girilmedi — onay bildirim maili gönderilmez.';
+    onayDurumEl.style.color = AYARLAR.onayBildirimMaili ? 'var(--green)' : 'var(--text3)';
+  }
   // Talep numarası biçimi
   const tb = talepNoBicimAl();
   const onekEl = document.getElementById('ayar-talepno-onek'); if (onekEl) onekEl.value = tb.onek;
