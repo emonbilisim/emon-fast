@@ -11853,7 +11853,7 @@ function onaylayanMailiCoz() {
 async function onayTalepBildirimGonder(t) {
   try {
     const to = onaylayanMailiCoz();
-    if (!to) return;
+    if (!to) { showToast('⚠ Admin\'e bildirim gidemedi — Ayarlar\'da onay e-postası tanımlı değil.'); return; }
     const oT = t.fiyatOnayTalep || {};
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
@@ -11869,7 +11869,8 @@ async function onayTalepBildirimGonder(t) {
         </table>
         ${talepLinkButonuHtml(t, '🔗 Talebi İncele ve Onayla')}
       </div>`;
-    await graphMailHtmlGonder([to], `[Fiyat Onayı] ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
+    const ok = await graphMailHtmlGonder([to], `[Fiyat Onayı] ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
+    if (!ok) showToast('⚠ Admin\'e bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
   } catch (e) { console.error('onayTalepBildirimGonder hatası:', e); }
 }
 
@@ -11883,7 +11884,7 @@ async function onayOnaylandiBildirimGonder(t) {
         .find(k => k.ad === oT.satici || k.username === oT.saticiUsername);
       to = (u?.email || '').trim();
     }
-    if (!to) return;
+    if (!to) { showToast('⚠ Satıcıya onay maili gidemedi — satıcı e-postası bulunamadı.'); return; }
     const toplamStr = oT.adminSatisData?.toplamStr || oT.toplamStr || '—';
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
@@ -11899,7 +11900,10 @@ async function onayOnaylandiBildirimGonder(t) {
         </table>
         ${talepLinkButonuHtml(t, '🔗 Talebi Aç ve Müşteriye Gönder')}
       </div>`;
-    await graphMailHtmlGonder([to], `[Fiyat Onaylandı] ${t.no || ''} — ${t.musteri || ''}`, html);
+    const ok = await graphMailHtmlGonder([to], `[Fiyat Onaylandı] ${t.no || ''} — ${t.musteri || ''}`, html);
+    showToast(ok
+      ? `📧 Onay bildirimi ${to} adresine gönderildi.`
+      : '⚠ Satıcıya onay maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
   } catch (e) { console.error('onayOnaylandiBildirimGonder hatası:', e); }
 }
 
