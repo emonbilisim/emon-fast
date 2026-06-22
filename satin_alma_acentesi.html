@@ -10232,7 +10232,11 @@ function renderFiyatOnaylari() {
   }
 
   if (gecmis.length > 0) {
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin:16px 0 10px;">Son İşlemler</div>';
+    const tamamlananSayi = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu)).length;
+    html += '<div style="display:flex;align-items:center;gap:10px;margin:16px 0 10px;">'
+      + '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);">Son İşlemler</div>'
+      + (tamamlananSayi > 0 ? '<button class="btn btn-sm" onclick="fiyatOnayGecmisiniTemizle()" style="margin-left:auto;font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Tamamlanmış tüm fiyat onayı kayıtlarını sil">🧹 Geçmişi Temizle (' + tamamlananSayi + ')</button>' : '')
+      + '</div>';
     html += gecmis.map(t => {
       const idx = TALEPLER.indexOf(t);
       const onaylandi = t.fiyatOnayDurumu === 'onaylandi';
@@ -10246,12 +10250,46 @@ function renderFiyatOnaylari() {
             ${t.fiyatOnayTalep?.adminNot ? '<div style="font-size:11px;color:var(--text2);">' + t.fiyatOnayTalep.adminNot + '</div>' : ''}
           </div>
           <button class="btn btn-sm" onclick="talepDetayAc(${idx})" style="font-size:11px;">Görüntüle</button>
+          <button class="btn btn-sm" onclick="fiyatOnayKaydiSil(${idx})" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Bu fiyat onayı kaydını sil">🗑</button>
         </div>
       </div>`;
     }).join('');
   }
 
   icerik.innerHTML = html;
+}
+
+// Admin: tek bir (tamamlanmış) fiyat onayı kaydını sil — talebin kendisi KALIR,
+// yalnızca onay verisi (fiyatOnayTalep + durum) temizlenir.
+function fiyatOnayKaydiSil(idx) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin silebilir.'); return; }
+  const t = TALEPLER[idx];
+  if (!t) return;
+  if (t.fiyatOnayDurumu === 'bekliyor') { showToast('Onay bekleyen kaydı silemezsiniz — önce onayla/reddet.'); return; }
+  if (!confirm(`"${t.no} — ${t.musteri}" fiyat onayı kaydı silinsin mi?\n\nTalep ve teklif verileri KORUNUR; yalnızca onay kaydı (durum + onay geçmişi) temizlenir.`)) return;
+  delete t.fiyatOnayTalep;
+  t.fiyatOnayDurumu = null;
+  veriKaydet();
+  renderFiyatOnaylari();
+  renderTalepler();
+  onayBekleyenBadgeGuncelle();
+  onayliGonderimGuncelle();
+  showToast('🗑 Fiyat onayı kaydı silindi.');
+}
+
+// Admin: tamamlanmış (onaylandı/reddedildi) TÜM fiyat onayı kayıtlarını temizle.
+function fiyatOnayGecmisiniTemizle() {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin silebilir.'); return; }
+  const hedef = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu));
+  if (!hedef.length) { showToast('Temizlenecek tamamlanmış onay kaydı yok.'); return; }
+  if (!confirm(`Tamamlanmış ${hedef.length} fiyat onayı kaydı silinsin mi?\n\nTalepler ve teklifler KORUNUR; yalnızca onay kayıtları (durum + onay geçmişi) temizlenir. Onay bekleyenlere dokunulmaz.`)) return;
+  hedef.forEach(t => { delete t.fiyatOnayTalep; t.fiyatOnayDurumu = null; });
+  veriKaydet();
+  renderFiyatOnaylari();
+  renderTalepler();
+  onayBekleyenBadgeGuncelle();
+  onayliGonderimGuncelle();
+  showToast(`🧹 ${hedef.length} fiyat onayı kaydı temizlendi.`);
 }
 
 function sidebarGuncelle() {
@@ -10808,6 +10846,7 @@ function renderArsiv() {
   const liste  = document.getElementById('arsiv-listesi');
   const empty  = document.getElementById('arsiv-empty');
   if (!liste) return;
+  const isAdmin = aktifKullanici?.rol === 'admin';
 
   const simdi   = new Date();
   const sinirTarih = sureFlt ? new Date(simdi - sureFlt*86400000) : null;
@@ -10891,9 +10930,27 @@ function renderArsiv() {
       <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${durumBg};color:${durumRenk};border:1px solid ${durumBrd};font-weight:600;flex-shrink:0;">${durumEtiket}</span>
       <span style="font-size:13px;font-weight:700;color:var(--accent2);min-width:100px;text-align:right;flex-shrink:0;">${tutarHtml}</span>
       <span style="font-size:11px;color:var(--text3);min-width:84px;text-align:right;flex-shrink:0;">${gecen}</span>
+      ${isAdmin ? `<button class="btn btn-sm" onclick="event.stopPropagation();arsivTalepSil(${idx})" title="Talebi arşivden sil" style="padding:2px 8px;font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);flex-shrink:0;">🗑</button>` : ''}
       <span style="color:var(--text3);font-size:18px;flex-shrink:0;">›</span>
     </div>`;
   }).join('');
+}
+
+// Admin: talebi arşivden KALICI sil (talep + teklif/onay verileri). talepSil ile aynı
+// silme/senkron desenini (_taleplerKastenSilindi) kullanır, ardından arşivi tazeler.
+function arsivTalepSil(idx) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin silebilir.'); return; }
+  const t = TALEPLER[idx];
+  if (!t) return;
+  if (!confirm(`"${t.no} — ${t.musteri}" talebi arşivden KALICI olarak silinsin mi?\n\nBu işlem geri alınamaz; talep ve ona bağlı tüm teklif/onay verileri silinir.`)) return;
+  TALEPLER.splice(idx, 1);
+  _taleplerKastenSilindi = true; // kasıtlı silme → azalmış liste sunucuya yazılabilsin
+  veriKaydet();
+  renderArsiv();
+  renderTalepler();
+  onayBekleyenBadgeGuncelle();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  showToast('🗑 Talep arşivden silindi.');
 }
 
 // ═══════════════════════════════════════
