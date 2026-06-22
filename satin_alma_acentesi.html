@@ -886,6 +886,7 @@
         <table style="width:100%;font-size:13px;">
           <tr><td style="color:var(--text3);padding:5px 0;width:120px;">Müşteri</td><td id="td-musteri" style="font-weight:500;"></td></tr>
           <tr id="td-musterino-row" style="display:none;"><td style="color:var(--text3);padding:5px 0;">Müşteri Talep No</td><td id="td-musterino" style="font-family:var(--font-mono);font-size:13px;color:var(--accent2);"></td></tr>
+          <tr id="td-sorumlu-row"><td style="color:var(--text3);padding:5px 0;">Sorumlu Satıcı</td><td id="td-sorumlu-cell"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Ürün</td><td id="td-urun"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Miktar</td><td id="td-miktar"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Termin</td><td id="td-termin"></td></tr>
@@ -4117,7 +4118,7 @@ function _gorevKartHtml(g, ben, isAdmin, bugun) {
           </div>` : '';
       return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px;">${liste}${ekle}</div>`;
     })() : '';
-    return `<div class="card" style="padding:12px 14px;border-left:3px solid ${seritRenk};${g.durum === 'kapandi' ? 'opacity:0.72;' : ''}">
+    return `<div class="card" id="gorevkart-${g.id}" style="padding:12px 14px;border-left:3px solid ${seritRenk};${g.durum === 'kapandi' ? 'opacity:0.72;' : ''}">
       <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;">
         <div style="flex:1;min-width:200px;">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -4229,10 +4230,11 @@ async function gorevKaydet() {
     || KULLANICILAR.find(k => (k.email || k.username || '').toLowerCase() === atananEmail);
   const now = new Date().toISOString();
   const duzenle = _gorevDuzenleId;
-  let g;
+  let g, oncekiAtanan = '';
   if (duzenle) {
     g = GOREVLER.find(x => x.id === duzenle);
     if (!g) { closeModal('gorevForm'); _gorevDuzenleId = null; return; }
+    oncekiAtanan = (g.atananEmail || '').toLowerCase();
   } else {
     gorevSayac++;
     g = { id: 'G-' + Date.now() + '-' + gorevSayac, durum: 'acik', kapanma: '',
@@ -4252,18 +4254,96 @@ async function gorevKaydet() {
   try { localStorage.setItem('emonfast_gorevler', JSON.stringify(GOREVLER)); } catch(_) {}
   const ok = await apiGorevKaydet(g);
   showToast(ok ? (duzenle ? 'Görev güncellendi.' : 'Görev atandı.') : '⚠ Kaydedildi ama sunucuya gönderilemedi (bağlantı yok).');
+  // Atanan kişiye bildirim: yeni görev ya da düzenlemede atanan değiştiyse
+  if (!duzenle) {
+    gorevBildirimMaili(g, g.atananEmail, '📋 Size yeni görev atandı', `${g.atayanAd || 'Bir kullanıcı'} size yeni bir görev atadı.`);
+  } else if (g.atananEmail !== oncekiAtanan) {
+    gorevBildirimMaili(g, g.atananEmail, '📋 Size bir görev atandı', `${g.atayanAd || 'Bir kullanıcı'} bir görevi size atadı.`);
+  }
   _gorevDuzenleId = null;
 }
 
 async function _gorevDurumKaydet(id, yeni) {
   const g = GOREVLER.find(x => x.id === id);
   if (!g) return false;
+  const eski = g.durum;
   g.durum = yeni;
   g.guncelleme = new Date().toISOString();
   g.kapanma = (yeni === 'kapandi') ? g.guncelleme : '';
   renderGorevler(); gorevBadgeGuncelle();
   try { localStorage.setItem('emonfast_gorevler', JSON.stringify(GOREVLER)); } catch(_) {}
-  return await apiGorevKaydet(g);
+  const ok = await apiGorevKaydet(g);
+  if (eski !== yeni) gorevDurumBildirimi(g, yeni); // karşı tarafa durum değişikliği bildirimi
+  return ok;
+}
+
+const _GOREV_DURUM_AD = { acik:'Açık', devam:'Devam Ediyor', beklemede:'Onay Bekliyor', kapandi:'Kapandı' };
+
+// Durum değişince karşı tarafa (işlemi yapanın muhatabına) bildirim maili.
+// İşlemi atanan yaptıysa → atayana; atayan/admin yaptıysa → atanana.
+function gorevDurumBildirimi(g, yeni) {
+  const ben = _benEmail();
+  const benAtanan = (g.atananEmail || '').toLowerCase() === ben;
+  const alici = benAtanan ? g.atayanEmail : g.atananEmail;
+  const aktor = aktifKullanici?.ad || ben;
+  let ust, satir;
+  if (benAtanan) { // atanan kişi durumu değiştirdi → atayana haber
+    if (yeni === 'devam')          { ust = '▶ Görev başlatıldı';                   satir = `${aktor} göreve başladı (devam ediyor).`; }
+    else if (yeni === 'acik')      { ust = '⏸ Görev beklemeye alındı';            satir = `${aktor} görevi tekrar "Açık" durumuna aldı.`; }
+    else if (yeni === 'beklemede') { ust = '✅ Görev tamamlandı — onayınız bekleniyor'; satir = `${aktor} görevi bitirdi. Onaylamanız bekleniyor.`; }
+    else return;
+  } else {         // atayan/admin durumu değiştirdi → atanana haber
+    if (yeni === 'kapandi')        { ust = '✅ Göreviniz onaylandı';               satir = `${aktor} görevi onayladı ve kapattı.`; }
+    else if (yeni === 'devam')     { ust = '↩ Göreviniz geri gönderildi';         satir = `${aktor} görevi geri gönderdi — devam etmeniz bekleniyor.`; }
+    else if (yeni === 'acik')      { ust = '↩ Görev yeniden açıldı';              satir = `${aktor} görevi yeniden açtı.`; }
+    else return;
+  }
+  gorevBildirimMaili(g, alici, ust, satir);
+}
+
+// Görev bildirim maili — işlemi yapanın bağlı Outlook'undan karşı tarafa (best-effort).
+async function gorevBildirimMaili(g, aliciEmail, ust, durumSatiri) {
+  try {
+    const to = (aliciEmail || '').trim();
+    if (!to) return;
+    if (to.toLowerCase() === (_benEmail() || '').toLowerCase()) return; // kendine bildirme
+    const sonT = g.sonTarih ? new Date(g.sonTarih).toLocaleDateString('tr-TR') : '—';
+    const oncelikEtk = { dusuk:'Düşük', normal:'Normal', yuksek:'⚡ Yüksek' }[g.oncelik] || g.oncelik || 'Normal';
+    const link = location.origin + '/#gorev=' + encodeURIComponent(g.id);
+    const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;">${esc(ust)}</h2>
+        ${durumSatiri ? `<p style="color:#666;margin:0 0 16px;">${esc(durumSatiri)}</p>` : ''}
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Görev</td><td><strong>${esc(g.baslik)}</strong></td></tr>
+          ${g.aciklama ? `<tr><td style="padding:2px 12px 2px 0;color:#666;vertical-align:top;">Açıklama</td><td>${esc(g.aciklama)}</td></tr>` : ''}
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Atayan</td><td>${esc(g.atayanAd || g.atayanEmail)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Atanan</td><td>${esc(g.atananAd || g.atananEmail)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Öncelik</td><td>${esc(oncelikEtk)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Son Tarih</td><td>${esc(sonT)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Durum</td><td><strong>${esc(_GOREV_DURUM_AD[g.durum] || g.durum)}</strong></td></tr>
+          ${g.talepNo ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Bağlı Talep</td><td>${esc(g.talepNo)}</td></tr>` : ''}
+        </table>
+        <div style="margin-top:18px;">
+          <a href="${link}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;font-weight:600;font-size:14px;">🔗 Görevi Aç</a>
+          <div style="font-size:11px;color:#999;margin-top:6px;word-break:break-all;">${link}</div>
+        </div>
+      </div>`;
+    const ok = await graphMailHtmlGonder([to], (ust ? ust.replace(/^[^\wığüşöçİĞÜŞÖÇ]+/, '') : 'Görev') + ' — ' + (g.baslik || ''), html);
+    if (!ok) showToast('⚠ Görev bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
+  } catch (e) { console.error('gorevBildirimMaili hatası:', e); }
+}
+
+// #gorev=ID linkinden gelindiğinde görev kartını vurgula
+function gorevKartVurgula(id) {
+  const el = document.getElementById('gorevkart-' + id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const eski = el.style.boxShadow;
+  el.style.transition = 'box-shadow 0.3s';
+  el.style.boxShadow = '0 0 0 3px var(--accent)';
+  setTimeout(() => { el.style.boxShadow = eski || ''; }, 2200);
 }
 
 function gorevBasla(id) {
@@ -5624,6 +5704,7 @@ function talepDetayAc(idx) {
   } else {
     musteriNoRow.style.display = 'none';
   }
+  talepSorumluSaticiGoster(t); // Sorumlu satıcı satırı (admin → atama dropdown'ı)
   // Ürün listesi — tek veya çok satır
   if (t.urunler && t.urunler.length > 1) {
     document.getElementById('td-urun').innerHTML = t.urunler.map(u=>
@@ -10819,13 +10900,74 @@ function renderArsiv() {
 // MÜŞTERİ TEKLİFLERİ SAYFASI
 // ═══════════════════════════════════════
 
-// Talep görünürlüğü — Admin tümünü görür. Satıcı yalnızca kendi oluşturduklarını
-// (t.satici === aktifKullanici.id) ve sahibi atanmamış eski kayıtları görür (geri uyum).
+// Talep görünürlüğü — Admin tümünü görür. Satıcı yalnızca kendine ait (sorumlu)
+// talepleri ve sahibi atanmamış eski kayıtları görür (geri uyum).
+// Kararlı kimlik: t.saticiEmail (admin atamasıyla yazılır). Eski kayıtlarda yalnız
+// t.satici (yerel id) olabilir → ona düşeriz. Bkz yerel-id-tuzagi.
 function talepGorunur(t) {
   if (!aktifKullanici) return false;
   if (aktifKullanici.rol === 'admin') return true;
+  if (t && t.saticiEmail) // e-posta bazlı sahiplik (yeni, cihazlar arası kararlı)
+    return (t.saticiEmail || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase();
   if (!t || t.satici == null || t.satici === '') return true; // eski kayıtlar: paylaşımlı
   return t.satici === aktifKullanici.id;
+}
+
+// Talebin sorumlu satıcısını çöz (e-posta öncelikli, eski id'ye düşer)
+function talepSorumluKullanici(t) {
+  if (!t) return null;
+  if (t.saticiEmail) return saticiKullaniciBul(t.saticiEmail) || { ad: t.saticiEmail, email: (t.saticiEmail || '').toLowerCase() };
+  return saticiKullaniciBul(t.satici);
+}
+
+// Detay görünümünde "Sorumlu Satıcı" hücresini doldur (admin → atama dropdown'ı, diğerleri → metin)
+function talepSorumluSaticiGoster(t) {
+  const cell = document.getElementById('td-sorumlu-cell');
+  if (!cell) return;
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  const mevcut = talepSorumluKullanici(t);
+  const mevcutEmail = (mevcut?.email || t.saticiEmail || '').toLowerCase();
+  if (!isAdmin) {
+    cell.innerHTML = mevcut?.ad
+      ? mevcut.ad.replace(/</g, '&lt;')
+      : '<span style="color:var(--text3);">Atanmadı (paylaşımlı)</span>';
+    return;
+  }
+  const uyeler = ekipUyeleri();
+  const opts = ['<option value="">— Atanmadı (herkes görür) —</option>'];
+  // Mevcut sahip ekip listesinde yoksa (pasif/dışarıda) yine de seçili görünsün
+  if (mevcutEmail && !uyeler.some(k => k.email === mevcutEmail)) {
+    opts.push(`<option value="${mevcutEmail}" selected>${(mevcut?.ad || mevcutEmail).replace(/</g, '&lt;')}</option>`);
+  }
+  uyeler.forEach(k => {
+    const sel = k.email === mevcutEmail ? ' selected' : '';
+    const etk = k.rol === 'admin' ? ' (admin)' : (k.rol === 'operasyon' ? ' (operasyon)' : '');
+    opts.push(`<option value="${k.email}"${sel}>${(k.ad || k.email).replace(/</g, '&lt;')}${etk}</option>`);
+  });
+  cell.innerHTML = `<select id="td-sorumlu-sel" onchange="talepSaticiAta(this.value)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text);max-width:260px;">${opts.join('')}</select>`;
+}
+
+// Admin: açık talebi farklı satıcıya ata. Kalıcı kimlik = e-posta (t.saticiEmail);
+// eski id-bazlı görünürlük için t.satici da en iyi çabayla güncellenir.
+function talepSaticiAta(email) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin atama yapabilir.'); return; }
+  const yeni = (email || '').trim().toLowerCase();
+  const onceki = (talepSorumluKullanici(t)?.email || '').toLowerCase();
+  if (yeni === onceki) return;
+  if (!yeni) {
+    delete t.saticiEmail;
+    t.satici = '';
+  } else {
+    t.saticiEmail = yeni;
+    const k = saticiKullaniciBul(yeni);
+    t.satici = (k?.id != null) ? k.id : yeni; // geri uyum (görünürlük yine e-postadan)
+  }
+  veriKaydet();
+  renderTalepler();
+  const ad = saticiKullaniciBul(yeni)?.ad || yeni;
+  showToast(yeni ? `🔄 Talep "${ad}" satıcısına atandı.` : '🔄 Talep ataması kaldırıldı (paylaşımlı).');
 }
 
 // "Açık teklif": müşteriye iletilmiş ya da gönderildiği işaretli, henüz reddedilmemiş,
@@ -11826,9 +11968,20 @@ function derinLinkIsle() {
   let h = '';
   try { h = decodeURIComponent((location.hash || '').replace(/^#/, '')); }
   catch(_) { h = (location.hash || '').replace(/^#/, ''); }
+  if (!aktifKullanici) return;            // henüz giriş yok → giriş sonrası tekrar denenecek
+  // Görev linki: #gorev=ID → Görevler sayfasını aç + kartı vurgula
+  const mg = h.match(/(?:^|[&])gorev=([^&]+)/i);
+  if (mg) {
+    const gid = mg[1].trim();
+    if (typeof GOREVLER === 'undefined' || !GOREVLER.some(x => x.id === gid)) return; // veri gelmemiş olabilir
+    _derinLinkIslendi = true;
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(_) { location.hash = ''; }
+    goPage('gorevler', document.querySelector('.nav-item[data-nav=gorevler]'));
+    setTimeout(() => gorevKartVurgula(gid), 250);
+    return;
+  }
   const m = h.match(/(?:^|[&])talep=([^&]+)/i);
   if (!m) return;                         // link yok
-  if (!aktifKullanici) return;            // henüz giriş yok → giriş sonrası tekrar denenecek
   if (typeof TALEPLER === 'undefined' || !TALEPLER.length) return; // veri henüz gelmedi
   const no = m[1].trim().toLowerCase();
   const idx = TALEPLER.findIndex(t => (t.no || '').trim().toLowerCase() === no);
@@ -16014,7 +16167,7 @@ msalBaslat();
               derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
               ayarlariYukle();
               otoTalepDurumYukle(); // kullanıcı-başına oto-talep durumunu sunucudan getir
-              gorevlerYenile().then(() => gorevGirisBildirim()).catch(()=>{}); // ekip içi görevler
+              gorevlerYenile().then(() => { gorevGirisBildirim(); derinLinkIsle(); }).catch(()=>{}); // ekip içi görevler (+ görev derin linki)
               // API'den taze veri geldi — bugünün snapshot'ını taze veriyle güncelle
               try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
             }
