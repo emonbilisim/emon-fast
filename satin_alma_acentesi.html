@@ -5147,7 +5147,7 @@ function renderCRM() {
   if (!crmGorunur()) return;
   // Satış hunisi dağılımı
   const sayim = {}; CRM_ASAMALAR.forEach(a => sayim[a.key] = 0);
-  MUSTERILER.forEach(m => { const k = m.crmAsama || 'aday'; sayim[k] = (sayim[k] || 0) + 1; });
+  crmStatMusteriler().forEach(m => { const k = m.crmAsama || 'aday'; sayim[k] = (sayim[k] || 0) + 1; });
   const pipeEl = document.getElementById('crm-pipeline');
   if (pipeEl) pipeEl.innerHTML = CRM_ASAMALAR.map(a =>
     `<div style="flex:1;min-width:110px;background:var(--bg3);border-radius:var(--radius);padding:12px;border-top:3px solid ${a.renk};">
@@ -5222,6 +5222,22 @@ function _musteriNorm(s) {
     .replace(/[Üü]/g, 'u').replace(/[Öö]/g, 'o').replace(/[Çç]/g, 'c')
     .toLowerCase().replace(/\s+/g, ' ').trim();
 }
+// Demo müşteriler CRM İSTATİSTİKLERİNE dahil edilmez (test/eğitim kayıtları metrikleri bozmasın).
+function _crmDemoFirmaSet() {
+  const s = new Set();
+  MUSTERILER.forEach(m => { if (m && m.musteriTipi === 'demo' && m.firma) s.add(_musteriNorm(m.firma)); });
+  return s;
+}
+// CRM istatistiklerine girecek müşteriler (demo hariç)
+function crmStatMusteriler() { return MUSTERILER.filter(m => m && m.musteriTipi !== 'demo'); }
+// CRM istatistiklerine girecek talepler (demo müşteri talepleri hariç; müşterisiz/diğer talepler korunur)
+function crmStatTalepler(list) {
+  const src = list || TALEPLER;
+  const demo = _crmDemoFirmaSet();
+  if (!demo.size) return src.slice();
+  return src.filter(t => !(t && t.musteri && demo.has(_musteriNorm(t.musteri))));
+}
+
 function crmMetrikHesapla(talepler) {
   let donulen = 0, siparis = 0, sla = 0;
   const musteriler = new Set();
@@ -5255,7 +5271,7 @@ function crmDonemEtiket(key, gran) {
 function crmStatGran(gran) { _crmStatGran = gran; renderCrmIstatistik(); }
 
 function renderCrmIstatistik() {
-  const tumTalepler = TALEPLER.filter(t => t && t.tarih);
+  const tumTalepler = crmStatTalepler(TALEPLER).filter(t => t && t.tarih);
   // Genel kartlar
   const g = crmMetrikHesapla(tumTalepler);
   const kartlar = document.getElementById('crm-stat-kartlar');
@@ -5282,13 +5298,14 @@ function renderCrmKazanim() {
   const simdi = new Date();
   const ayKey = simdi.toISOString().slice(0,7);
   const yilKey = String(simdi.getFullYear());
-  // Talepleri müşteri (normalize) başına bir kez grupla
+  // Talepleri müşteri (normalize) başına bir kez grupla — demo müşteri talepleri hariç
   const talepByMusteri = {};
-  TALEPLER.forEach(t => { if (t && t.musteri) { const k = _musteriNorm(t.musteri); (talepByMusteri[k] = talepByMusteri[k] || []).push(t); } });
+  crmStatTalepler(TALEPLER).forEach(t => { if (t && t.musteri) { const k = _musteriNorm(t.musteri); (talepByMusteri[k] = talepByMusteri[k] || []).push(t); } });
 
+  const _statM = crmStatMusteriler(); // demo müşteriler istatistiklere girmez
   const acikAsamalar = ['aday','ilgileniyor','teklif'];
   let buAyYeni = 0, buYilYeni = 0, acikAday = 0, kazanilanMusteri = 0, sureTop = 0, sureN = 0;
-  MUSTERILER.forEach(m => {
+  _statM.forEach(m => {
     const ct = String(m.tarih || '').slice(0,10);
     if (ct.slice(0,7) === ayKey)  buAyYeni++;
     if (ct.slice(0,4) === yilKey) buYilYeni++;
@@ -5304,11 +5321,11 @@ function renderCrmKazanim() {
       if (!isNaN(d0) && !isNaN(d1) && d1 >= d0) { sureTop += (d1-d0)/86400000; sureN++; }
     }
   });
-  const toplam = MUSTERILER.length;
+  const toplam = _statM.length;
   const kazanimOran = toplam ? kazanilanMusteri/toplam*100 : 0;
   const ortSure = sureN ? Math.round(sureTop/sureN) : null;
-  const kazanildi  = MUSTERILER.filter(m => m.crmAsama === 'kazanildi').length;
-  const kaybedildi = MUSTERILER.filter(m => m.crmAsama === 'kaybedildi').length;
+  const kazanildi  = _statM.filter(m => m.crmAsama === 'kazanildi').length;
+  const kaybedildi = _statM.filter(m => m.crmAsama === 'kaybedildi').length;
   const winRate = (kazanildi+kaybedildi) ? kazanildi/(kazanildi+kaybedildi)*100 : 0;
 
   // Hedef / KPI
@@ -5340,7 +5357,7 @@ function crmKaynakTabloRender(talepByMusteri) {
   const tablo = document.getElementById('crm-kaynak-tablo');
   if (!tablo) return;
   const kova = {};
-  MUSTERILER.forEach(m => {
+  crmStatMusteriler().forEach(m => {
     const k = (m.kaynak || '').trim() || 'Belirtilmemiş';
     const g = kova[k] = kova[k] || { musteri: 0, kazanan: 0 };
     g.musteri++;
@@ -5367,7 +5384,7 @@ function crmDonemTabloRender() {
   if (!tablo) return;
   const gran = _crmStatGran;
   const kova = {};
-  TALEPLER.forEach(t => {
+  crmStatTalepler(TALEPLER).forEach(t => {
     if (!t || !t.tarih) return;
     const s = String(t.tarih);
     const key = gran === 'gunluk' ? s.slice(0,10) : (gran === 'aylik' ? s.slice(0,7) : s.slice(0,4));
@@ -5398,7 +5415,7 @@ function crmMusteriTabloRender() {
   const tablo = document.getElementById('crm-stat-musteri-tablo');
   if (!tablo) return;
   const kova = {}, adlar = {};
-  TALEPLER.forEach(t => {
+  crmStatTalepler(TALEPLER).forEach(t => {
     if (!t || !t.musteri) return;
     const key = _musteriNorm(t.musteri);
     if (!key) return;
