@@ -2162,6 +2162,7 @@
           <select id="ym-musteritipi">
             <option value="ilk">İlk Kayıt (yeni müşteri)</option>
             <option value="mevcut">Mevcut Müşteri</option>
+            <option value="demo">Demo Müşteri</option>
           </select>
         </div>
       </div>
@@ -2667,6 +2668,7 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
         <option value="">— Seçin —</option>
         <option value="ilk">İlk Kayıt (yeni müşteri)</option>
         <option value="mevcut">Mevcut Müşteri</option>
+        <option value="demo">Demo Müşteri</option>
       </select>
     </div>
     <div class="form-group">
@@ -4876,7 +4878,7 @@ function filterMusteriler() {
         : `<div style="font-size:10px;color:var(--amber);margin-top:2px;">👤 Atanmamış</div>`;
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${saticiSatir}</td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${m.musteriTipi==='demo' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);color:#a78bfa;white-space:nowrap;">Demo</span>' : ''}${saticiSatir}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
@@ -4902,6 +4904,11 @@ function filterMusteriler() {
   document.getElementById('mm-poten').textContent=MUSTERILER.filter(x=>x.durum==='Potansiyel').length;
 }
 
+// Müşteri kayıt tipi → görünen ad
+function musteriTipiAd(tip) {
+  return tip === 'mevcut' ? 'Mevcut Müşteri' : tip === 'demo' ? 'Demo Müşteri' : 'İlk Kayıt';
+}
+
 function musteriDetay(idx) {
   const m=MUSTERILER[idx];
   document.getElementById('detay-firma-adi').textContent=m.firma;
@@ -4919,7 +4926,7 @@ function musteriDetay(idx) {
   const ozelEl=document.getElementById('d-limit');
   ozelEl.innerHTML=m.ozelSartlar&&m.ozelSartlar.length?m.ozelSartlar.map(s=>`<div style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="color:var(--amber);">⚡</span><span>${s}</span></div>`).join(''):'—';
   document.getElementById('d-fiyatgrup').innerHTML=fiyatGrupBadge(m.fiyatgrup);
-  document.getElementById('d-durum').innerHTML=durumBadge(m.durum) + (m.musteriTipi ? ` <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);">${m.musteriTipi==='mevcut'?'Mevcut Müşteri':'İlk Kayıt'}</span>` : '');
+  document.getElementById('d-durum').innerHTML=durumBadge(m.durum) + (m.musteriTipi ? ` <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);">${musteriTipiAd(m.musteriTipi)}</span>` : '');
   document.getElementById('d-tarih').textContent=m.tarih?tarihFmt(new Date(m.tarih)):'—';
   document.getElementById('d-not').textContent=m.not||'—';
   // FP kuralları
@@ -5014,7 +5021,7 @@ function crmRender() {
     + satir('Siparişe dönen', mm.siparis)
     + satir('Tamamlanan', tamamlanan)
     + (m.kaynak ? satir('Kaynak', m.kaynak) : '')
-    + (m.musteriTipi ? satir('Müşteri kaydı', m.musteriTipi === 'mevcut' ? 'Mevcut Müşteri' : 'İlk Kayıt') : '')
+    + (m.musteriTipi ? satir('Müşteri kaydı', musteriTipiAd(m.musteriTipi)) : '')
     + (m.crmAsama === 'kaybedildi' && m.kaybetmeNedeni ? satir('Kaybetme nedeni', '<span style="color:var(--red);">' + m.kaybetmeNedeni + '</span>') : '')
     + satir('Etkileşim sayısı', akt.length)
     + satir('Son etkileşim', akt[0] ? tarihFmt(akt[0].tarih) : '—');
