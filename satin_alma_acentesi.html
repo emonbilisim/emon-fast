@@ -4947,21 +4947,13 @@ function dovizKuruTipiAd(tip) {
   return tip === 'tl' ? 'TL' : tip === 'alis' ? 'TCMB Günlük Alış Kuru' : 'TCMB Günlük Satış Kuru';
 }
 
-// Müşterinin ödeme şartı özeti — teklif maili/PDF için (vade + ödeme cinsi + yöntem).
-// Örn: "30 gün vadeli · Havale · Döviz ödeme" veya "Peşin · TL ödeme".
+// Müşterinin ödeme şartı özeti — teklif maili/PDF için (vade + ödeme cinsi).
+// Örn: "30 Gün Vadeli TL" veya "30 Gün Vadeli Döviz" / "Peşin TL". Müşteri kartına bağlı dinamik.
 function odemeSartiOzeti(m) {
   const o = (m && m.odeme) || {};
-  const yontem = [];
-  if (o.havale) yontem.push('Havale');
-  if (o.kk)     yontem.push('Kredi Kartı (komisyonsuz)');
-  if (o.kkkom)  yontem.push('Kredi Kartı' + (o.kkkomOran ? ' (' + o.kkkomOran + ')' : ' (komisyonlu)'));
-  const vade = (o.vadeli && o.vadeGun) ? (o.vadeGun + ' gün vadeli') : (yontem.length ? 'Peşin' : '');
+  const vade = (o.vadeli && o.vadeGun) ? (o.vadeGun + ' Gün Vadeli') : 'Peşin';
   const cins = (o.cins === 'Doviz') ? 'Döviz' : 'TL';
-  const parts = [];
-  if (vade) parts.push(vade);
-  if (yontem.length) parts.push(yontem.join(', '));
-  parts.push(cins + ' ödeme');
-  return parts.join(' · ');
+  return vade + ' ' + cins;
 }
 
 // Müşterinin döviz kuru tipine göre teklif/PDF kur açıklaması üretir.
