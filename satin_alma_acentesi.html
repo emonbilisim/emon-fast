@@ -13428,7 +13428,17 @@ async function outlookTumMaillerGoster() {
         + '<input type="text" data-teslimat-idx="' + i + '" id="mail-teslimat-' + i + '" placeholder="3 is gunu" style="width:100%;padding:4px 8px;font-size:12px;"></div>'
         + '<div><div style="font-size:10px;color:var(--text3);margin-bottom:3px;">Odeme Kosulu</div>'
         + '<input type="text" data-odeme-idx="' + i + '" id="mail-odeme-' + i + '" placeholder="30 gun" style="width:100%;padding:4px 8px;font-size:12px;"></div>'
-        + '</div></div>';
+        + '</div>'
+        // ↹↹ Birden fazla alternatif ürün teklifi — her biri ayrı teklif olarak kaydedilir
+        + '<div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);">'
+        +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px;">'
+        +     '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--amber);">↹ Alternatif Ürün Teklifleri</div>'
+        +     '<button class="btn btn-sm" onclick="mailAltEkle(' + i + ')" style="font-size:10px;padding:2px 8px;color:var(--amber);border-color:rgba(251,191,36,0.4);">+ Alternatif ekle</button>'
+        +   '</div>'
+        +   '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Tedarikçi istenen ürün yerine 2+ farklı seçenek sunduysa her birini ekleyin — her biri ayrı teklif olarak kaydedilir.</div>'
+        +   '<div id="mail-altlist-' + i + '"></div>'
+        + '</div>'
+        + '</div>';
       liste.appendChild(div);
     });
   } catch (e) {
@@ -13769,6 +13779,22 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
         else { altNot.textContent = ''; altNot.style.display = 'none'; }
       }
     });
+    // ↹↹ Birden fazla alternatif: AI ek seçenekleri yakaladıysa manuel alternatif listesine doldur
+    if (Array.isArray(parsed.alternatifler) && parsed.alternatifler.length) {
+      const cont = document.getElementById('mail-altlist-' + mailIdx);
+      if (cont) cont.innerHTML = '';   // AI tekrar çalışırsa eskileri temizle
+      parsed.alternatifler.forEach(a => {
+        const ad  = (a.ad || '').toString().trim();
+        const kod = (a.kod || '').toString().trim();
+        const fy  = parseFloat(a.birimFiyat) || 0;
+        if (!ad && !kod && fy <= 0) return;   // boş şablon nesnesini atla
+        mailAltEkle(mailIdx, {
+          urunIdx: Number.isInteger(a.urunIdx) ? a.urunIdx : 0,
+          ad, kod, birimFiyat: fy,
+          para: ['TRY','USD','EUR'].includes(a.para) ? a.para : 'TRY',
+        });
+      });
+    }
     if (parsed.teslimat) { const el = document.getElementById('mail-teslimat-' + mailIdx); if (el) el.value = parsed.teslimat; }
     if (parsed.odeme)    { const el = document.getElementById('mail-odeme-' + mailIdx);    if (el) el.value = parsed.odeme; }
     if (durum) {
@@ -14014,10 +14040,11 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
       '- PDF ek varsa onu da incele — proforma fatura, teklif formu vb. PDF içindeki fiyatlara öncelik ver.\n' +
       '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n' +
       '- ALTERNATİF ÜRÜN: Tedarikçi, talep edilen ürün YERİNE FARKLI bir ürün (başka marka/model) teklif ediyorsa, o ürünün ADINI ilgili urunIdx için "alternatif" alanına, varsa STOK/PARÇA KODUNU "alternatifKod" alanına yaz (fiyatı yine birimFiyat\'a). Tam istenen ürünse ikisi de boş kalsın.\n' +
+      '- BİRDEN FAZLA ALTERNATİF: Tedarikçi AYNI talep kalemi için 2 veya daha fazla farklı seçenek/alternatif sunduysa (ör. "X marka 1500₺ veya Y marka 1700₺"), BİRİNCİ seçeneği yukarıdaki gibi fiyatlar/alternatif alanına yaz; KALAN her ek seçeneği "alternatifler" dizisine ayrı bir nesne olarak ekle: {"urunIdx":hangi kalem, "ad":ürün adı, "kod":stok/parça kodu, "birimFiyat":sayı, "para":"TRY|USD|EUR"}. Her ek seçenek için fiyatını mutlaka yaz. Ek alternatif yoksa "alternatifler":[] bırak.\n' +
       '- ÖNEMLİ: Mail bir YANIT olabilir ve altında alıntılanmış eski yazışma (bizim fiyatsız sorgu/talep mailimiz) bulunabilir. Bu alıntı kısmını YOK SAY; yalnızca gönderenin yeni yazdığı bölümdeki fiyatları al. Bizim ürün listemizi/sorgumuzu fiyat olarak alma — gerçek fiyat yoksa birimFiyat:0 bırak.\n\n' +
       'MAİL İÇERİĞİ:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON formatında cevap ver (markdown veya açıklama yok):\n' +
-      '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY","alternatif":"","alternatifKod":""}],"teslimat":"","odeme":"","not":""}';
+      '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY","alternatif":"","alternatifKod":""}],"alternatifler":[{"urunIdx":0,"ad":"","kod":"","birimFiyat":0,"para":"TRY"}],"teslimat":"","odeme":"","not":""}';
 
     // İçerik bloklarını hazırla: önce PDF'ler, sonra metin prompt'u
     const contentBlocks = [];
@@ -14033,7 +14060,7 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
 
     const sistem = 'Sen Türkçe konuşan bir satın alma asistanısın. Tedarikçi teklif mailini ve eklerini analiz edip SADECE geçerli JSON dön. Açıklama yazma, markdown kullanma, ```json bloğu kullanma — sadece düz JSON.';
     // Haiku-first, PDF'te Sonnet fallback (maliyet ↓)
-    const sonuc = await _claudeAiCagirAkilli(sistem, contentBlocks, 500, !!(pdfler && pdfler.length));
+    const sonuc = await _claudeAiCagirAkilli(sistem, contentBlocks, 900, !!(pdfler && pdfler.length));
     if (sonuc && sonuc._err) {
       if (sonuc._err === 'unauthorized') showToast('⚠ Claude API key geçersiz (401). Ayarlar\'dan kontrol edin.');
       else if (sonuc._err === 'rate-limit') showToast('⚠ Claude API limit aşıldı (429). Bir süre bekleyip tekrar deneyin.');
@@ -14977,6 +15004,39 @@ async function otoTalepOnayla(taslakId) {
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ öncesi bağlantı gerekli (çakışma önlemi).');
 }
 
+// ↹↹ Mail içeri alırken manuel/AI alternatif ürün teklifi satırı ekle
+function mailAltEkle(mailIdx, prefill) {
+  const cont = document.getElementById('mail-altlist-' + mailIdx);
+  if (!cont) return;
+  prefill = prefill || {};
+  const _esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  const t = TALEPLER[aktifTalepIdx];
+  const urunler = (t?.urunler && t.urunler.length > 0) ? t.urunler : [{ aciklama: t?.urun || '' }];
+  const cokUrun = urunler.length > 1;
+  const inpStil = 'padding:4px 6px;font-size:11px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--bg2);color:var(--text);min-width:0;';
+
+  const urunSecici = cokUrun
+    ? '<select data-alt-urun style="' + inpStil + '">'
+        + urunler.map((u, ix) => '<option value="' + ix + '"' + (String(prefill.urunIdx) === String(ix) ? ' selected' : '')
+            + '>' + (ix + 1) + '. ' + ((u.aciklama || '').substring(0, 16)) + '</option>').join('')
+        + '</select>'
+    : '<input type="hidden" data-alt-urun value="0">';
+
+  const paraSec = p => ['TRY','USD','EUR'].map(x =>
+    '<option value="' + x + '"' + ((prefill.para || 'TRY') === x ? ' selected' : '') + '>' + (x === 'TRY' ? 'TL' : x) + '</option>').join('');
+
+  const div = document.createElement('div');
+  div.className = 'mail-alt-entry';
+  div.style.cssText = 'display:grid;grid-template-columns:' + (cokUrun ? '92px ' : '') + '1fr 64px 78px 56px 22px;gap:5px;align-items:center;margin-top:5px;';
+  div.innerHTML = urunSecici
+    + '<input type="text" data-alt-ad placeholder="↹ Alternatif ürün adı" value="' + _esc(prefill.ad) + '" style="' + inpStil + '">'
+    + '<input type="text" data-alt-kod placeholder="Kod" value="' + _esc(prefill.kod) + '" style="' + inpStil + 'font-family:var(--font-mono);">'
+    + '<input type="number" data-alt-fiyat placeholder="Fiyat" min="0" step="0.01" value="' + (prefill.birimFiyat > 0 ? prefill.birimFiyat : '') + '" style="' + inpStil + '">'
+    + '<select data-alt-para style="' + inpStil + '">' + paraSec() + '</select>'
+    + '<button onclick="this.closest(\'.mail-alt-entry\').remove()" title="Kaldır" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:13px;padding:0;line-height:1;">✕</button>';
+  cont.appendChild(div);
+}
+
 async function seciliOutlookTeklifleriEkle() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t || !window._outlookMailler) return;
@@ -15041,20 +15101,59 @@ async function seciliOutlookTeklifleriEkle() {
       .map(([,v]) => v).filter(v => v > 0);
     const ortFiyat = fiyatlar.length ? fiyatlar.reduce((a,b) => a+b, 0) / fiyatlar.length : 0;
 
-    // Hiç fiyat yoksa teklifi EKLEME — yoksa mail "zaten eklendi" olup kilitlenir
-    // ve kullanıcı tekrar AI çalıştıramaz/manuel giremez. Atla, uyar.
-    if (!fiyatlar.length) { atlanan++; continue; }
-
-    talepTeklifleri[t.no].push({
-      tedarikci: eslesen || mail.from?.emailAddress?.name || gonderen,
-      birimFiyat: ortFiyat,
-      urunFiyatlari,
-      teslimat,
-      gecerlilik: '',
-      odeme,
-      not: 'Outlook — ' + tarihFmt(new Date(mail.receivedDateTime)),
+    // ↹↹ Alternatif ürün teklifleri (manuel eklenen + AI yakaladığı) — her biri AYRI teklif satırı
+    const altEntries = [];
+    document.querySelectorAll('#mail-altlist-' + mailIdx + ' .mail-alt-entry').forEach(row => {
+      const uIdx  = parseInt(row.querySelector('[data-alt-urun]')?.value) || 0;
+      const ad    = (row.querySelector('[data-alt-ad]')?.value || '').trim();
+      const kod   = (row.querySelector('[data-alt-kod]')?.value || '').trim();
+      const fiyat = parseFloat(row.querySelector('[data-alt-fiyat]')?.value) || 0;
+      const para  = row.querySelector('[data-alt-para]')?.value || 'TRY';
+      if (fiyat > 0 && (ad || kod)) altEntries.push({ uIdx, ad, kod, fiyat, para });
     });
-    eklenen++;
+
+    // Ne ana fiyat ne de alternatif varsa teklifi EKLEME — yoksa mail "zaten eklendi" olup
+    // kilitlenir ve kullanıcı tekrar AI çalıştıramaz/manuel giremez. Atla, uyar.
+    if (!fiyatlar.length && altEntries.length === 0) { atlanan++; continue; }
+
+    const tedAdi = eslesen || mail.from?.emailAddress?.name || gonderen;
+    const notMail = 'Outlook — ' + tarihFmt(new Date(mail.receivedDateTime));
+
+    // Ana teklif (talep edilen ürünler) — yalnız fiyat girilmişse
+    if (fiyatlar.length) {
+      talepTeklifleri[t.no].push({
+        tedarikci: tedAdi,
+        birimFiyat: ortFiyat,
+        urunFiyatlari,
+        teslimat,
+        gecerlilik: '',
+        odeme,
+        not: notMail,
+      });
+      eklenen++;
+    }
+
+    // Her alternatif AYRI teklif satırı olarak (aynı tedarikçiden) eklenir
+    altEntries.forEach(a => {
+      const tl = tryToTL(a.fiyat, a.para);
+      if (tl <= 0) return;
+      const uf = {};
+      uf['fiyat_' + a.uIdx]          = tl;
+      uf['fiyat_' + a.uIdx + '_ham']  = a.fiyat;
+      uf['fiyat_' + a.uIdx + '_para'] = a.para;
+      if (a.ad)  uf['fiyat_' + a.uIdx + '_alt']    = a.ad;
+      if (a.kod) uf['fiyat_' + a.uIdx + '_altkod'] = a.kod;
+      talepTeklifleri[t.no].push({
+        tedarikci: tedAdi,
+        birimFiyat: tl,
+        urunFiyatlari: uf,
+        teslimat,
+        gecerlilik: '',
+        odeme,
+        not: notMail + ' · ↹ Alternatif: ' + (a.ad || a.kod),
+      });
+      eklenen++;
+    });
   }
 
   renderTalepTeklifleri();
