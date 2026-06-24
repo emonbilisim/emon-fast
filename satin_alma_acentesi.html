@@ -5655,7 +5655,8 @@ function renderTalepler() {
   const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','İptal'];
 
   // Satıcı izolasyonu + kapanmış işleri ele: Tamamlandı talepler yalnızca Arşiv'de gösterilir.
-  const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı');
+  // Müşteriye teklif gönderilen talepler yalnızca "Teklifler" kısmında görünür (burada gizlenir).
+  const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı' && !t.musteriTeklifGonderildi);
   const siraliTalepler = [...gorunurTalepler].sort((a,b) => {
     if (srt === 'stz') {
       const fa = sttFarki(a), fb = sttFarki(b);
