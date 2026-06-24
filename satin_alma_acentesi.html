@@ -3439,7 +3439,7 @@ function tedarikciEkle() {
   toggleKargo('nt');
   closeModal('yeniTedarikci');
   filterTedarikciler();
-  showToast(`"${firma}" tedarikçi listesine eklendi!`); veriKaydet();
+  showToast(`"${firma}" tedarikçi listesine eklendi!`); kaliciVeriKaydet('Tedarikçi');
 }
 
 // TEDARİKÇİ DÜZENLE
@@ -3500,7 +3500,7 @@ function tedarikciGuncelle() {
   TEDARIKCILER[idx] = yeniSatir;
   closeModal('duzenleTedarikci');
   filterTedarikciler();
-  showToast('Tedarikçi bilgileri güncellendi!'); veriKaydet();
+  showToast('Tedarikçi bilgileri güncellendi!'); kaliciVeriKaydet('Tedarikçi değişikliği');
 }
 
 // TEDARİKÇİ SİL
@@ -3513,7 +3513,7 @@ function tedarikciSil(idx) {
   if (confirm(`"${firma}" tedarikçisini listeden silmek istediğinize emin misiniz?`)) {
     TEDARIKCILER.splice(idx, 1);
     filterTedarikciler();
-    showToast(`"${firma}" silindi.`); veriKaydet();
+    showToast(`"${firma}" silindi.`); kaliciVeriKaydet('Tedarikçi silme');
   }
 }
 
@@ -4628,17 +4628,20 @@ function onayBekleyenleriKaydet() {
   if (typeof veriKaydet === 'function') veriKaydet();
 }
 
-// Admin onayı GİBİ kritik değişiklikler debounce'u (1 sn, fire-and-forget) BEKLEMEDEN
-// hemen ve await edilebilir biçimde sunucuya (ortak kullanıma) yazılmalı. Aksi halde
-// admin sekmeyi kapatır / anlık bağlantı koparsa onay yalnız localStorage'da kalıp
-// kaybolabilir. veriKaydet() snapshot'ı hazırlar, veriKaydetFlush() onu hemen gönderir.
-async function onayKaliciKaydet() {
+// Kritik değişiklikler (admin onayı, müşteri/tedarikçi ekle-düzenle-sil) debounce'u
+// (1 sn, fire-and-forget) BEKLEMEDEN hemen ve await edilebilir biçimde sunucuya (ortak
+// kullanıma) yazılmalı. Aksi halde admin sekmeyi kapatır / anlık bağlantı koparsa
+// değişiklik yalnız localStorage'da kalıp kaybolabilir. veriKaydet() snapshot'ı
+// hazırlar, veriKaydetFlush() onu hemen gönderir.
+async function kaliciVeriKaydet(etiket) {
   if (typeof veriKaydet === 'function') veriKaydet();          // güncel snapshot'ı hazırla
   let ok = false;
   try { if (typeof veriKaydetFlush === 'function') ok = await veriKaydetFlush(); } catch (_) {}
-  if (!ok) showToast('⚠ Onay yerel olarak kaydedildi ama sunucuya hemen yazılamadı — bağlantı sağlanınca otomatik gönderilecek.');
+  if (!ok) showToast('⚠ ' + (etiket || 'Değişiklik') + ' yerel olarak kaydedildi ama sunucuya hemen yazılamadı — bağlantı sağlanınca otomatik gönderilecek.');
   return ok;
 }
+// Onay akışı için geriye uyumlu alias
+async function onayKaliciKaydet() { return kaliciVeriKaydet('Onay'); }
 function onayBadgeGuncelle() {
   const toplam = ONAY_BEKLEYENLER.musteriler.length + ONAY_BEKLEYENLER.tedarikciler.length;
   const isAdmin = aktifKullanici?.rol === 'admin';
@@ -4836,7 +4839,7 @@ function musteriKaydet() {
     return;
   }
 
-  if(idx===-1){MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); veriKaydet();}
+  if(idx===-1){MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); kaliciVeriKaydet('Müşteri');}
   else{
     const eskiFirma = MUSTERILER[idx].firma;
     kayit.tarih = MUSTERILER[idx].tarih;
@@ -4849,7 +4852,7 @@ function musteriKaydet() {
       if (Array.isArray(CRM_AKTIVITELER)) CRM_AKTIVITELER.forEach(a => { if (a.musteri === eskiFirma) a.musteri = kayit.firma; });
     }
     showToast('Müşteri güncellendi!' + (tasinan ? ' (' + tasinan + ' talep yeni ada taşındı)' : ''));
-    veriKaydet();
+    kaliciVeriKaydet('Müşteri değişikliği');
   }
   closeModal('musteriForm');
   filterMusteriler();
@@ -4857,7 +4860,7 @@ function musteriKaydet() {
 
 function musteriSil(idx) {
   if (aktifKullanici?.rol === 'satici') { showToast('Müşteri silme yetkiniz yok. Değişiklik için ✏️ ile talep oluşturun.'); return; }
-  if(confirm(`"${MUSTERILER[idx].firma}" silinsin mi?`)){MUSTERILER.splice(idx,1);filterMusteriler();showToast('Müşteri silindi.'); veriKaydet();}
+  if(confirm(`"${MUSTERILER[idx].firma}" silinsin mi?`)){MUSTERILER.splice(idx,1);filterMusteriler();showToast('Müşteri silindi.'); kaliciVeriKaydet('Müşteri silme');}
 }
 
 function filterMusteriler() {
