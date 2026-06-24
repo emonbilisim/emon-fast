@@ -1434,10 +1434,7 @@
       <div class="card">
         <div class="card-title" style="margin-bottom:14px;">İletişim Bilgileri</div>
         <table style="width:100%;font-size:13px;">
-          <tr><td style="color:var(--text3);padding:5px 0;width:130px;">Yetkili</td><td id="d-yetkili" style="font-weight:500;"></td></tr>
-          <tr><td style="color:var(--text3);padding:5px 0;">Unvan</td><td id="d-unvan"></td></tr>
-          <tr><td style="color:var(--text3);padding:5px 0;">Telefon</td><td id="d-tel"></td></tr>
-          <tr><td style="color:var(--text3);padding:5px 0;">E-posta</td><td id="d-mail"></td></tr>
+          <tr><td style="color:var(--text3);padding:5px 0;width:130px;vertical-align:top;">Yetkililer</td><td id="d-yetkililer" style="padding:5px 0;"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Adres</td><td id="d-adres"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Vergi No</td><td id="d-vergino" class="mono"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Vergi Dairesi</td><td id="d-vergidaire"></td></tr>
@@ -4927,11 +4924,19 @@ function musteriDetay(idx) {
   const m=MUSTERILER[idx];
   document.getElementById('detay-firma-adi').textContent=m.firma;
   document.getElementById('detay-firma-sektor').textContent=m.sektor||'—';
-  const ilk=m.yetkililer&&m.yetkililer[0]||{};
-  document.getElementById('d-yetkili').textContent=ilk.ad||'—';
-  document.getElementById('d-unvan').textContent=ilk.unvan||'—';
-  document.getElementById('d-tel').textContent=ilk.tel||'—';
-  document.getElementById('d-mail').innerHTML=ilk.mail?`<a href="mailto:${ilk.mail}" style="color:var(--accent2);">${ilk.mail}</a>`:'—';
+  // Tüm yetkili kişileri listele (sadece ilki değil)
+  const yetkililer=(Array.isArray(m.yetkililer)?m.yetkililer:[]).filter(y=>y&&(y.ad||y.unvan||y.tel||y.mail));
+  const yEl=document.getElementById('d-yetkililer');
+  yEl.innerHTML=yetkililer.length?yetkililer.map((y,i)=>{
+    const satirlar=[];
+    if(y.unvan) satirlar.push(`<span style="color:var(--text3);">${y.unvan}</span>`);
+    if(y.tel)   satirlar.push(`📞 ${y.tel}`);
+    if(y.mail)  satirlar.push(`✉️ <a href="mailto:${y.mail}" style="color:var(--accent2);">${y.mail}</a>`);
+    return `<div style="${i>0?'border-top:1px solid var(--border);margin-top:8px;padding-top:8px;':''}">`+
+      `<div style="font-weight:500;">${y.ad||'—'}</div>`+
+      (satirlar.length?`<div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.7;">${satirlar.join(' &nbsp;·&nbsp; ')}</div>`:'')+
+    `</div>`;
+  }).join(''):'—';
   document.getElementById('d-adres').textContent=m.adres||'—';
   document.getElementById('d-vergino').textContent=m.vergino||'—';
   document.getElementById('d-vergidaire').textContent=m.vergidaire||'—';
