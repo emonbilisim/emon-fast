@@ -4623,9 +4623,10 @@ function onayBekleyenleriYukle() {
 function onayBekleyenleriKaydet() {
   localStorage.setItem('emonfast_onay', JSON.stringify(ONAY_BEKLEYENLER));
   onayBadgeGuncelle();
-  // ONAY_BEKLEYENLER sunucu üzerinden tüm cihazlara senkronlanmalı —
-  // veriKaydet() debounce'lu API push'unu tetikler
-  if (typeof veriKaydet === 'function') veriKaydet();
+  // Onay listesi değişiklikleri (satıcının onaya gönderdiği talepler + admin onay/red/
+  // geçersiz-kaldırma) HEMEN ve await edilebilir biçimde ortak sunucuya yazılmalı —
+  // 1 sn debounce penceresinde sekme kapanır/bağlantı koparsa kaybolmasın.
+  return kaliciVeriKaydet('Onay listesi');
 }
 
 // Kritik değişiklikler (admin onayı, müşteri/tedarikçi ekle-düzenle-sil) debounce'u
@@ -4640,8 +4641,6 @@ async function kaliciVeriKaydet(etiket) {
   if (!ok) showToast('⚠ ' + (etiket || 'Değişiklik') + ' yerel olarak kaydedildi ama sunucuya hemen yazılamadı — bağlantı sağlanınca otomatik gönderilecek.');
   return ok;
 }
-// Onay akışı için geriye uyumlu alias
-async function onayKaliciKaydet() { return kaliciVeriKaydet('Onay'); }
 function onayBadgeGuncelle() {
   const toplam = ONAY_BEKLEYENLER.musteriler.length + ONAY_BEKLEYENLER.tedarikciler.length;
   const isAdmin = aktifKullanici?.rol === 'admin';
@@ -9260,6 +9259,7 @@ async function talepKaydet() {
       MUSTERILER.unshift(yeniM);
       filterMusteriler();
       showToast(`"${ymFirma}" müşteri listesine eklendi!`);
+      kaliciVeriKaydet('Müşteri'); // yeni müşteriyi HEMEN ortak sunucuya yaz
     }
     musteriAd = ymFirma;
   } else if (musteriIdx >= 0) {
@@ -9569,9 +9569,8 @@ async function onayMusteriKabul(i) {
     if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
     MUSTERILER[hedef] = musteriVeri;
     ONAY_BEKLEYENLER.musteriler.splice(i, 1);
-    onayBekleyenleriKaydet(); filterMusteriler();
+    onayBekleyenleriKaydet(); filterMusteriler(); // onayBekleyenleriKaydet HEMEN flush eder
     onayModalAc();
-    await onayKaliciKaydet(); // değişikliği HEMEN ortak sunucuya yaz (yerelde kalmasın)
     showToast('✅ Müşteri değişikliği onaylandı ve uygulandı!');
     return;
   }
@@ -9645,8 +9644,7 @@ async function onayMusteriKabul(i) {
 async function _onayMusteriKaydetSonra(i) {
   // musteriKaydet çalıştıktan sonra onay listesinden çıkar
   ONAY_BEKLEYENLER.musteriler.splice(i, 1);
-  onayBekleyenleriKaydet();
-  await onayKaliciKaydet(); // onaylanan müşteriyi HEMEN ortak sunucuya yaz
+  onayBekleyenleriKaydet(); // HEMEN ortak sunucuya yazar (kalıcı)
   showToast('✅ Müşteri onaylandı ve sisteme eklendi!');
 }
 
@@ -9676,18 +9674,16 @@ async function onayTedarikciKabul(i) {
     }
     TEDARIKCILER[hedef] = kayit.satir;
     ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
-    onayBekleyenleriKaydet(); filterTedarikciler();
+    onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
     onayModalAc();
-    await onayKaliciKaydet(); // değişikliği HEMEN ortak sunucuya yaz
     showToast('✅ Değişiklik onaylandı ve uygulandı!');
     return;
   }
 
   TEDARIKCILER.unshift(kayit.satir);
   ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
-  onayBekleyenleriKaydet(); filterTedarikciler();
+  onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
   onayModalAc();
-  await onayKaliciKaydet(); // onaylanan tedarikçiyi HEMEN ortak sunucuya yaz
   showToast('✅ Tedarikçi onaylandı ve sisteme eklendi!');
 }
 
