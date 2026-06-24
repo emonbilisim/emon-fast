@@ -5587,13 +5587,11 @@ function renderTalepler() {
     return new Date(b.tarih||0) - new Date(a.tarih||0); // tarih: yeniden eskiye
   });
 
-  siraliTalepler.forEach((t, idx) => {
-    const gercekIdx = TALEPLER.indexOf(t);
-    const text = [t.no, t.musteri, t.urun, t.miktar, t.durum].join(' ').toLowerCase();
-    const goster = (q===''||text.includes(q)) && (df===''||t.durum===df);
-
-    // Panel — ilk 5, filtre yok
-    if (panelTbody && idx < 5) {
+  // Panel "Aktif Talepler" — yönetici olmayan kullanıcı YALNIZCA kendine atanmış talepleri görür
+  // (talepBenim: admin→hepsi, diğer→sadece atanmış; sahipsiz/eski paylaşımlı hariç). İlk 5.
+  if (panelTbody) {
+    const panelTalepler = siraliTalepler.filter(talepBenim).slice(0, 5);
+    panelTalepler.forEach(t => {
       const pr = document.createElement('tr');
       pr.innerHTML = `
         <td class="mono">#${t.no}</td>
@@ -5604,7 +5602,13 @@ function renderTalepler() {
         <td style="font-size:12px;color:var(--text2);">${talepTarihFmt(t.tarih)}</td>
         <td><button class="btn btn-sm" onclick="goPage('talepler',document.querySelector('[onclick*=talepler]'))">→</button></td>`;
       panelTbody.appendChild(pr);
-    }
+    });
+  }
+
+  siraliTalepler.forEach((t, idx) => {
+    const gercekIdx = TALEPLER.indexOf(t);
+    const text = [t.no, t.musteri, t.urun, t.miktar, t.durum].join(' ').toLowerCase();
+    const goster = (q===''||text.includes(q)) && (df===''||t.durum===df);
 
     // Talepler sayfası
     if (tbody && goster) {
@@ -5645,7 +5649,7 @@ function renderTalepler() {
   const empty = document.getElementById('talepler-empty');
   const panelEmpty = document.getElementById('panel-talepler-empty');
   if (empty) empty.style.display = count===0&&tbody?'block':'none';
-  if (panelEmpty) panelEmpty.style.display = TALEPLER.length===0?'block':'none';
+  if (panelEmpty) panelEmpty.style.display = (panelTbody && panelTbody.children.length===0)?'block':'none';
 
   // Panel metrikleri — yalnızca görünür talepler üzerinden say
   const acik = gorunurTalepler.filter(t=>t.durum!=='Tamamlandı').length;
@@ -11083,6 +11087,15 @@ function talepGorunur(t) {
   return t.satici === aktifKullanici.id;
 }
 
+// KESİN sahiplik: talep yalnızca aktif kullanıcıya ATANMIŞSA true (sahipsiz/eski paylaşımlı HARİÇ).
+// Admin her şeyi görür. Panel görünürlüğünde "sadece kendi talebi" kuralı için kullanılır.
+function talepBenim(t) {
+  if (!aktifKullanici || !t) return false;
+  if (aktifKullanici.rol === 'admin') return true;
+  if (t.saticiEmail) return (t.saticiEmail || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase();
+  return t.satici != null && t.satici !== '' && t.satici === aktifKullanici.id;
+}
+
 // Talebin sorumlu satıcısını çöz (e-posta öncelikli, eski id'ye düşer)
 function talepSorumluKullanici(t) {
   if (!t) return null;
@@ -12643,7 +12656,8 @@ function sonTeklifUyarilariGoster() {
   const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
 
   const yaklasanlar = TALEPLER
-    .filter(t => t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu))
+    // Yönetici olmayan kullanıcı yalnızca KENDİNE ATANMIŞ taleplerin STZ uyarısını görür
+    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu))
     .map(t => {
       const stz  = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
       const fark = stz - simdi;
@@ -12705,7 +12719,8 @@ function sonTeklifUyarilariGoster() {
   const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
 
   const yaklasanlar = TALEPLER
-    .filter(t => t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu))
+    // Yönetici olmayan kullanıcı yalnızca KENDİNE ATANMIŞ taleplerin STZ uyarısını görür
+    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu))
     .map(t => {
       const stz  = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
       const fark = stz - simdi;
