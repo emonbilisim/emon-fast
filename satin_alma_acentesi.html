@@ -13246,6 +13246,15 @@ async function outlookTumMaillerGoster() {
     const rfqFirmalar = t.rfqTedarikciler || [];
     const rfqTarih = t.tarih ? new Date(t.tarih).toISOString() : null;
 
+    // Yalnızca ilgili talep numarasını içeren mailleri al (konu veya önizleme).
+    // RFQ yanıtlarının konusu "[TALEPNO] ..." biçiminde olduğu için güvenilir eşleşir.
+    const talepNoNorm = (t.no || '').replace(/\s+/g, '').toUpperCase();
+    const talepNoEslesir = m => {
+      if (!talepNoNorm) return true;
+      const hay = ((m.subject || '') + ' ' + (m.bodyPreview || '')).replace(/\s+/g, '').toUpperCase();
+      return hay.includes(talepNoNorm);
+    };
+
     window._tumMailler = [];
     let tumMailler = window._tumMailler;
 
@@ -13270,6 +13279,7 @@ async function outlookTumMaillerGoster() {
               if (!gelenKutusunda(m)) return;            // yalnızca gelen kutusu
               // RFQ tarihinden sonra gelen mailler
               if (rfqTarih && new Date(m.receivedDateTime) < new Date(rfqTarih)) return;
+              if (!talepNoEslesir(m)) return;            // yalnızca ilgili talep numaralı mailler
               if (!tumMailler.find(x => x.id === m.id)) tumMailler.push(m);
             });
           }
@@ -13287,6 +13297,7 @@ async function outlookTumMaillerGoster() {
             const data = await resp.json();
             (data.value || []).forEach(m => {
               if (!gelenKutusunda(m)) return;            // yalnızca gelen kutusu
+              if (!talepNoEslesir(m)) return;            // yalnızca ilgili talep numaralı mailler
               if (!tumMailler.find(x => x.id === m.id)) tumMailler.push(m);
             });
           }
@@ -13301,7 +13312,8 @@ async function outlookTumMaillerGoster() {
         );
         if (resp.ok) {
           const data = await resp.json();
-          tumMailler = (data.value || []).filter(gelenKutusunda);   // yalnızca gelen kutusu
+          // yalnızca gelen kutusu + ilgili talep numaralı mailler
+          tumMailler = (data.value || []).filter(m => gelenKutusunda(m) && talepNoEslesir(m));
           window._tumMailler = tumMailler;
         }
       } catch {}
@@ -13336,7 +13348,7 @@ async function outlookTumMaillerGoster() {
     // Daha önce eklenenler hariç tut — ama göster (üstü çizili + uyarı)
     icerik.innerHTML = `
       <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">
-        <strong>${tumMailler.length}</strong> mail bulundu.
+        <strong>${tumMailler.length}</strong> mail bulundu <span style="font-size:11px;color:var(--text3);">(yalnızca <strong>${t.no}</strong> numaralı talebe ait)</span>.
         ${mevcutMailler.size > 0 ? '<span style="font-size:11px;color:var(--amber);margin-left:8px;">⚠ Daha önce eklenmiş teklifler işaretli — yeniden eklenmeyecek.</span>' : ''}
         <span style="font-size:11px;color:var(--text3);margin-left:8px;">Fiyatları manuel girebilir veya AI ile otomatik çıkarabilirsiniz.</span>
       </div>
