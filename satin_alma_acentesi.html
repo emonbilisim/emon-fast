@@ -12971,6 +12971,7 @@ function _stzKontrolIlkAcilis() {
   const simdi  = new Date();
   const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
   TALEPLER.forEach(t => {
+    if (!talepBenim(t)) return; // yönetici olmayan: yalnız kendine atanmış taleplerin uyarısı
     if (!t.sonTeklifTarih) return;
     if (kapali.includes(t.durum) || kapali.includes(t.teklifDurumu)) return;
     const stz     = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
@@ -12995,6 +12996,7 @@ function _stzKontrol() {
   const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
 
   TALEPLER.forEach(t => {
+    if (!talepBenim(t)) return; // yönetici olmayan: yalnız kendine atanmış taleplerin uyarısı
     if (!t.sonTeklifTarih) return;
     if (kapali.includes(t.durum) || kapali.includes(t.teklifDurumu)) return;
     const stz   = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
@@ -13016,7 +13018,7 @@ function _stzKontrol() {
   // Panel kartındaki kalan süreleri güncelle
   const kapaliArr = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
   const liste = TALEPLER
-    .filter(t => t.sonTeklifTarih && !kapaliArr.includes(t.durum))
+    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapaliArr.includes(t.durum))
     .map(t => ({ t, stz: new Date(t.sonTeklifTarih+'T'+(t.sonTeklifSaat||'17:00')) }));
   _stzKalanGuncelle(liste);
 }
