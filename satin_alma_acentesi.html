@@ -10933,10 +10933,17 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   // Toplam
   fr(LM,Y,CW,9,AGRI);
   ln(LM,Y,LM+CW,Y,MAVI,1.5);
-  sf(DMAVI,8,'bold');
-  doc.text('TOPLAM TEKLİF TUTARI',xs[4]+cws[4]-1.5,Y+6,{align:'right'});
-  sf(YESIL,10,'bold');
-  doc.text(symMap[toplamPara]+' '+fmt2(toplamTutar),LM+CW-1.5,Y+6,{align:'right'});
+  // Etiket ile rakam ayni font boyunda; rakam sag kenara, etiket rakamin
+  // solunda sabit 8mm boslukla — rakam genisligi (max 8 hane) ne olursa olsun ust uste binmez.
+  const TF=9;
+  const valTxt=symMap[toplamPara]+' '+fmt2(toplamTutar);
+  const valX=LM+CW-2;
+  sf(YESIL,TF,'bold');
+  const valW=doc.getTextWidth(valTxt);
+  sf(DMAVI,TF,'bold');
+  doc.text('TOPLAM TEKLİF TUTARI', valX-valW-8, Y+6, {align:'right'});
+  sf(YESIL,TF,'bold');
+  doc.text(valTxt, valX, Y+6, {align:'right'});
   Y+=12;
 
   // KUR NOTU — müşterinin döviz kuru tipine göre (dinamik güncel kur dahil)
@@ -11003,7 +11010,9 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
     doc.text(vt,LM+48,ky+3.5);
   });
 
-  const lastKy=Y+kosullar.length*KH+3;
+  // Garanti notu footer bandinin (H-16) en az 5mm ustunde kalsin — uzun
+  // tablolarda/alternatif blokta footer ile cakismasini onler, gorunur kalir.
+  const lastKy=Math.min(Y+kosullar.length*KH+4, H-16-5);
   sf([130,130,130],6,'normal');
   doc.text('Firmamızın satışını yaptığı bütün ürünler ORİJİNAL ve RESMİ DİSTRİBÜTÖR GARANTİSİ altındadır.',LM,lastKy);
 
