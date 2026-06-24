@@ -1,0 +1,27 @@
+name: zz-dump (gecici)
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump /api/veri handler to public dir
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            F=/var/www/emonfast/server.js
+            OUT=/var/www/emonfast/public/_hdump_k7x9q.txt
+            L=$(grep -n "/api/veri" "$F" | head -1 | cut -d: -f1)
+            if [ -n "$L" ]; then
+              S=$(( L>3 ? L-3 : 1 ))
+              sed -n "${S},$(( L + 300 ))p" "$F" > "$OUT"
+              echo "dumped /api/veri region from line $L"
+            else
+              echo "PATTERN /api/veri NOT FOUND in $F" > "$OUT"
+            fi
