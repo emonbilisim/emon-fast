@@ -15655,6 +15655,26 @@ function _mkey(r, keyFn) {
 // Anahtarlı dizi birleştirme
 // noDelete=true → güvenilir baz yokken silme aşaması atlanır (birleşim/union
 // modu): sonuç = sunucu ∪ benim eklediklerim. Hiçbir kayıt düşmez.
+// ALAN BAZLI 3-yönlü kayıt birleştirme: iki kullanıcı AYNI kaydın FARKLI alanlarını
+// düzenlerse birbirini EZMESİN. Yerel bir alanı baz'a göre değiştirdiyse o alan yerelden;
+// değiştirmediyse sunucudan (başka kullanıcının değişikliği) alınır. Eskiden kayıt bütün
+// olarak son-yazan-kazanır mantığıyla yazılıyordu → başka cihazdan/sekmeden gelen bayat
+// kopya, dokunmadığı alanları (ör. müşteri adres/ödeme bilgisi) ESKİ haline döndürüyordu.
+// Yalnız ÜST düzey alan/indeks birleştirilir; iç içe nesneler (ör. odeme, yetkililer) atomik.
+function _kayitBirlestir(base, local, server) {
+  if (local == null || server == null || base == null) return local;
+  if (typeof local !== 'object' || typeof server !== 'object' || typeof base !== 'object') {
+    return JSON.stringify(local) !== JSON.stringify(base) ? local : server;
+  }
+  const diziMi = Array.isArray(local) && Array.isArray(server);
+  const sonuc = diziMi ? [] : {};
+  const anahtarlar = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(server)]);
+  for (const k of anahtarlar) {
+    sonuc[k] = (JSON.stringify(local[k]) !== JSON.stringify(base[k])) ? local[k] : server[k];
+  }
+  return sonuc;
+}
+
 function _mergeDizi(base, local, server, keyFn, noDelete = false) {
   base   = Array.isArray(base)   ? base   : [];
   local  = Array.isArray(local)  ? local  : [];
@@ -15679,7 +15699,10 @@ function _mergeDizi(base, local, server, keyFn, noDelete = false) {
   const sonuc    = new Map(_anahtarli(server));
   for (const [k, r] of localMap) {                    // eklediklerim / değiştirdiklerim
     const b = baseMap.get(k);
-    if (b === undefined || JSON.stringify(b) !== JSON.stringify(r)) sonuc.set(k, r);
+    if (b === undefined) { sonuc.set(k, r); continue; }      // yerelde yeni kayıt
+    if (JSON.stringify(b) === JSON.stringify(r)) continue;   // yerelde değişmemiş → sunucudaki kalsın
+    const s = sonuc.get(k);                                  // sunucunun güncel hali (varsa)
+    sonuc.set(k, s === undefined ? r : _kayitBirlestir(b, r, s)); // alan bazlı birleştir
   }
   if (!noDelete) {
     for (const k of baseMap.keys()) {                 // sildiklerim (baz'da var, yerelde yok)
