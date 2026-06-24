@@ -8447,8 +8447,7 @@ async function musteriTeklifMaili() {
   + '<tr><td style="padding:10px 14px;background:#fff8e1;border-left:4px solid #f9a825;line-height:1.9;">'
   + (kurAck.tip === 'tl'
       ? 'Fiyatlar\u0131m\u0131z <b>TL</b> baz\u0131nda ge\u00e7erlidir; d\u00f6viz kuru uygulanmaz.<br>'
-      : 'Aksi taraf\u0131n\u0131zca talep edilmedi\u011fi s\u00fcrece \u00fcr\u00fcnler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> \u00fczerinden fiyatlanacakt\u0131r.'
-        + (kurAck.dinamik ? ' <span style="color:#1565C0;">(g\u00fcncel: ' + kurAck.dinamik + ')</span>' : '') + '<br>')
+      : 'Aksi taraf\u0131n\u0131zca talep edilmedi\u011fi s\u00fcrece \u00fcr\u00fcnler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> \u00fczerinden fiyatlanacakt\u0131r.<br>')
   + '<b>&#x1F69A; T\u00fcm T\u00fcrkiye\u2019ye lojistik bedel teklife dahildir.</b>'
   + '</td></tr></table>'
 
@@ -10965,7 +10964,7 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   const kosullar=[
     ['Teklifi Veren',          iz.ad||''],
     ['Teklif Geçerliliği',     gecerlilik],
-    ['Döviz Kuru',             (()=>{ const _k=musteriKurAciklama(m,toplamPara); return _k.cumle + (_k.dinamikPdf ? '  ('+_k.dinamikPdf+')' : ''); })()],
+    ['Döviz Kuru',             musteriKurAciklama(m,toplamPara).cumle],
     ['Ödeme Şartları',         m?.odeme?.havale?'30 GÜN BANKA HAVALESİ':m?.odeme?.vadeli?'Vadeli':'Yazılı sipariş üzerine belirlenir'],
     ['Teslimat Süresi',        'Yazılı sipariş takiben 2-5 GÜN içinde teslim.'],
     ['Teslimat Şartları',      'ELDEN TESLİM/KARGO Türkiye içindeki her türlü lojistik masraf firmamıza aittir.'],
@@ -11509,8 +11508,7 @@ async function teklifHatirlatGonder(idx) {
     + '<tr><td style="padding:10px 14px;background:#fff8e1;border-left:4px solid #f9a825;line-height:1.9;">'
     + (kurAck.tip === 'tl'
         ? 'Fiyatlarimiz <b>TL</b> bazinda gecerlidir; doviz kuru uygulanmaz.<br>'
-        : 'Aksi tarafinizca talep edilmedigi surece urunler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> uzerinden fiyatlanacaktir.'
-          + (kurAck.dinamik ? ' <span style="color:#1565C0;">(guncel: ' + kurAck.dinamik + ')</span>' : '') + '<br>')
+        : 'Aksi tarafinizca talep edilmedigi surece urunler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> uzerinden fiyatlanacaktir.<br>')
     + '<b>&#x1F69A; Tum Turkiye lojistik bedel teklife dahildir.</b>'
     + '</td></tr></table>'
     + '<p style="margin-top:20px;">Teklifimizin degerlendirilmesini diler, herhangi bir sorunuz olmasi halinde iletisime gecmekten cekinmeyiniz.</p>'
