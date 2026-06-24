@@ -1445,7 +1445,8 @@
         <table style="width:100%;font-size:13px;">
           <tr><td style="color:var(--text3);padding:5px 0;width:130px;">Ödeme Şekli</td><td id="d-odeme"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Vade</td><td id="d-vade"></td></tr>
-          <tr><td style="color:var(--text3);padding:5px 0;">Kredi Limiti</td><td id="d-limit"></td></tr>
+          <tr><td style="color:var(--text3);padding:5px 0;">Ödeme Cinsi</td><td id="d-odeme-cins"></td></tr>
+          <tr><td style="color:var(--text3);padding:5px 0;vertical-align:top;">Özel Ödeme Şartları</td><td id="d-limit"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Fiyat Grubu</td><td id="d-fiyatgrup"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Döviz Kuru Tipi</td><td id="d-doviz-kuru-tipi"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Durum</td><td id="d-durum"></td></tr>
@@ -2602,6 +2603,13 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
           <input type="number" id="mf-vade-gun" placeholder="30" min="1" style="width:64px;padding:4px 8px;font-size:12px;" disabled>
           <span style="font-size:12px;color:var(--text3);">gün</span>
         </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px;padding-top:8px;border-top:1px solid var(--border);">
+        <span style="min-width:90px;">Ödeme Cinsi —</span>
+        <select id="mf-odeme-cins" style="width:140px;padding:4px 8px;font-size:12px;">
+          <option value="TL">TL</option>
+          <option value="Doviz">Döviz</option>
+        </select>
       </div>
     </div>
 
@@ -4554,6 +4562,7 @@ function musteriFormAc(idx) {
     ['mf-odeme-havale','mf-odeme-kk','mf-odeme-kkkom','mf-odeme-vadeli'].forEach(id=>document.getElementById(id).checked=false);
     document.getElementById('mf-kkkom-oran').value=''; document.getElementById('mf-kkkom-oran').disabled=true;
     document.getElementById('mf-vade-gun').value=''; document.getElementById('mf-vade-gun').disabled=true;
+    { const oc=document.getElementById('mf-odeme-cins'); if(oc) oc.value='TL'; } // varsayılan ödeme cinsi: TL
     // FP kuralları sıfırla
     ['mf-fp-baz','mf-fp-donanim','mf-fp-sarf','mf-fp-lisans','mf-fp-yazici','mf-fp-telefon','mf-fp-aksesuar','mf-fp-iskonto','mf-fp-min-marj','mf-fp-not'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
     yetkiliEkleRow();
@@ -4572,6 +4581,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-odeme-havale').checked=!!o.havale; document.getElementById('mf-odeme-kk').checked=!!o.kk;
     document.getElementById('mf-odeme-kkkom').checked=!!o.kkkom; document.getElementById('mf-kkkom-oran').value=o.kkkomOran||''; document.getElementById('mf-kkkom-oran').disabled=!o.kkkom;
     document.getElementById('mf-odeme-vadeli').checked=!!o.vadeli; document.getElementById('mf-vade-gun').value=o.vadeGun||''; document.getElementById('mf-vade-gun').disabled=!o.vadeli;
+    { const oc=document.getElementById('mf-odeme-cins'); if(oc) oc.value=o.cins||'TL'; } // eski kayıtlar → varsayılan TL
     (m.yetkililer||[]).forEach(y=>yetkiliEkleRow(y));
     if (!m.yetkililer||!m.yetkililer.length) yetkiliEkleRow();
     (m.ozelSartlar||[]).forEach(s=>ozelSartEkle(s));
@@ -4740,7 +4750,7 @@ function musteriKaydet() {
   const kayit = {
     firma, sektor:document.getElementById('mf-sektor').value, yetkililer,
     adres:document.getElementById('mf-adres').value.trim(), vergino:document.getElementById('mf-vergino').value.trim(), vergidaire:document.getElementById('mf-vergidaire').value.trim(),
-    odeme:{havale:document.getElementById('mf-odeme-havale').checked,kk:document.getElementById('mf-odeme-kk').checked,kkkom:document.getElementById('mf-odeme-kkkom').checked,kkkomOran:document.getElementById('mf-kkkom-oran').value.trim(),vadeli:document.getElementById('mf-odeme-vadeli').checked,vadeGun:document.getElementById('mf-vade-gun').value},
+    odeme:{havale:document.getElementById('mf-odeme-havale').checked,kk:document.getElementById('mf-odeme-kk').checked,kkkom:document.getElementById('mf-odeme-kkkom').checked,kkkomOran:document.getElementById('mf-kkkom-oran').value.trim(),vadeli:document.getElementById('mf-odeme-vadeli').checked,vadeGun:document.getElementById('mf-vade-gun').value,cins:document.getElementById('mf-odeme-cins')?.value||'TL'},
     ozelSartlar, fiyatgrup:document.getElementById('mf-fiyatgrup').value, durum:document.getElementById('mf-durum').value,
     kaynak:document.getElementById('mf-kaynak')?.value || '',
     musteriTipi:document.getElementById('mf-musteritipi')?.value || '',
@@ -4937,6 +4947,23 @@ function dovizKuruTipiAd(tip) {
   return tip === 'tl' ? 'TL' : tip === 'alis' ? 'TCMB Günlük Alış Kuru' : 'TCMB Günlük Satış Kuru';
 }
 
+// Müşterinin ödeme şartı özeti — teklif maili/PDF için (vade + ödeme cinsi + yöntem).
+// Örn: "30 gün vadeli · Havale · Döviz ödeme" veya "Peşin · TL ödeme".
+function odemeSartiOzeti(m) {
+  const o = (m && m.odeme) || {};
+  const yontem = [];
+  if (o.havale) yontem.push('Havale');
+  if (o.kk)     yontem.push('Kredi Kartı (komisyonsuz)');
+  if (o.kkkom)  yontem.push('Kredi Kartı' + (o.kkkomOran ? ' (' + o.kkkomOran + ')' : ' (komisyonlu)'));
+  const vade = (o.vadeli && o.vadeGun) ? (o.vadeGun + ' gün vadeli') : (yontem.length ? 'Peşin' : '');
+  const cins = (o.cins === 'Doviz') ? 'Döviz' : 'TL';
+  const parts = [];
+  if (vade) parts.push(vade);
+  if (yontem.length) parts.push(yontem.join(', '));
+  parts.push(cins + ' ödeme');
+  return parts.join(' · ');
+}
+
 // Müşterinin döviz kuru tipine göre teklif/PDF kur açıklaması üretir.
 // Dönen: { tip, tipAd, cumle, dinamik (HTML ₺), dinamikPdf (TL) } — dinamik: teklif
 // para birimine ve müşterinin alış/satış tercihine göre güncel TCMB değeri (varsa).
@@ -4982,8 +5009,9 @@ function musteriDetay(idx) {
   document.getElementById('d-adres').textContent=m.adres||'—';
   document.getElementById('d-vergino').textContent=m.vergino||'—';
   document.getElementById('d-vergidaire').textContent=m.vergidaire||'—';
-  document.getElementById('d-odeme').innerHTML=odemeBadgeMusteri(m.odeme,[]);
+  document.getElementById('d-odeme').innerHTML=odemeBadgeMusteri(m.odeme,m.ozelSartlar);
   document.getElementById('d-vade').textContent=m.odeme&&m.odeme.vadeli&&m.odeme.vadeGun?m.odeme.vadeGun+' gün':'—';
+  { const ocEl=document.getElementById('d-odeme-cins'); if(ocEl) ocEl.textContent=(m.odeme&&m.odeme.cins==='Doviz')?'Döviz':'TL'; }
   const ozelEl=document.getElementById('d-limit');
   ozelEl.innerHTML=m.ozelSartlar&&m.ozelSartlar.length?m.ozelSartlar.map(s=>`<div style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="color:var(--amber);">⚡</span><span>${s}</span></div>`).join(''):'—';
   document.getElementById('d-fiyatgrup').innerHTML=fiyatGrupBadge(m.fiyatgrup);
@@ -8445,6 +8473,7 @@ async function musteriTeklifMaili() {
   // TCMB + lojistik notu — her zaman göster
   + '<table style="border-collapse:collapse;width:100%;font-size:12px;color:#555;margin-top:4px;">'
   + '<tr><td style="padding:10px 14px;background:#fff8e1;border-left:4px solid #f9a825;line-height:1.9;">'
+  + '<b>\u00d6deme \u015eartlar\u0131:</b> ' + odemeSartiOzeti(m) + '<br>'
   + (kurAck.tip === 'tl'
       ? 'Fiyatlar\u0131m\u0131z <b>TL</b> baz\u0131nda ge\u00e7erlidir; d\u00f6viz kuru uygulanmaz.<br>'
       : 'Aksi taraf\u0131n\u0131zca talep edilmedi\u011fi s\u00fcrece \u00fcr\u00fcnler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> \u00fczerinden fiyatlanacakt\u0131r.<br>')
@@ -10965,7 +10994,7 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
     ['Teklifi Veren',          iz.ad||''],
     ['Teklif Geçerliliği',     gecerlilik],
     ['Döviz Kuru',             musteriKurAciklama(m,toplamPara).cumle],
-    ['Ödeme Şartları',         m?.odeme?.havale?'30 GÜN BANKA HAVALESİ':m?.odeme?.vadeli?'Vadeli':'Yazılı sipariş üzerine belirlenir'],
+    ['Ödeme Şartları',         odemeSartiOzeti(m) || 'Yazılı sipariş üzerine belirlenir'],
     ['Teslimat Süresi',        'Yazılı sipariş takiben 2-5 GÜN içinde teslim.'],
     ['Teslimat Şartları',      'ELDEN TESLİM/KARGO Türkiye içindeki her türlü lojistik masraf firmamıza aittir.'],
     ['Notlar',                 ''],
@@ -11506,6 +11535,7 @@ async function teklifHatirlatGonder(idx) {
     + urunTabloHtml
     + '<table style="border-collapse:collapse;width:100%;font-size:12px;color:#555;margin-top:4px;">'
     + '<tr><td style="padding:10px 14px;background:#fff8e1;border-left:4px solid #f9a825;line-height:1.9;">'
+    + '<b>Odeme Sartlari:</b> ' + odemeSartiOzeti(m) + '<br>'
     + (kurAck.tip === 'tl'
         ? 'Fiyatlarimiz <b>TL</b> bazinda gecerlidir; doviz kuru uygulanmaz.<br>'
         : 'Aksi tarafinizca talep edilmedigi surece urunler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> uzerinden fiyatlanacaktir.<br>')
