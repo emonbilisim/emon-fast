@@ -4627,6 +4627,18 @@ function onayBekleyenleriKaydet() {
   // veriKaydet() debounce'lu API push'unu tetikler
   if (typeof veriKaydet === 'function') veriKaydet();
 }
+
+// Admin onayı GİBİ kritik değişiklikler debounce'u (1 sn, fire-and-forget) BEKLEMEDEN
+// hemen ve await edilebilir biçimde sunucuya (ortak kullanıma) yazılmalı. Aksi halde
+// admin sekmeyi kapatır / anlık bağlantı koparsa onay yalnız localStorage'da kalıp
+// kaybolabilir. veriKaydet() snapshot'ı hazırlar, veriKaydetFlush() onu hemen gönderir.
+async function onayKaliciKaydet() {
+  if (typeof veriKaydet === 'function') veriKaydet();          // güncel snapshot'ı hazırla
+  let ok = false;
+  try { if (typeof veriKaydetFlush === 'function') ok = await veriKaydetFlush(); } catch (_) {}
+  if (!ok) showToast('⚠ Onay yerel olarak kaydedildi ama sunucuya hemen yazılamadı — bağlantı sağlanınca otomatik gönderilecek.');
+  return ok;
+}
 function onayBadgeGuncelle() {
   const toplam = ONAY_BEKLEYENLER.musteriler.length + ONAY_BEKLEYENLER.tedarikciler.length;
   const isAdmin = aktifKullanici?.rol === 'admin';
@@ -9533,7 +9545,7 @@ function onayModalAc() {
   openModal('onayBekleyenler');
 }
 
-function onayMusteriKabul(i) {
+async function onayMusteriKabul(i) {
   const kayit = ONAY_BEKLEYENLER.musteriler[i];
   if (!kayit) return;
 
@@ -9554,8 +9566,9 @@ function onayMusteriKabul(i) {
     if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
     MUSTERILER[hedef] = musteriVeri;
     ONAY_BEKLEYENLER.musteriler.splice(i, 1);
-    onayBekleyenleriKaydet(); veriKaydet(); filterMusteriler();
+    onayBekleyenleriKaydet(); filterMusteriler();
     onayModalAc();
+    await onayKaliciKaydet(); // değişikliği HEMEN ortak sunucuya yaz (yerelde kalmasın)
     showToast('✅ Müşteri değişikliği onaylandı ve uygulandı!');
     return;
   }
@@ -9626,10 +9639,11 @@ function onayMusteriKabul(i) {
   }, 150);
 }
 
-function _onayMusteriKaydetSonra(i) {
+async function _onayMusteriKaydetSonra(i) {
   // musteriKaydet çalıştıktan sonra onay listesinden çıkar
   ONAY_BEKLEYENLER.musteriler.splice(i, 1);
   onayBekleyenleriKaydet();
+  await onayKaliciKaydet(); // onaylanan müşteriyi HEMEN ortak sunucuya yaz
   showToast('✅ Müşteri onaylandı ve sisteme eklendi!');
 }
 
@@ -9643,7 +9657,7 @@ function onayMusteriReddet(i) {
   showToast('Müşteri kaydı reddedildi.' + (neden ? ' Neden: ' + neden : ''));
 }
 
-function onayTedarikciKabul(i) {
+async function onayTedarikciKabul(i) {
   const kayit = ONAY_BEKLEYENLER.tedarikciler[i];
   if (!kayit) return;
 
@@ -9659,16 +9673,18 @@ function onayTedarikciKabul(i) {
     }
     TEDARIKCILER[hedef] = kayit.satir;
     ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
-    onayBekleyenleriKaydet(); veriKaydet(); filterTedarikciler();
+    onayBekleyenleriKaydet(); filterTedarikciler();
     onayModalAc();
+    await onayKaliciKaydet(); // değişikliği HEMEN ortak sunucuya yaz
     showToast('✅ Değişiklik onaylandı ve uygulandı!');
     return;
   }
 
   TEDARIKCILER.unshift(kayit.satir);
   ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
-  onayBekleyenleriKaydet(); veriKaydet(); filterTedarikciler();
+  onayBekleyenleriKaydet(); filterTedarikciler();
   onayModalAc();
+  await onayKaliciKaydet(); // onaylanan tedarikçiyi HEMEN ortak sunucuya yaz
   showToast('✅ Tedarikçi onaylandı ve sisteme eklendi!');
 }
 
