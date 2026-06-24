@@ -5803,7 +5803,9 @@ function talepDetayAc(idx) {
   renderWorkflow(t.durum);
 
   // Tedarikçi listesi + akıllı öneriler
-  rfqSeciliTedarikciler = new Set((t.rfqTedarikciler||[]));
+  // "Stok yok" işaretli tedarikçiler aktif seçime alınmaz (RFQ/hatırlatma gitmesin)
+  const _stokYokSet = new Set(t.rfqStokYok || []);
+  rfqSeciliTedarikciler = new Set((t.rfqTedarikciler||[]).filter(f => !_stokYokSet.has(f)));
   rfqSeciliMailler = {};
   rfqTedarikciAra();
   const urunler = t.urunler || (t.urun ? [{aciklama:t.urun}] : []);
@@ -5975,6 +5977,7 @@ function rfqTedarikciAra() {
 
   firmalar.forEach(f => {
     const secili = rfqSeciliTedarikciler.has(f.firma);
+    const stoksuz = rfqStokYokMu(f.firma);
     const eslesme = f.skor > 0;
     const mailSayisi = f.mailler.length;
     const seciliMailSayisi = rfqSeciliMailler[f.firma]?.length;
@@ -5988,6 +5991,10 @@ function rfqTedarikciAra() {
     const eslesmeHtml = eslesme
       ? `<span style="font-size:10px;background:rgba(62,207,142,0.15);color:var(--green);padding:1px 6px;border-radius:10px;flex-shrink:0;margin-left:4px;">✓ Uyumlu</span>`
       : '';
+    const stokYokBadge = stoksuz
+      ? `<span style="font-size:10px;background:var(--bg2);color:var(--text3);padding:1px 6px;border-radius:10px;flex-shrink:0;margin-left:4px;">✕ Stok Yok</span>`
+      : '';
+    const firmaEsc2 = f.firma.replace(/"/g,'&quot;');
     const mailHtml = mailSayisi > 1
       ? `<span style="color:var(--accent2);">${seciliMailSayisi||mailSayisi}/${mailSayisi} e-posta seçili</span>`
       : mailSayisi === 1
@@ -5995,19 +6002,21 @@ function rfqTedarikciAra() {
         : `<span style="color:var(--red);">e-posta yok</span>`;
 
     const div = document.createElement('div');
-    div.style.cssText = `display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;${secili?'background:rgba(79,142,247,0.06);':''}`;
+    div.style.cssText = `display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;${secili?'background:rgba(79,142,247,0.06);':''}${stoksuz?'opacity:0.6;':''}`;
     div.innerHTML = `
-      <input type="checkbox" ${secili?'checked':''} style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;">
+      <input type="checkbox" ${secili?'checked':''} ${stoksuz?'disabled':''} style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;">
       <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;font-weight:${secili?'600':'400'};">
-          ${f.firma}${eslesmeHtml}${urunBadge}
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;font-weight:${secili?'600':'400'};${stoksuz?'text-decoration:line-through;color:var(--text3);':''}">
+          ${f.firma}${eslesmeHtml}${stokYokBadge}${urunBadge}
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">${f.urunler[0]||''}</span>
           <span>·</span>${mailHtml}
         </div>
       </div>
-    ` + (secili ? '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.3);" onclick=\'event.stopPropagation();mailSecimAc("' + f.firma.replace(/"/g,'&quot;') + '")\'>⚙️ Ayarla</button>' : '');
+    `
+    + (secili ? '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.3);" onclick=\'event.stopPropagation();mailSecimAc("' + firmaEsc2 + '")\'>⚙️ Ayarla</button>' : '')
+    + '<button class="btn btn-sm" style="padding:3px 8px;font-size:11px;flex-shrink:0;' + (stoksuz?'':'color:var(--text3);') + '" title="' + (stoksuz?'Tekrar aktif et':'Stok yok olarak işaretle') + '" onclick=\'event.stopPropagation();rfqStokYokToggle("' + firmaEsc2 + '")\'>' + (stoksuz?'↩':'🚫') + '</button>';
     div.onclick = e => { if (e.target.tagName==='BUTTON'||e.target.closest('button')) return; rfqTedarikciToggle(f.firma); };
     liste.appendChild(div);
   });
@@ -6062,6 +6071,11 @@ function rfqManuelSil(idx) {
 
 
 function rfqTedarikciToggle(firma) {
+  // "Stok yok" işaretli tedarikçi seçime alınmaz
+  if (rfqStokYokMu(firma) && !rfqSeciliTedarikciler.has(firma)) {
+    showToast(firma + ' "stok yok" olarak işaretli. Seçmek için önce işareti kaldırın.');
+    return;
+  }
   if (rfqSeciliTedarikciler.has(firma)) {
     rfqSeciliTedarikciler.delete(firma);
     delete rfqSeciliMailler[firma];
@@ -6069,6 +6083,32 @@ function rfqTedarikciToggle(firma) {
   } else {
     rfqSeciliTedarikciler.add(firma);
   }
+  rfqTedarikciAra();
+}
+
+// ── "Stok yok" işareti (talep bazlı): işaretli tedarikçi RFQ'da aktif olmaz ──
+function rfqStokYokMu(firma) {
+  return (TALEPLER[aktifTalepIdx]?.rfqStokYok || []).includes(firma);
+}
+
+function rfqStokYokToggle(firma) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  if (!Array.isArray(t.rfqStokYok)) t.rfqStokYok = [];
+  const i = t.rfqStokYok.indexOf(firma);
+  if (i >= 0) {
+    t.rfqStokYok.splice(i, 1);
+    showToast(firma + ' tekrar aktif edildi.');
+  } else {
+    t.rfqStokYok.push(firma);
+    // Aktif seçimden çıkar — bir daha RFQ/hatırlatma gitmesin
+    rfqSeciliTedarikciler.delete(firma);
+    delete rfqSeciliMailler[firma];
+    delete rfqSeciliUrunler[firma];
+    showToast(firma + ' "stok yok" — artık RFQ\'da aktif değil.');
+  }
+  veriKaydet();
+  renderRfqDurumu();
   rfqTedarikciAra();
 }
 
@@ -6191,7 +6231,10 @@ async function rfqMailGonder() {
     : `  ${t.urun} — ${t.miktar||'—'}`;
 
   TALEPLER[aktifTalepIdx].durum = 'RFQ Gönderildi';
-  TALEPLER[aktifTalepIdx].rfqTedarikciler = [...firmalar, ...rfqManuelTedarikciler.map(m=>m.firma)];
+  // "Stok yok" işaretli (geçmişte sorulmuş) tedarikçiler kayıttan düşmesin — birleştir
+  const _yeniFirmalar = [...firmalar, ...rfqManuelTedarikciler.map(m=>m.firma)];
+  const _stokYokKorunan = (TALEPLER[aktifTalepIdx].rfqStokYok || []).filter(f => !_yeniFirmalar.includes(f));
+  TALEPLER[aktifTalepIdx].rfqTedarikciler = [..._yeniFirmalar, ..._stokYokKorunan];
   renderTalepler();
   renderWorkflow('RFQ Gönderildi');
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('RFQ Gönderildi');
@@ -6663,6 +6706,7 @@ function renderRfqDurumu() {
   const rfqFirmalar = t.rfqTedarikciler || [];
   const teklifler   = talepTeklifleri[t.no] || [];
   const donumYapan  = new Set(teklifler.map(tk => tk.tedarikci));
+  const stokYok     = new Set(t.rfqStokYok || []);
 
   if (rfqFirmalar.length === 0) {
     icerik.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Henüz RFQ gönderilmedi.</div>';
@@ -6670,13 +6714,15 @@ function renderRfqDurumu() {
     return;
   }
 
-  const donenSayisi   = rfqFirmalar.filter(f => donumYapan.has(f)).length;
-  const donmeyenSayisi = rfqFirmalar.length - donenSayisi;
+  const stokYokSayisi  = rfqFirmalar.filter(f => stokYok.has(f)).length;
+  const donenSayisi    = rfqFirmalar.filter(f => !stokYok.has(f) && donumYapan.has(f)).length;
+  const donmeyenSayisi = rfqFirmalar.filter(f => !stokYok.has(f) && !donumYapan.has(f)).length;
 
   if (ozet) ozet.innerHTML =
     '<strong>' + rfqFirmalar.length + '</strong> tedarikçiye soruldu &nbsp;·&nbsp; '
     + '<span style="color:var(--green);font-weight:600;">' + donenSayisi + ' yanıt verdi</span>'
-    + (donmeyenSayisi > 0 ? ' &nbsp;·&nbsp; <span style="color:var(--amber);font-weight:600;">' + donmeyenSayisi + ' bekleniyor</span>' : '');
+    + (donmeyenSayisi > 0 ? ' &nbsp;·&nbsp; <span style="color:var(--amber);font-weight:600;">' + donmeyenSayisi + ' bekleniyor</span>' : '')
+    + (stokYokSayisi > 0 ? ' &nbsp;·&nbsp; <span style="color:var(--text3);font-weight:600;">' + stokYokSayisi + ' stok yok</span>' : '');
 
   // Sayaç kartları
   let html = `
@@ -6698,23 +6744,29 @@ function renderRfqDurumu() {
   // Tedarikçi listesi
   html += '<div style="display:flex;flex-direction:column;gap:6px;">';
   rfqFirmalar.forEach(firma => {
-    const donus = donumYapan.has(firma);
+    const stoksuz = stokYok.has(firma);
+    const donus = !stoksuz && donumYapan.has(firma);
     const teklifler_firma = teklifler.filter(tk => tk.tedarikci === firma);
     const fiyatBilgisi = teklifler_firma.length > 0 && teklifler_firma[0].birimFiyat > 0
       ? '₺' + teklifler_firma[0].birimFiyat.toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2})
       : '';
+    const firmaEsc = firma.replace(/'/g,"\\'");
+
+    const durumRenk = stoksuz ? 'var(--text3)' : (donus ? 'var(--green)' : 'var(--amber)');
+    const durumBg   = stoksuz ? 'var(--bg2)' : (donus ? 'rgba(62,207,142,0.12)' : 'rgba(251,191,36,0.12)');
+    const durumYazi = stoksuz ? '✕ Stok Yok' : (donus ? '✓ Yanıt Geldi' : '⏳ Bekleniyor');
 
     html += `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);">
-        <div style="width:10px;height:10px;border-radius:50%;background:${donus?'var(--green)':'var(--amber)'};flex-shrink:0;"></div>
-        <div style="flex:1;font-size:13px;font-weight:500;">${firma}</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);${stoksuz?'opacity:0.7;':''}">
+        <div style="width:10px;height:10px;border-radius:50%;background:${durumRenk};flex-shrink:0;"></div>
+        <div style="flex:1;font-size:13px;font-weight:500;${stoksuz?'text-decoration:line-through;color:var(--text3);':''}">${firma}</div>
         ${fiyatBilgisi ? '' : ''}
         <div style="font-size:12px;padding:3px 10px;border-radius:20px;font-weight:500;
-          background:${donus?'rgba(62,207,142,0.12)':'rgba(251,191,36,0.12)'};
-          color:${donus?'var(--green)':'var(--amber)'};">
-          ${donus ? '✓ Yanıt Geldi' : '⏳ Bekleniyor'}
+          background:${durumBg};color:${durumRenk};">
+          ${durumYazi}
         </div>
-        ${!donus ? '<button class="btn btn-sm" onclick="rfqTekrarGonder(\'' + firma.replace(/'/g,"\\'") + '\')" style="font-size:11px;padding:3px 8px;">📧 Hatırlat</button>' : ''}
+        ${(!donus && !stoksuz) ? '<button class="btn btn-sm" onclick="rfqTekrarGonder(\'' + firmaEsc + '\')" style="font-size:11px;padding:3px 8px;">📧 Hatırlat</button>' : ''}
+        <button class="btn btn-sm" onclick="rfqStokYokToggle('${firmaEsc}')" title="${stoksuz?'Tekrar aktif et':'Stok yok olarak işaretle — RFQ\'dan çıkar'}" style="font-size:11px;padding:3px 8px;${stoksuz?'':'color:var(--text3);'}">${stoksuz ? '↩ Aktif Et' : '🚫 Stok Yok'}</button>
       </div>`;
   });
   html += '</div>';
@@ -6725,6 +6777,10 @@ function renderRfqDurumu() {
 async function rfqTekrarGonder(firma) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
+  if ((t.rfqStokYok || []).includes(firma)) {
+    showToast(firma + ' "stok yok" olarak işaretli — hatırlatma gönderilmedi.');
+    return;
+  }
   if (!(await talepNoKesinlestir(t))) { // çakışma önlemi (bkz. rfqMailGonder)
     showToast('⛔ Talep numarası sunucudan kesinleşmedi (çevrimdışı). RFQ gönderilmedi — bağlantı sağlanınca tekrar deneyin.');
     return;
