@@ -14522,7 +14522,6 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       const sonuc = await maildenTalepCikar(icerik, pdfler);
       if (sonuc && sonuc._err) continue; // geçici hata → işaretleme, sonraki taramada tekrar denenir
 
-      cfg.islenenMailIdler.push(m.id); // başarılı analiz → tekrar işlenmesin
       const tip = sonuc && sonuc.tip;
       const from = m.from?.emailAddress?.address || '';
       const ortak = {
@@ -14552,6 +14551,12 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       } else if (tip === 'onay' || tip === 'revizyon') {
         cfg.taslaklar.unshift({ ...ortak, tip, eslesenTalepNo: otoEslesenTalepBul(ortak.teklifNo, ortak.musteri) });
         yeniTaslak++;
+      } else {
+        // TASLAK ÜRETMEYEN mail (talep/onay/revizyon değil) → tekrar AI'ya gitmesin diye işaretle.
+        // Taslak ÜRETEN mailler İŞARETLENMEZ: bekleyen taslak (taslaklar.mailId) ya da oluşan
+        // talebin mailId'si zaten tekrar taranmasını engeller. Böylece talep girişi yarım
+        // kalır / taslak kaybolursa mail "işlenmiş" sanılıp yutulmaz, sonraki taramada yeniden algılanır.
+        cfg.islenenMailIdler.push(m.id);
       }
     }
 
