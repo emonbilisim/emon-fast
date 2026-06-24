@@ -1447,6 +1447,7 @@
           <tr><td style="color:var(--text3);padding:5px 0;">Vade</td><td id="d-vade"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Kredi Limiti</td><td id="d-limit"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Fiyat Grubu</td><td id="d-fiyatgrup"></td></tr>
+          <tr><td style="color:var(--text3);padding:5px 0;">Döviz Kuru Tipi</td><td id="d-doviz-kuru-tipi"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Durum</td><td id="d-durum"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Eklenme Tarihi</td><td id="d-tarih"></td></tr>
           <tr id="d-fp-row" style="display:none;"><td style="color:var(--text3);padding:5px 0;vertical-align:top;">Fiyatlandırma</td><td id="d-fp-kurallari"></td></tr>
@@ -2644,6 +2645,14 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
           <option value="Pasif">Pasif</option>
         </select>
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Döviz Kuru Tipi <span style="font-size:11px;color:var(--text3);font-weight:400;">(bu müşteriye uygulanacak kur)</span></label>
+      <select id="mf-doviz-kuru-tipi">
+        <option value="satis">TCMB Günlük Satış Kuru</option>
+        <option value="alis">TCMB Günlük Alış Kuru</option>
+        <option value="tl">TL</option>
+      </select>
     </div>
     <div class="form-group">
       <label class="form-label">Kaynak <span style="font-size:11px;color:var(--text3);font-weight:400;">(müşteri nereden geldi)</span></label>
@@ -4539,6 +4548,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value='ilk'; } // yeni müşteri → varsayılan İlk Kayıt
+    { const dk=document.getElementById('mf-doviz-kuru-tipi'); if(dk) dk.value='satis'; } // varsayılan: TCMB Günlük Satış Kuru
     // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
     if (saticiSel) saticiSel.value = (aktifKullanici?.email || '').toLowerCase();
     ['mf-odeme-havale','mf-odeme-kk','mf-odeme-kkkom','mf-odeme-vadeli'].forEach(id=>document.getElementById(id).checked=false);
@@ -4556,6 +4566,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=m.kaynak||''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value=m.musteriTipi||''; }
+    { const dk=document.getElementById('mf-doviz-kuru-tipi'); if(dk) dk.value=m.dovizKuruTipi||'satis'; } // eski kayıtlar → varsayılan Satış
     if (saticiSel) { const _sk = saticiKullaniciBul(m.satici); saticiSel.value = _sk ? (_sk.email||'').toLowerCase() : ''; }
     const o=m.odeme||{};
     document.getElementById('mf-odeme-havale').checked=!!o.havale; document.getElementById('mf-odeme-kk').checked=!!o.kk;
@@ -4733,6 +4744,7 @@ function musteriKaydet() {
     ozelSartlar, fiyatgrup:document.getElementById('mf-fiyatgrup').value, durum:document.getElementById('mf-durum').value,
     kaynak:document.getElementById('mf-kaynak')?.value || '',
     musteriTipi:document.getElementById('mf-musteritipi')?.value || '',
+    dovizKuruTipi:document.getElementById('mf-doviz-kuru-tipi')?.value || 'satis',
     not:document.getElementById('mf-not').value.trim(), tarih:new Date().toISOString().slice(0,10),
     fpKurallari: fpKurallariOku(),
   };
@@ -4920,6 +4932,11 @@ function musteriTipiAd(tip) {
   return tip === 'mevcut' ? 'Mevcut Müşteri' : tip === 'demo' ? 'Demo Müşteri' : 'İlk Kayıt';
 }
 
+// Müşteri döviz kuru tipi → görünen ad (varsayılan: TCMB Günlük Satış Kuru)
+function dovizKuruTipiAd(tip) {
+  return tip === 'tl' ? 'TL' : tip === 'alis' ? 'TCMB Günlük Alış Kuru' : 'TCMB Günlük Satış Kuru';
+}
+
 function musteriDetay(idx) {
   const m=MUSTERILER[idx];
   document.getElementById('detay-firma-adi').textContent=m.firma;
@@ -4945,6 +4962,7 @@ function musteriDetay(idx) {
   const ozelEl=document.getElementById('d-limit');
   ozelEl.innerHTML=m.ozelSartlar&&m.ozelSartlar.length?m.ozelSartlar.map(s=>`<div style="display:flex;align-items:flex-start;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="color:var(--amber);">⚡</span><span>${s}</span></div>`).join(''):'—';
   document.getElementById('d-fiyatgrup').innerHTML=fiyatGrupBadge(m.fiyatgrup);
+  { const dkEl=document.getElementById('d-doviz-kuru-tipi'); if(dkEl) dkEl.textContent=dovizKuruTipiAd(m.dovizKuruTipi); }
   document.getElementById('d-durum').innerHTML=durumBadge(m.durum) + (m.musteriTipi ? ` <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text2);">${musteriTipiAd(m.musteriTipi)}</span>` : '');
   document.getElementById('d-tarih').textContent=m.tarih?tarihFmt(new Date(m.tarih)):'—';
   document.getElementById('d-not').textContent=m.not||'—';
