@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+
+# WireGuard / VPN client configs (contain private keys — never commit)
+client*.conf
+*.conf
