@@ -15659,9 +15659,24 @@ function _mergeDizi(base, local, server, keyFn, noDelete = false) {
   base   = Array.isArray(base)   ? base   : [];
   local  = Array.isArray(local)  ? local  : [];
   server = Array.isArray(server) ? server : [];
-  const baseMap  = new Map(base.map(r  => [_mkey(r, keyFn), r]));
-  const localMap = new Map(local.map(r => [_mkey(r, keyFn), r]));
-  const sonuc    = new Map(server.map(r => [_mkey(r, keyFn), r]));
+  // AYNI içerik anahtarını paylaşan kayıtlar birbirini EZMESİN diye anahtara tekrar
+  // sırası (#0, #1, ...) eklenir. Eskiden Map tekilleştirmesi, ilk-5-alanı aynı olan
+  // tedarikçi satırlarını (ör. aynı firma/ürün ya da boş alanlı satırlar) ya da aynı
+  // ada sahip müşterileri TEK kayda indiriyordu → bir satırdaki düzenleme (ör. kredi
+  // kartı komisyon oranı) senkronda sessizce DÜŞÜYOR/geri alınıyordu. Konum bazlı
+  // ayraç her satırı korur; tekil-anahtarlı koleksiyonlarda davranış değişmez (#0).
+  const _anahtarli = (arr) => {
+    const sayac = new Map();
+    return arr.map(r => {
+      const k = _mkey(r, keyFn);
+      const n = sayac.get(k) || 0;
+      sayac.set(k, n + 1);
+      return [k + '#' + n, r];
+    });
+  };
+  const baseMap  = new Map(_anahtarli(base));
+  const localMap = new Map(_anahtarli(local));
+  const sonuc    = new Map(_anahtarli(server));
   for (const [k, r] of localMap) {                    // eklediklerim / değiştirdiklerim
     const b = baseMap.get(k);
     if (b === undefined || JSON.stringify(b) !== JSON.stringify(r)) sonuc.set(k, r);
