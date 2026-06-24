@@ -373,6 +373,58 @@ jobs:
             PATCH
             node /tmp/emon-patch3.js
 
+      - name: Patch backend (veri-guard — katastrofik tablo kaybi korumasi)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            rm -f /var/www/emonfast/public/_hdump_k7x9q.txt
+            cat > /tmp/emon-patch-guard.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            if (s.includes('veri-guard v1')) { console.log('veri-guard zaten var'); process.exit(0); }
+            const anchor = "    const { MUSTERILER, TEDARIKCILER, TALEPLER, AYARLAR, talepTeklifleri, ONAY_BEKLEYENLER } = req.body;";
+            if (!s.includes(anchor)) { console.log('UYARI: anchor bulunamadi, veri-guard EKLENMEDI'); process.exit(0); }
+            const guard = [
+            "    // veri-guard v1 — stale/bug istemcinin full-replace ile tabloyu katastrofik",
+            "    // bosaltmasini/kucultmesini engelle. >=4 satirlik tabloda tek yazimda satirlarin",
+            "    // yarisindan FAZLASI kaybolacaksa (kasitli bayrak yoksa) o koleksiyon KORUNUR.",
+            "    // talepTeklifleri blobu katastrofik anahtar kaybinda sunucu verisiyle birlestirilir.",
+            "    try {",
+            "      const _kt = [['MUSTERILER','musteriler','musterilerKasten'],['TEDARIKCILER','tedarikciler','tedarikcilerKasten'],['TALEPLER','talepler','taleplerKasten']];",
+            "      for (const _row of _kt) {",
+            "        const alan = _row[0], tablo = _row[1], bayrak = _row[2];",
+            "        const gelen = req.body[alan];",
+            "        if (!Array.isArray(gelen) || !gelen.length) continue;",
+            "        const cur = (await client.query('SELECT count(*)::int AS n FROM ' + tablo)).rows[0].n;",
+            "        if (cur >= 4 && gelen.length < cur * 0.5 && !req.body[bayrak]) {",
+            "          console.warn('[veri-guard] ' + tablo + ': gelen ' + gelen.length + ' < mevcut ' + cur + ' — KORUNDU');",
+            "          req.body[alan] = undefined;",
+            "        }",
+            "      }",
+            "      if (req.body.talepTeklifleri && typeof req.body.talepTeklifleri === 'object') {",
+            "        const inN = Object.keys(req.body.talepTeklifleri).length;",
+            "        const _r = await client.query(\"SELECT deger FROM ayarlar WHERE anahtar='teklifler'\");",
+            "        const curObj = (_r.rows[0] && _r.rows[0].deger) || {};",
+            "        const curN = Object.keys(curObj).length;",
+            "        if (curN >= 4 && inN < curN * 0.5) {",
+            "          req.body.talepTeklifleri = Object.assign({}, curObj, req.body.talepTeklifleri);",
+            "          console.warn('[veri-guard] teklifler: gelen ' + inN + ' < mevcut ' + curN + ' — BIRLESTIRILDI');",
+            "        }",
+            "      }",
+            "    } catch (_g) { console.warn('[veri-guard] hata: ' + _g.message); }",
+            ""
+            ].join('\n');
+            fs.writeFileSync(f + '.bak.guard', s);
+            s = s.replace(anchor, guard + anchor);
+            fs.writeFileSync(f, s);
+            console.log('veri-guard v1 eklendi');
+            PATCH
+            node /tmp/emon-patch-guard.js
+
       - name: Upload seeder
         uses: appleboy/scp-action@master
         with:
