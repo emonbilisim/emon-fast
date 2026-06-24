@@ -9314,11 +9314,13 @@ async function talepKaydet() {
     not: document.getElementById('talep-not').value.trim(),
     oncelik: document.getElementById('talep-oncelik').value,
     portalTalebi: !!document.getElementById('talep-portal')?.checked,
-    satici: aktifKullanici?.id, // sahibi — yalnızca kendi taleplerini görsün
+    satici: aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
+    saticiEmail: (aktifKullanici?.email || '').toLowerCase(), // KALICI kimlik — cihazlar arası kararlı, sahiplik bunun üzerinden çözülür
   });
   renderTalepler();
   const _gosNo = noKesin ? no : talepNoBicimle(talepNoSayi(no));
-  showToast(`"${musteriAd}" için #${_gosNo} numaralı talep oluşturuldu!`); veriKaydet();
+  showToast(`"${musteriAd}" için #${_gosNo} numaralı talep oluşturuldu!`);
+  await kaliciVeriKaydet('Talep'); // HEMEN ortak sunucuya yaz — yerelde kalıp kaybolmasın
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ göndermeden önce bağlantı sağlanmalı (çakışma önlemi).');
 }
 
@@ -10062,7 +10064,7 @@ function satisTabloDurumuYukle(d) {
 }
 
 // Satıcı: admin'e onay talebi gönder
-function fiyatOnayTalep() {
+async function fiyatOnayTalep() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
 
@@ -10090,7 +10092,7 @@ function fiyatOnayTalep() {
     t.fiyatOnayTalep.otomatikOnay    = true;
     const _portalTablo  = t.portalTalebi ? satisTabloEmailHtml() : '';
     const _portalToplam = document.getElementById('satis-toplam')?.textContent || t.fiyatOnayTalep.toplamStr || '';
-    veriKaydet();
+    await kaliciVeriKaydet('Onay');
     satisBolumunuGuncelle();
     onayBekleyenBadgeGuncelle();
     showToast('🌙 Admin away modunda — talebiniz otomatik onaylandı!');
@@ -10099,9 +10101,15 @@ function fiyatOnayTalep() {
   }
 
   t.fiyatOnayDurumu = 'bekliyor';
-  veriKaydet();
+  // ÖNCE sunucuya yaz, SONRA admine mail. Aksi halde mail gider ama veri ortak
+  // tabana yansımazsa admin talebi göremez (yerelde kalır).
+  const kayitOk = await kaliciVeriKaydet('Onay talebi');
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
+  if (!kayitOk) {
+    showToast('⛔ Onay talebi sunucuya yazılamadı — admin göremez. Bağlantıyı kontrol edip tekrar deneyin (mail GÖNDERİLMEDİ).');
+    return; // veri sunucuda yokken yanıltıcı mail gönderme
+  }
   showToast('✅ Onay talebi admin\'e iletildi!');
   onayTalepBildirimGonder(t); // admin e-postasına uyarı (fire-and-forget)
 }
@@ -10189,7 +10197,7 @@ async function portalArsivMailiGonder(t, tabloHtml, toplamStr) {
 }
 
 // Admin: onayla
-function adminFiyatOnayla() {
+async function adminFiyatOnayla() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
 
@@ -10216,7 +10224,7 @@ function adminFiyatOnayla() {
   // Portal talebi ise onaylanan fiyat tablosunu (DOM canlıyken) yakala
   const _portalTablo  = t.portalTalebi ? satisTabloEmailHtml() : '';
   const _portalToplam = document.getElementById('satis-toplam')?.textContent || adminData.toplamStr || '';
-  veriKaydet();
+  await kaliciVeriKaydet('Fiyat onayı'); // HEMEN ortak sunucuya yaz — satıcı sonucu görsün
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
   showToast(degisiklikVar
@@ -10246,7 +10254,7 @@ function satisDurumFarkliMi(a, b) {
 }
 
 // Admin: reddet
-function adminFiyatReddet() {
+async function adminFiyatReddet() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
   const not = prompt('Red gerekçesi:') || '';
@@ -10255,7 +10263,7 @@ function adminFiyatReddet() {
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
   t.fiyatOnayTalep.adminNot = not;
   t.fiyatOnayTalep.adminTarih = new Date().toISOString();
-  veriKaydet();
+  await kaliciVeriKaydet('Fiyat reddi'); // HEMEN ortak sunucuya yaz
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
   showToast('❌ Fiyat reddedildi, satıcı bilgilendirildi.');
@@ -15037,13 +15045,15 @@ async function otoTalepOnayla(taslakId) {
     portalTalebi: false,
     _kaynak: 'oto-mail',
     mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
-    satici: aktifKullanici?.id, // sahibi — yalnızca kendi taleplerini görsün
+    satici: aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
+    saticiEmail: (aktifKullanici?.email || '').toLowerCase(), // KALICI kimlik — cihazlar arası kararlı
   });
 
   if (ts.mailId && !cfg.islenenMailIdler.includes(ts.mailId)) cfg.islenenMailIdler.push(ts.mailId); // kaynak mail tekrar taranmasın
   const _ix = cfg.taslaklar.findIndex(x => x.id === taslakId); // await sonrası taslak indeksini yeniden bul
   if (_ix >= 0) cfg.taslaklar.splice(_ix, 1);
-  renderTalepler(); veriKaydet(); otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  renderTalepler(); otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  kaliciVeriKaydet('Talep'); // onaylanan mail talebini HEMEN ortak sunucuya yaz
   showToast(`✅ #${noKesin ? no : talepNoBicimle(talepNoSayi(no))} talebi oluşturuldu (${musteriAd}).`);
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ öncesi bağlantı gerekli (çakışma önlemi).');
 }
