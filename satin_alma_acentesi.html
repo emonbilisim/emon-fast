@@ -15782,16 +15782,28 @@ function _mkey(r, keyFn) {
 // olarak son-yazan-kazanır mantığıyla yazılıyordu → başka cihazdan/sekmeden gelen bayat
 // kopya, dokunmadığı alanları (ör. müşteri adres/ödeme bilgisi) ESKİ haline döndürüyordu.
 // Yalnız ÜST düzey alan/indeks birleştirilir; iç içe nesneler (ör. odeme, yetkililer) atomik.
+// Anahtar SIRASINDAN BAĞIMSIZ (canonical) JSON. Postgres JSONB sunucuda nesne
+// anahtarlarını yeniden sıraladığı için, sıra-duyarlı JSON.stringify karşılaştırması
+// aynı kaydı "değişmiş/farklı" sanıyordu → onay talepleri merge'de geri enjekte
+// oluyor, admin'in uyguladığı onaylar (yeni müşteri/fiyat/revizyon) geri alınıyordu.
+// Canonical biçim (özyinelemeli sıralı anahtarlar) bu yanılmayı kökten giderir.
+function _canon(v) {
+  if (v === null || typeof v !== 'object') { const s = JSON.stringify(v); return s === undefined ? 'null' : s; }
+  if (Array.isArray(v)) return '[' + v.map(_canon).join(',') + ']';
+  const keys = Object.keys(v).filter(k => v[k] !== undefined).sort();
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + _canon(v[k])).join(',') + '}';
+}
+
 function _kayitBirlestir(base, local, server) {
   if (local == null || server == null || base == null) return local;
   if (typeof local !== 'object' || typeof server !== 'object' || typeof base !== 'object') {
-    return JSON.stringify(local) !== JSON.stringify(base) ? local : server;
+    return _canon(local) !== _canon(base) ? local : server;
   }
   const diziMi = Array.isArray(local) && Array.isArray(server);
   const sonuc = diziMi ? [] : {};
   const anahtarlar = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(server)]);
   for (const k of anahtarlar) {
-    sonuc[k] = (JSON.stringify(local[k]) !== JSON.stringify(base[k])) ? local[k] : server[k];
+    sonuc[k] = (_canon(local[k]) !== _canon(base[k])) ? local[k] : server[k];
   }
   return sonuc;
 }
@@ -15821,7 +15833,7 @@ function _mergeDizi(base, local, server, keyFn, noDelete = false) {
   for (const [k, r] of localMap) {                    // eklediklerim / değiştirdiklerim
     const b = baseMap.get(k);
     if (b === undefined) { sonuc.set(k, r); continue; }      // yerelde yeni kayıt
-    if (JSON.stringify(b) === JSON.stringify(r)) continue;   // yerelde değişmemiş → sunucudaki kalsın
+    if (_canon(b) === _canon(r)) continue;   // yerelde değişmemiş (anahtar sırası fark etmez) → sunucudaki kalsın
     const s = sonuc.get(k);                                  // sunucunun güncel hali (varsa)
     sonuc.set(k, s === undefined ? r : _kayitBirlestir(b, r, s)); // alan bazlı birleştir
   }
@@ -15838,7 +15850,7 @@ function _mergeObje(base, local, server) {
   base = base || {}; local = local || {}; server = server || {};
   const sonuc = { ...server };
   for (const k of Object.keys(local)) {
-    if (JSON.stringify(local[k]) !== JSON.stringify(base[k])) sonuc[k] = local[k];
+    if (_canon(local[k]) !== _canon(base[k])) sonuc[k] = local[k];
   }
   for (const k of Object.keys(base)) {
     if (!(k in local)) delete sonuc[k];
@@ -15864,8 +15876,8 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
   sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
   sonuc.ONAY_BEKLEYENLER = {
-    musteriler:   _mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   r => JSON.stringify(r), noDelete),
-    tedarikciler: _mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, r => JSON.stringify(r), noDelete),
+    musteriler:   _mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   r => _canon(r), noDelete),
+    tedarikciler: _mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, r => _canon(r), noDelete),
   };
   sonuc.talepTeklifleri = _mergeObje(base.talepTeklifleri, local.talepTeklifleri, server.talepTeklifleri);
   sonuc.KULLANICILAR    = _adminSahipli(local.KULLANICILAR, server.KULLANICILAR);
