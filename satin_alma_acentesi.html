@@ -6325,6 +6325,7 @@ async function rfqMailGonder() {
   renderTalepler();
   renderWorkflow('RFQ Gönderildi');
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('RFQ Gönderildi');
+  veriKaydet(); // RFQ durumu + seçilen tedarikçiler ortak sunucuya yazılsın (no kesin olsa da)
 
   const msGirisYapildi = !!(aktifKullanici?.msAccount && msGraphToken);
   let basarili = 0;
@@ -7003,6 +7004,7 @@ function yeniTeklifSatirEkle() {
     teslimat: '', gecerlilik: '', odeme: '', not: '', webLink: ''
   });
   renderTalepTeklifleri();
+  veriKaydet(); // yeni teklif satırı ortak sunucuya yazılsın
 }
 
 function tkManuelModa(tkIdx) {
@@ -7050,6 +7052,7 @@ function talepTeklifSil(i) {
   const t = TALEPLER[aktifTalepIdx];
   talepTeklifleri[t.no].splice(i, 1);
   renderTalepTeklifleri();
+  veriKaydet(); // teklif satırı silme ortak sunucuya yazılsın (merge'de geri gelmesin)
 }
 
 
