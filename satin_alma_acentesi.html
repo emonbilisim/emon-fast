@@ -12600,20 +12600,26 @@ function renderPanelMetrikler() {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   const setHTML = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
 
+  // Satıcı izolasyonu: yönetici olmayan kullanıcı panelde YALNIZCA kendine atanmış
+  // talepleri görür (talepBenim → admin: hepsi). Bütün sayım/durum-akışı/aktivite bu
+  // görünür liste üzerinden yapılır. NOT: talepDetayAc için gereken global satır indeksi
+  // (TALEPLER.indexOf) korunur — gTalepler yalnızca sayım/listeleme amaçlıdır.
+  const gTalepler = TALEPLER.filter(talepBenim);
+
   const simdi   = new Date();
   const ayBasi  = new Date(simdi.getFullYear(), simdi.getMonth(), 1);
   const haftaBasi = new Date(simdi); haftaBasi.setDate(simdi.getDate() - 7);
 
   const kapaliDurumlar = ['Tamamlandı','İptal','Reddedildi'];
-  const aktifTalepler  = TALEPLER.filter(t => !kapaliDurumlar.includes(t.durum));
-  const buAyTalepler   = TALEPLER.filter(t => t.tarih && new Date(t.tarih) >= ayBasi);
-  const buHaftaTalepler = TALEPLER.filter(t => t.tarih && new Date(t.tarih) >= haftaBasi);
+  const aktifTalepler  = gTalepler.filter(t => !kapaliDurumlar.includes(t.durum));
+  const buAyTalepler   = gTalepler.filter(t => t.tarih && new Date(t.tarih) >= ayBasi);
+  const buHaftaTalepler = gTalepler.filter(t => t.tarih && new Date(t.tarih) >= haftaBasi);
 
   // Bekleyen teklifler = RFQ gönderilmiş ama henüz teklif gelmemiş
-  const bekleyenTeklifler = TALEPLER.filter(t =>
+  const bekleyenTeklifler = gTalepler.filter(t =>
     t.durum === 'RFQ Gönderildi' || t.durum === 'Teklifler Bekleniyor'
   );
-  const teklifGelenler = TALEPLER.filter(t => t.durum === 'Teklif Hazır');
+  const teklifGelenler = gTalepler.filter(t => t.durum === 'Teklif Hazır');
 
   // Varsayılan kar marjı
   const varsayilanMarj = FP_KURALLAR?.baz || 25;
@@ -12628,7 +12634,7 @@ function renderPanelMetrikler() {
   set('m-bu-ay', buAyTalepler.length);
   const gecenAyBasi = new Date(simdi.getFullYear(), simdi.getMonth()-1, 1);
   const gecenAySonu = new Date(simdi.getFullYear(), simdi.getMonth(), 0);
-  const gecenAy = TALEPLER.filter(t => t.tarih && new Date(t.tarih) >= gecenAyBasi && new Date(t.tarih) <= gecenAySonu).length;
+  const gecenAy = gTalepler.filter(t => t.tarih && new Date(t.tarih) >= gecenAyBasi && new Date(t.tarih) <= gecenAySonu).length;
   if (gecenAy > 0) {
     const fark = buAyTalepler.length - gecenAy;
     set('m-bu-ay-alt', (fark >= 0 ? '↑ ' : '↓ ') + Math.abs(fark) + ' geçen aya göre');
@@ -12649,16 +12655,16 @@ function renderPanelMetrikler() {
   };
 
   const durumSayilari = {};
-  TALEPLER.forEach(t => { durumSayilari[t.durum] = (durumSayilari[t.durum]||0) + 1; });
+  gTalepler.forEach(t => { durumSayilari[t.durum] = (durumSayilari[t.durum]||0) + 1; });
 
   const akisIcerik = document.getElementById('panel-akis-icerik');
   if (akisIcerik) {
-    if (TALEPLER.length === 0) {
+    if (gTalepler.length === 0) {
       akisIcerik.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:13px;">Henüz talep yok.</div>';
     } else {
       akisIcerik.innerHTML = Object.entries(durumSayilari).map(([durum, sayi]) => {
         const cfg = durumGruplari[durum] || { renk:'var(--text3)', etiket:durum };
-        const yuzde = Math.round(sayi / TALEPLER.length * 100);
+        const yuzde = Math.round(sayi / gTalepler.length * 100);
         return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;">
           <div style="width:10px;height:10px;border-radius:50%;background:${cfg.renk};flex-shrink:0;"></div>
           <div style="flex:1;font-size:13px;">${cfg.etiket}</div>
@@ -12670,12 +12676,12 @@ function renderPanelMetrikler() {
       }).join('');
     }
     const subEl = document.getElementById('panel-akis-sub');
-    if (subEl) subEl.textContent = TALEPLER.length + ' toplam talep · ' + aktifTalepler.length + ' aktif';
+    if (subEl) subEl.textContent = gTalepler.length + ' toplam talep · ' + aktifTalepler.length + ' aktif';
   }
 
   // ─── SON AKTİVİTELER ───
   // Talepleri tarihe göre sırala — en yeni üste
-  const aktiviteler = [...TALEPLER]
+  const aktiviteler = [...gTalepler]
     .filter(t => t.tarih)
     .sort((a,b) => new Date(b.tarih) - new Date(a.tarih))
     .slice(0, 6);
@@ -13229,7 +13235,11 @@ function renderPanelTalepler() {
   const empty = document.getElementById('panel-talepler-empty');
   if (!tbody) return;
   const kapaliDurumlar = ['Tamamlandı','İptal','Reddedildi'];
-  const aktif = TALEPLER.filter(t => !kapaliDurumlar.includes(t.durum))
+  // Satıcı izolasyonu: yönetici olmayan kullanıcı yalnızca kendine atanmış talepleri
+  // görür (talepBenim → admin: hepsi). Aynı tbody'yi renderTalepler de talepBenim ile
+  // dolduruyor; ikisi de aynı kuralı kullanınca panel/çakışma tutarlı olur.
+  const gorunur = TALEPLER.filter(talepBenim);
+  const aktif = gorunur.filter(t => !kapaliDurumlar.includes(t.durum))
     .sort((a,b) => new Date(b.tarih||0) - new Date(a.tarih||0))
     .slice(0, 10);
   tbody.innerHTML = aktif.map((t, i) => {
@@ -13245,7 +13255,7 @@ function renderPanelTalepler() {
     </tr>`;
   }).join('');
   if (empty) empty.style.display = aktif.length === 0 ? 'block' : 'none';
-  set('m-talepler', TALEPLER.filter(t => !['Tamamlandı','İptal','Reddedildi'].includes(t.durum)).length);
+  set('m-talepler', gorunur.filter(t => !['Tamamlandı','İptal','Reddedildi'].includes(t.durum)).length);
   function set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
 } 
 
