@@ -16680,14 +16680,29 @@ msalBaslat();
 (function() {
   let _surumImza = null;     // açılıştaki sürüm imzası (ETag) — temel
   let _bildirildi = false;
+  function _guncellemeyeUygunMu() {
+    // Boşta mı? Açık form/modal, yazılmamış veya bekleyen kayıt, ya da aktif
+    // yazım yoksa sayfayı güvenle (veri kaybı olmadan) yenileyebiliriz.
+    if (document.querySelector('.modal-overlay.open')) return false;
+    if (typeof _kayitGerekli !== 'undefined' && _kayitGerekli) return false;
+    if (typeof _apiKaydetBekliyor !== 'undefined' && _apiKaydetBekliyor) return false;
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return false;
+    return true;
+  }
   async function surumKontrolEt() {
-    if (_bildirildi) return;
     try {
       const r = await fetch('/', { method: 'HEAD', cache: 'no-store' });
       const imza = r.headers.get('ETag') || r.headers.get('Last-Modified') || '';
       if (!imza) return;
       if (_surumImza === null) { _surumImza = imza; return; } // ilk ölçüm = temel
-      if (imza !== _surumImza) { _bildirildi = true; yeniSurumBandiGoster(); }
+      if (imza === _surumImza) return;                        // sürüm değişmedi
+      // YENİ SÜRÜM VAR. Eski sekmeler eski merge mantığıyla ortak veriyi bozabildiği
+      // için (onay geri-enjekte / değişiklik geri-alma), boştaki sekmeyi OTOMATİK
+      // yenile. Kullanıcı bir formla meşgulse bandı göster; sonraki kontrolde (60 sn)
+      // boşaldığında otomatik yenilenir.
+      if (_guncellemeyeUygunMu()) { location.reload(); return; }
+      yeniSurumBandiGoster();
     } catch (_) {}
   }
   function yeniSurumBandiGoster() {
