@@ -15516,6 +15516,10 @@ const LS_KEY = 'emonfast_v1';
 
 // ── API BAĞLANTISI ────────────────────────────
 const API_URL = window.location.origin; // https://fast.emon.com.tr
+// Build damgası — her POST /api/veri ile gönderilir. Backend "build-guard",
+// damgasız (eski/önbellekli kod) yazımları reddeder → eski sekme ortak veriyi
+// bozamaz. Canonical merge düzeltmesini içeren ilk damgalı sürüm.
+const APP_BUILD = '2026-06-25.1';
 let _apiToken = null;
 let _apiKaydetBekliyor = false;
 let _apiKaydetTimer = null;
@@ -15609,6 +15613,7 @@ async function apiVeriYukle() {
   }
 }
 
+let _staleReloadYapildi = false;
 async function apiVeriKaydet(veri) {
   const token = apiTokenAl();
   if (!token) return false;
@@ -15616,9 +15621,17 @@ async function apiVeriKaydet(veri) {
     const r = await fetch(API_URL + '/api/veri', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify(veri)
+      body: JSON.stringify({ ...veri, _build: APP_BUILD })  // build damgası — backend stale-client koruması
     });
     if (r.status === 401) oturumSuresiDoldu();
+    // Backend bu istemciyi "eski sürüm" diye reddettiyse (build-guard 409):
+    // önbellekli eski kod ortak veriyi bozmasın → güvenli durumdaysa yenile.
+    if (r.status === 409 && !_staleReloadYapildi) {
+      _staleReloadYapildi = true;
+      const mesgul = document.querySelector('.modal-overlay.open')
+        || ['INPUT','TEXTAREA'].includes(document.activeElement?.tagName);
+      if (!mesgul) location.reload();
+    }
     return r.ok;
   } catch (e) {
     console.warn('API kayıt hatası:', e);

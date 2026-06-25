@@ -425,6 +425,33 @@ jobs:
             PATCH
             node /tmp/emon-patch-guard.js
 
+      - name: Patch backend (build-guard — eski/damgasiz istemci yazimini reddet)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cat > /tmp/emon-patch-build.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            if (s.includes('build-guard v1')) { console.log('build-guard zaten var'); process.exit(0); }
+            // POST /api/veri'ye build damgasi zorunlulugu: damgasiz (eski/onbellekli kod)
+            // istemcilerin eski merge mantigiyla ortak veriyi bozmasini SUNUCU seviyesinde engelle.
+            const anchor = "app.post('/api/veri', authMiddleware, async (req, res) => {\n  const client = await pool.connect();";
+            if (!s.includes(anchor)) { console.log('UYARI: build-guard anchor bulunamadi, EKLENMEDI'); process.exit(0); }
+            const replacement = "app.post('/api/veri', authMiddleware, async (req, res) => {\n"
+              + "  // build-guard v1 — damgasiz (eski/onbellekli) istemci yazimini reddet\n"
+              + "  if (!req.body || !req.body._build) { return res.status(409).json({ hata: 'stale-client', reload: true }); }\n"
+              + "  const client = await pool.connect();";
+            fs.writeFileSync(f + '.bak.build', s);
+            s = s.replace(anchor, replacement);
+            fs.writeFileSync(f, s);
+            console.log('build-guard v1 eklendi');
+            PATCH
+            node /tmp/emon-patch-build.js
+
       - name: Upload seeder
         uses: appleboy/scp-action@master
         with:
