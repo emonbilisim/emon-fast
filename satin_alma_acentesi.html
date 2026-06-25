@@ -3532,7 +3532,7 @@ function tedarikciSil(idx) {
 }
 
 function rfqMail(firma, urun, kisi, mail) {
-  const isim = kisi.split(' ')[0];
+  const isim = (kisi && kisi.trim()) || 'İlgili';
   const subject = encodeURIComponent(`Fiyat Teklifi Talebi – ${urun}`);
   const body = encodeURIComponent(`Sayın ${isim},\n\nAşağıdaki ürün için fiyat teklifinizi rica ederim:\n\nÜrün: ${urun}\nMiktar: \nTeslim Tarihi: \n\nLütfen birim fiyat, KDV durumu, teslim süresi ve ödeme koşullarını belirtir misiniz?\n\nTeşekkürler, iyi çalışmalar.`);
   window.open(`mailto:${mail}?subject=${subject}&body=${body}`);
@@ -6337,7 +6337,7 @@ async function rfqMailGonder() {
     const hedefMailler = rfqSeciliMailler[firma] || f.mailler;
     if (hedefMailler.length === 0) continue;
 
-    const isim = f.kisiler[0]?.split(' ')?.[0] || 'İlgili';
+    const isim = f.kisiler[0] || 'İlgili';
     const talepNo = t.no || '';
 
     // Bu tedarikçiye gönderilecek ürünleri filtrele
@@ -6387,7 +6387,7 @@ async function rfqMailGonder() {
 
   // Manuel tedarikçilere gönder
   for (const mt of (rfqManuelTedarikciler || [])) {
-    const isim = mt.kisi?.split(' ')?.[0] || 'İlgili';
+    const isim = mt.kisi || 'İlgili';
     const webLink = mt.web ? `\nWeb Sitesi : ${mt.web}` : '';
     const konu = `[${t.no}] Fiyat Teklifi Talebi — ${t.urun}`;
     const govde = `Sayın ${isim},\n\nAşağıdaki ürünler için en kısa sürede fiyat teklifinizi iletmenizi rica ederiz:\n\n${urunListesi}\n\nTalep No  : ${t.no}\nTermin    : ${t.termin ? tarihFmt(t.termin) : '—'}${webLink}\n\nBirim fiyat (KDV hariç), teslim süresi, ödeme ve geçerlilik bilgilerini eklemenizi rica ederiz.${imzaMetni()}`;
@@ -6881,7 +6881,7 @@ async function rfqTekrarGonder(firma) {
   const f = firmaMap[firma];
   if (!f || !f.mailler.length) { showToast(firma + ' için mail adresi bulunamadı.'); return; }
 
-  const isim = f.kisiler[0]?.split(' ')?.[0] || 'İlgili';
+  const isim = f.kisiler[0] || 'İlgili';
 
   // Kaçıncı hatırlatma — talep verisinde sayacı tut
   if (!t.rfqHatirlatmaSayac) t.rfqHatirlatmaSayac = {};
