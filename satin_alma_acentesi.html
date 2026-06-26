@@ -1751,6 +1751,18 @@
       </div>
     </div>
 
+    <!-- İzin / Vekil Yönetimi (satıcı tatildeyken iş aksamasın) -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div class="card-title" style="margin-bottom:4px;">🌴 İzin / Vekil Yönetimi</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:12px;">
+        Bir ekip üyesini <b>izinde</b> işaretleyip <b>vekil</b> atayın. İzin boyunca o kişinin
+        talepleri, teklifleri ve hatırlatmaları <b>vekilin panelinde</b> görünür; sahiplik değişmez,
+        izin bitince otomatik eski sahibine döner. Açık işleri kalıcı taşımak için <b>↪ Kalıcı devret</b>'i kullanın.
+        <br><span style="color:var(--amber);">ℹ Gelen yeni müşteri maillerinin vekile de düşmesi için, izindeki kişi Outlook'ta vekiline <b>yönlendirme kuralı</b> kurmalıdır (uygulama yalnız kendi gelen kutusunu tarar).</span>
+      </div>
+      <div id="izin-yonetim-liste"></div>
+    </div>
+
     <!-- Onay Bildirim E-postası -->
     <div class="card" style="margin-top:16px;" data-admin-only>
       <div class="card-title" style="margin-bottom:4px;">📧 Fiyat Onayı Bildirim E-postası</div>
@@ -11337,8 +11349,10 @@ function arsivTalepSil(idx) {
 function talepGorunur(t) {
   if (!aktifKullanici) return false;
   if (aktifKullanici.rol === 'admin') return true;
-  if (t && t.saticiEmail) // e-posta bazlı sahiplik (yeni, cihazlar arası kararlı)
-    return (t.saticiEmail || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase();
+  if (t && t.saticiEmail) { // e-posta bazlı sahiplik (yeni, cihazlar arası kararlı)
+    if ((t.saticiEmail || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase()) return true;
+    return talepKapsamVekil(t); // sahibi izinde ve vekili bensem kapsarım
+  }
   if (!t || t.satici == null || t.satici === '') return true; // eski kayıtlar: paylaşımlı
   return t.satici === aktifKullanici.id;
 }
@@ -11348,7 +11362,10 @@ function talepGorunur(t) {
 function talepBenim(t) {
   if (!aktifKullanici || !t) return false;
   if (aktifKullanici.rol === 'admin') return true;
-  if (t.saticiEmail) return (t.saticiEmail || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase();
+  if (t.saticiEmail) {
+    if ((t.saticiEmail || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase()) return true;
+    return talepKapsamVekil(t); // izindeki sahibin vekili isem onun işini de kapsarım
+  }
   return t.satici != null && t.satici !== '' && t.satici === aktifKullanici.id;
 }
 
@@ -11367,6 +11384,12 @@ function talepSorumluSaticiGoster(t) {
   const mevcut = talepSorumluKullanici(t);
   const mevcutEmail = (mevcut?.email || t.saticiEmail || '').toLowerCase();
   if (!isAdmin) {
+    // Sahip izinde ve vekili bensem: "X (izinde) — vekâleten siz"
+    if (mevcutEmail && izindeMi(mevcutEmail) && talepKapsamVekil(t)) {
+      cell.innerHTML = (mevcut?.ad || mevcutEmail).replace(/</g, '&lt;')
+        + ' <span style="color:var(--amber);font-size:11px;font-weight:600;">🌴 izinde — vekâleten siz</span>';
+      return;
+    }
     cell.innerHTML = mevcut?.ad
       ? mevcut.ad.replace(/</g, '&lt;')
       : '<span style="color:var(--text3);">Atanmadı (paylaşımlı)</span>';
@@ -11407,6 +11430,107 @@ function talepSaticiAta(email) {
   renderTalepler();
   const ad = saticiKullaniciBul(yeni)?.ad || yeni;
   showToast(yeni ? `🔄 Talep "${ad}" satıcısına atandı.` : '🔄 Talep ataması kaldırıldı (paylaşımlı).');
+}
+
+// ════════════════════════════════════════════════════════════════
+// İZİN / VEKİL — satıcı tatildeyken işin aksamaması
+// AYARLAR.izinler = { '<sahip-email>': { vekil:'<email>', bitis:'YYYY-MM-DD'|'' } }
+// Yalnız admin düzenler (AYARLAR admin-sahipli, tüm ekibe senkronlanır). Bir kullanıcı
+// "izinde" iken, taleplerini/tekliflerini/hatırlatmalarını VEKİLİ kendi panelinde görür
+// (talepBenim/talepGorunur kapsama). Sahiplik DEĞİŞMEZ — geçici görüntü. Kalıcı devir
+// için ayrıca toplu devret butonu var. NOT: gelen mail tarama /me/ kilitli olduğundan,
+// izindeki kişinin kutusuna düşen YENİ mailler için Outlook yönlendirme kuralı gerekir.
+// ════════════════════════════════════════════════════════════════
+function izinKayitlari() {
+  if (!AYARLAR.izinler || typeof AYARLAR.izinler !== 'object') AYARLAR.izinler = {};
+  return AYARLAR.izinler;
+}
+function _izinAktif(iz) {
+  if (!iz || !iz.vekil) return false;
+  if (!iz.bitis) return true;                          // süresiz izin
+  return new Date().toISOString().slice(0, 10) <= iz.bitis; // bitiş günü dahil
+}
+function izindeMi(email) { return _izinAktif(izinKayitlari()[(email || '').toLowerCase()]); }
+
+// Talebin sahibi izinde VE vekili aktif kullanıcı mı?
+function talepKapsamVekil(t) {
+  if (!aktifKullanici || !t) return false;
+  const sahip = (t.saticiEmail || '').toLowerCase();
+  if (!sahip) return false;
+  const iz = izinKayitlari()[sahip];
+  if (!_izinAktif(iz)) return false;
+  return (iz.vekil || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase();
+}
+
+// Ayarlar (admin): ekip üyeleri için izinde + vekil + bitiş satırları
+function izinYonetimRender() {
+  const kap = document.getElementById('izin-yonetim-liste');
+  if (!kap) return;
+  if (aktifKullanici?.rol !== 'admin') { kap.innerHTML = ''; return; }
+  const izinler = izinKayitlari();
+  const uyeler = ekipUyeleri();
+  const vekilOpts = (secili) => ['<option value="">— Vekil seçin —</option>']
+    .concat(uyeler.map(k => `<option value="${k.email}"${k.email === secili ? ' selected' : ''}>${(k.ad || k.email).replace(/</g, '&lt;')}</option>`))
+    .join('');
+  if (uyeler.length === 0) { kap.innerHTML = '<div style="font-size:12px;color:var(--text3);">Ekip üyesi bulunamadı.</div>'; return; }
+  kap.innerHTML = uyeler.map(k => {
+    const iz = izinler[k.email] || null;
+    const aktif = _izinAktif(iz);
+    return `<div data-izin-row data-email="${k.email}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border);">
+      <label style="display:inline-flex;align-items:center;gap:6px;min-width:180px;cursor:pointer;">
+        <input type="checkbox" ${aktif ? 'checked' : ''} onchange="izinAyarla('${k.email}')" data-izin-aktif style="width:16px;height:16px;">
+        <span style="font-size:13px;font-weight:500;">${(k.ad || k.email).replace(/</g, '&lt;')}</span>
+      </label>
+      <label style="font-size:11px;color:var(--text3);display:inline-flex;align-items:center;gap:5px;">Vekil:
+        <select data-izin-vekil onchange="izinAyarla('${k.email}')" style="font-size:12px;padding:4px 6px;">${vekilOpts(iz?.vekil || '')}</select>
+      </label>
+      <label style="font-size:11px;color:var(--text3);display:inline-flex;align-items:center;gap:5px;">Bitiş:
+        <input type="date" data-izin-bitis value="${iz?.bitis || ''}" onchange="izinAyarla('${k.email}')" style="font-size:12px;padding:3px 6px;" title="Boş = süresiz">
+      </label>
+      <button class="btn btn-sm" onclick="izinTopluDevret('${k.email}')" style="font-size:11px;" title="Bu kişinin açık taleplerini vekiline KALICI devret">↪ Kalıcı devret</button>
+    </div>`;
+  }).join('');
+}
+
+// İzin satırını kaydet (admin)
+function izinAyarla(email) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin izin ayarlayabilir.'); return; }
+  email = (email || '').toLowerCase();
+  const row = document.querySelector(`[data-izin-row][data-email="${email}"]`);
+  if (!row) return;
+  const aktif = !!row.querySelector('[data-izin-aktif]')?.checked;
+  const vekil = (row.querySelector('[data-izin-vekil]')?.value || '').toLowerCase();
+  const bitis = row.querySelector('[data-izin-bitis]')?.value || '';
+  const izinler = izinKayitlari();
+  if (!aktif) {
+    delete izinler[email];
+  } else {
+    if (!vekil) { showToast('⚠ Önce bir vekil seçin.'); const cb = row.querySelector('[data-izin-aktif]'); if (cb) cb.checked = false; return; }
+    if (vekil === email) { showToast('⚠ Vekil, izindeki kişiyle aynı olamaz.'); return; }
+    izinler[email] = { vekil, bitis };
+  }
+  veriKaydet();
+  renderTalepler();
+  if (typeof hatirlatmaUyarilariGoster === 'function') hatirlatmaUyarilariGoster();
+  showToast(aktif ? '🌴 İzin/vekil kaydedildi.' : 'İzin kaldırıldı.');
+}
+
+// İzindeki kişinin açık taleplerini vekiline KALICI devret (admin)
+function izinTopluDevret(email) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin devredebilir.'); return; }
+  email = (email || '').toLowerCase();
+  const vekil = (izinKayitlari()[email]?.vekil || '').toLowerCase();
+  if (!vekil) { showToast('⚠ Önce bu kişiye bir vekil atayın.'); return; }
+  const kapali = ['Tamamlandı', 'İptal', 'Reddedildi'];
+  const hedef = TALEPLER.filter(t => (t.saticiEmail || '').toLowerCase() === email && !kapali.includes(t.durum));
+  if (!hedef.length) { showToast('Devredilecek açık talep yok.'); return; }
+  const vekilAd = saticiKullaniciBul(vekil)?.ad || vekil;
+  if (!confirm(hedef.length + ' açık talep "' + vekilAd + '" satıcısına KALICI devredilecek. Onaylıyor musunuz?')) return;
+  const k = saticiKullaniciBul(vekil);
+  hedef.forEach(t => { t.saticiEmail = vekil; t.satici = (k?.id != null) ? k.id : vekil; });
+  veriKaydet();
+  renderTalepler();
+  showToast('↪ ' + hedef.length + ' talep ' + vekilAd + ' satıcısına kalıcı devredildi.');
 }
 
 // "Açık teklif": müşteriye iletilmiş ya da gönderildiği işaretli, henüz reddedilmemiş,
@@ -12732,6 +12856,7 @@ function crmAktifDurumGuncelle() {
 function ayarlariYukle() {
   const setVal = (id, val) => { const el=document.getElementById(id); if(el&&val) el.value=val; };
   awayModeDurumGuncelle();
+  izinYonetimRender();
   crmAktifDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
