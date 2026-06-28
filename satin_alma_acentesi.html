@@ -5212,7 +5212,7 @@ function musteriSil(idx) {
 }
 
 function filterMusteriler() {
-  const q=document.getElementById('m-search').value.toLowerCase();
+  const q=aramaKucult(document.getElementById('m-search').value);
   const durum=document.getElementById('m-durum').value;
   const tbody=document.getElementById('m-tbody');
   tbody.innerHTML=''; let count=0;
@@ -5229,7 +5229,7 @@ function filterMusteriler() {
 
   MUSTERILER.forEach((m,idx)=>{
     const yetStr=(m.yetkililer||[]).map(y=>y.ad+' '+y.unvan+' '+y.tel+' '+y.mail).join(' ');
-    const text=[m.firma,m.sektor,yetStr,m.adres,m.not].join(' ').toLowerCase();
+    const text=aramaKucult([m.firma,m.sektor,yetStr,m.adres,m.not].join(' '));
     if((q===''||text.includes(q))&&(durum===''||m.durum===durum)){
       const ilk=m.yetkililer&&m.yetkililer[0]||{};
       const ek=m.yetkililer&&m.yetkililer.length>1?`<span style="font-size:10px;color:var(--text3);"> +${m.yetkililer.length-1} kişi</span>`:'';
@@ -18381,9 +18381,9 @@ function moArsivRender() {
   card.style.display = gor ? '' : 'none';
   if (!gor) return;
   const admin = aktifKullanici?.rol === 'admin';
-  const q = (document.getElementById('mo-arsiv-ara')?.value || '').toLowerCase().trim();
+  const q = aramaKucult(document.getElementById('mo-arsiv-ara')?.value || '').trim();
   let kayitlar = MO_TALEPLER.filter(t => t.durum !== 'onayda');
-  if (q) kayitlar = kayitlar.filter(t => (t.no || '').toLowerCase().includes(q) || (t.tedarikci || '').toLowerCase().includes(q));
+  if (q) kayitlar = kayitlar.filter(t => aramaKucult(t.no || '').includes(q) || aramaKucult(t.tedarikci || '').includes(q));
   kayitlar.sort((a, b) => (((b.karar && b.karar.tarih) || b.olusturma || '')).localeCompare(((a.karar && a.karar.tarih) || a.olusturma || '')));
   if (!kayitlar.length) { liste.innerHTML = '<div style="font-size:12px;color:var(--text3);">Arşivde kayıt yok.</div>'; return; }
   const gonderebilir = admin || moOnayciBenMiyim();
