@@ -18221,7 +18221,7 @@ async function moGraphEkliMail(toList, subject, html, ekAdi, ekB64) {
 // Onaylanan, kaşeli MO PDF'ini talep eden satıcıya ekli mail olarak gönder
 async function moSaticiyaGonder(id) {
   const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
-  if (!moOnayciBenMiyim()) { showToast('Yalnızca imzalama yetkilisi gönderebilir.'); return; }
+  if (!moOnayciBenMiyim() && aktifKullanici?.rol !== 'admin') { showToast('Yalnızca imzalama yetkilisi veya admin gönderebilir.'); return; }
   if (t.durum !== 'onaylandi') { showToast('Önce onaylayın.'); return; }
   const alici = (t.talepEdenEmail || '').toLowerCase();
   if (!alici) { showToast('Talep edenin e-postası bulunamadı.'); return; }
@@ -18244,7 +18244,7 @@ async function moSaticiyaGonder(id) {
   if (ok) {
     t.gonderildi = new Date().toISOString();
     moSunucuUyar(await apiMoTalepKaydet(t), 'Gönderim kaydı');
-    moOnayListeRender();
+    moOnayListeRender(); moArsivRender();
     showToast('📧 ' + t.no + ' satıcıya (' + alici + ') gönderildi.');
   } else {
     showToast('⚠ Gönderilemedi — Outlook (M365) bağlı değil olabilir. “İndir” ile alıp elle iletebilirsiniz.');
@@ -18254,7 +18254,7 @@ async function moSaticiyaGonder(id) {
 // Onaylanan, kaşeli MO PDF'ini TEDARİKÇİ e-posta(larına) ekli mail olarak gönder
 async function moTedarikciyeGonder(id) {
   const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
-  if (!moOnayciBenMiyim()) { showToast('Yalnızca imzalama yetkilisi gönderebilir.'); return; }
+  if (!moOnayciBenMiyim() && aktifKullanici?.rol !== 'admin') { showToast('Yalnızca imzalama yetkilisi veya admin gönderebilir.'); return; }
   if (t.durum !== 'onaylandi') { showToast('Önce onaylayın.'); return; }
   const f = MO.formlar.find(x => x.id === t.formId);
   const alicilar = moEpostaListe(f && f.eposta);
@@ -18277,7 +18277,7 @@ async function moTedarikciyeGonder(id) {
   if (ok) {
     t.tedarikciyeGonderildi = new Date().toISOString();
     moSunucuUyar(await apiMoTalepKaydet(t), 'Tedarikçi gönderimi');
-    moOnayListeRender();
+    moOnayListeRender(); moArsivRender();
     showToast('📧 ' + t.no + ' tedarikçiye gönderildi (' + alicilar.join(', ') + ').');
   } else {
     showToast('⚠ Gönderilemedi — Outlook (M365) bağlı değil olabilir. “İndir” ile alıp elle iletebilirsiniz.');
@@ -18350,10 +18350,12 @@ function moArsivRender() {
   if (q) kayitlar = kayitlar.filter(t => (t.no || '').toLowerCase().includes(q) || (t.tedarikci || '').toLowerCase().includes(q));
   kayitlar.sort((a, b) => (((b.karar && b.karar.tarih) || b.olusturma || '')).localeCompare(((a.karar && a.karar.tarih) || a.olusturma || '')));
   if (!kayitlar.length) { liste.innerHTML = '<div style="font-size:12px;color:var(--text3);">Arşivde kayıt yok.</div>'; return; }
+  const gonderebilir = admin || moOnayciBenMiyim();
   liste.innerHTML = kayitlar.map(t => {
     const tarihKb = (t.karar && t.karar.tarih) || t.olusturma || '';
     const tarih = tarihKb ? new Date(tarihKb).toLocaleDateString('tr-TR') : '—';
     const damga = (t.tedarikciyeGonderildi ? ' · 📧 tedarikçiye' : '') + (t.gonderildi ? ' · 📧 satıcıya' : '');
+    const onayli = t.durum === 'onaylandi';
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="flex:1;min-width:200px;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -18365,7 +18367,9 @@ function moArsivRender() {
         <div style="font-size:11px;color:var(--text3);margin-top:3px;">Talep eden: ${moEsc(t.talepEdenAd)} · ${tarih}${damga}${t.karar && t.karar.not ? ' · Not: ' + moEsc(t.karar.not) : ''}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        ${t.durum === 'onaylandi' ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : ''}
+        ${onayli ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : ''}
+        ${onayli && gonderebilir ? `<button class="btn btn-sm btn-primary" onclick="moTedarikciyeGonder('${t.id}')">📧 Tedarikçiye Gönder</button>` : ''}
+        ${onayli && gonderebilir ? `<button class="btn btn-sm" onclick="moSaticiyaGonder('${t.id}')">📧 Satıcıya Gönder</button>` : ''}
         ${admin ? `<button class="btn btn-sm" onclick="moArsivSil('${t.id}')">🗑 Sil</button>` : ''}
       </div>
     </div>`;
