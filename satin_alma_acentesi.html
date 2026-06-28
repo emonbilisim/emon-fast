@@ -582,6 +582,7 @@
     </div>
     <div class="nav-item" onclick="goPage('mailorder',this)" id="nav-mailorder" style="display:none;">
       <span class="icon">💳</span> Mail Order
+      <span class="nav-badge" id="badge-mailorder" title="Onayını bekleyen MO" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
     </div>
     <div class="nav-label" style="margin-top:8px;">Ayarlar</div>
     <div class="nav-item" onclick="goPage('kullanicilar',this)" id="nav-kullanicilar">
@@ -1832,6 +1833,12 @@
           <span>🛠 Operasyona aç</span>
         </label>
       </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label class="form-label" style="margin:0;">✍️ MO İmzalama Yetkilisi</label>
+        <select id="ayar-mailorder-onayci" onchange="moOnayciKaydet(this)" style="max-width:280px;"></select>
+        <span style="font-size:11px;color:var(--text3);">“Onaya Gönder” ile oluşturulan MO'lar bu kişiye düşer.</span>
+        <div id="mailorder-onayci-durum" style="font-size:12px;font-weight:600;width:100%;"></div>
+      </div>
     </div>
 
     <!-- Mail İmzası -->
@@ -2052,6 +2059,20 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-primary" id="mo-uret-btn" onclick="moUret()">📄 Doldur ve İndir</button>
         <button class="btn" id="mo-yazdir-btn" onclick="moUret(true)">🖨 Yazdır</button>
+        <button class="btn" id="mo-onay-btn" onclick="moOnayGonder()" title="MO numarası oluşturup imzalama yetkilisine gönder">✍️ Onaya Gönder</button>
+      </div>
+    </div>
+
+    <!-- MO Onayları -->
+    <div class="card" style="margin-bottom:16px;" id="mo-onay-card">
+      <div style="font-size:14px;font-weight:700;margin-bottom:14px;">✍️ MO Onayları</div>
+      <div id="mo-onay-bekleyen-bolum" style="display:none;margin-bottom:18px;">
+        <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:8px;">Onayımı bekleyenler</div>
+        <div id="mo-onay-bekleyen-liste"></div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--text3);margin-bottom:8px;">Gönderdiğim MO'lar</div>
+        <div id="mo-onay-benim-liste"></div>
       </div>
     </div>
 
@@ -10277,6 +10298,7 @@ function rolUygula() {
   if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
   crmNavGuncelle();
   mailorderNavGuncelle();
+  if (typeof moBadgeYenile === 'function') moBadgeYenile().catch(() => {});
   // Operasyon yetkisiz/varsayılan (panel) bir sayfadaysa izinli sayfaya geçir
   if (isOperasyon) {
     const aktifSayfa = document.querySelector('.page.active')?.id?.replace('page-', '');
@@ -12741,6 +12763,7 @@ let AYARLAR = {
   onayBildirimMaili: '', // satıcı fiyat onayı gönderince uyarı maili gidecek admin e-postası
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
   mailorderRoller: [], // Mail Order modülüne erişebilen roller (admin her zaman erişir). örn: ['satici','operasyon']
+  mailorderOnayci: '', // MO imzalama yetkilisi (e-posta) — onaya gönderilen MO'lar bu kişiye düşer
   talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
   crmHedefAylikYeniMusteri: 0,             // CRM: aylık yeni müşteri hedefi (0 = belirsiz)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
@@ -13063,6 +13086,38 @@ function mailorderRolDurumGuncelle() {
   }
 }
 
+// MO imzalama yetkilisi (tek kişi) — Ayarlar'da seçilir, AYARLAR.mailorderOnayci (e-posta) senkron.
+function moOnayciKaydet(sel) {
+  AYARLAR.mailorderOnayci = (sel.value || '').toLowerCase().trim();
+  veriKaydet();
+  moOnayciDurumGuncelle();
+  if (typeof moBadgeGuncelle === 'function') moBadgeGuncelle();
+  showToast(AYARLAR.mailorderOnayci ? '✍️ MO imzalama yetkilisi kaydedildi.' : 'MO imzalama yetkilisi temizlendi.');
+}
+function moOnayciDurumGuncelle() {
+  const sel = document.getElementById('ayar-mailorder-onayci');
+  if (sel) {
+    const secili = (AYARLAR.mailorderOnayci || '').toLowerCase();
+    sel.innerHTML = '<option value="">— Seçin —</option>' +
+      (typeof ekipUyeleri === 'function' ? ekipUyeleri() : []).map(k =>
+        `<option value="${(k.email || '').toLowerCase()}"${(k.email || '').toLowerCase() === secili ? ' selected' : ''}>${moEsc(k.ad)}${k.rol === 'admin' ? ' (admin)' : k.rol === 'operasyon' ? ' (operasyon)' : ''}</option>`
+      ).join('');
+  }
+  const el = document.getElementById('mailorder-onayci-durum');
+  if (el) {
+    const ad = moOnayciAd();
+    el.textContent = AYARLAR.mailorderOnayci ? '✅ İmzalama yetkilisi: ' + ad : '⚠ İmzalama yetkilisi seçilmedi — “Onaya Gönder” kullanılamaz.';
+    el.style.color = AYARLAR.mailorderOnayci ? 'var(--green)' : 'var(--amber)';
+  }
+}
+// Yetkilinin adını çöz (KULLANICILAR/ekip içinden), yoksa e-postayı göster
+function moOnayciAd() {
+  const email = (AYARLAR.mailorderOnayci || '').toLowerCase();
+  if (!email) return '—';
+  const k = (typeof ekipUyeleri === 'function' ? ekipUyeleri() : []).find(x => (x.email || '').toLowerCase() === email);
+  return k ? k.ad : email;
+}
+
 function crmAktifDurumGuncelle() {
   const cb = document.getElementById('ayar-crm-aktif');
   if (cb) cb.checked = !!AYARLAR.crmAktif;
@@ -13081,6 +13136,7 @@ function ayarlariYukle() {
   izinYonetimRender();
   crmAktifDurumGuncelle();
   mailorderRolDurumGuncelle();
+  moOnayciDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
@@ -17490,6 +17546,8 @@ async function apiMoFormSil(id) {
 // Sunucudan çek + (sayfa açıksa) yeniden çiz
 async function moYenile() {
   const ok = await apiMoYukle();
+  await apiMoTaleplerYukle();
+  moBadgeGuncelle();
   if (document.getElementById('page-mailorder')?.classList.contains('active')) renderMailOrder();
   return ok;
 }
@@ -17515,6 +17573,10 @@ function renderMailOrder() {
   moKartListeRender();
   moFormListeRender();
   moUretSecimDoldur();
+  moOnayListeRender();
+  // "Onaya Gönder" butonu yalnız imzalama yetkilisi tanımlıysa anlamlı
+  const onayBtn = document.getElementById('mo-onay-btn');
+  if (onayBtn) onayBtn.style.display = (AYARLAR.mailorderOnayci || '') ? '' : 'none';
 }
 
 // ── SANAL KART KASASI ───────────────────────────────────────
@@ -17831,6 +17893,49 @@ function moUretDeger(key, ctx) {
     default: return '';
   }
 }
+// Formu (PDF/görsel) ctx değerleriyle doldurup tek PDF blob üretir. moUret + onay indirme paylaşır.
+async function moFormBlobUret(f, ctx) {
+  const adGuvenli = (f.tedarikci || 'tedarikci').replace(/[^\wığüşöçİĞÜŞÖÇ.-]+/g, '_');
+  const adEk = ctx.no ? ('_' + String(ctx.no).replace(/[^\w-]+/g, '')) : '';
+  let blob;
+  if (f.format === 'pdf') {
+    const doc = await PDFLib.PDFDocument.load(moB64ToBytes(f.b64));
+    // Türkçe için Unicode font göm; indirilemezse Helvetica + ASCII'ye düş.
+    let font, asciiZorla = false;
+    try {
+      doc.registerFontkit(window.fontkit);
+      font = await doc.embedFont(await moFontYukle(), { subset: true });
+    } catch (e) {
+      font = await doc.embedFont(PDFLib.StandardFonts.Helvetica); asciiZorla = true;
+      showToast('Türkçe font yüklenemedi — metin ASCII olarak yazıldı.');
+    }
+    const pages = doc.getPages();
+    (f.alanlar || []).forEach(a => {
+      const val = moUretDeger(a.key, ctx); if (!val) return;
+      const pg = pages[a.sayfa]; if (!pg) return;
+      const { width, height } = pg.getSize();
+      const fs = Math.max(6, a.fontFrac * height);
+      pg.drawText(asciiZorla ? moTrAscii(val) : String(val), { x: a.x * width, y: height - a.y * height - fs * 0.8, size: fs, font, color: PDFLib.rgb(0, 0, 0) });
+    });
+    const bytes = await doc.save();
+    blob = new Blob([bytes], { type: 'application/pdf' });
+  } else {
+    const im = await moLoadImage('data:' + (f.mime || 'image/png') + ';base64,' + f.b64);
+    const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const cx = c.getContext('2d'); cx.drawImage(im, 0, 0); cx.fillStyle = '#000'; cx.textBaseline = 'top';
+    (f.alanlar || []).forEach(a => {
+      const val = moUretDeger(a.key, ctx); if (!val) return;
+      const fpx = Math.max(8, a.fontFrac * c.height);
+      cx.font = fpx + 'px Helvetica, Arial, sans-serif';
+      cx.fillText(String(val), a.x * c.width, a.y * c.height);
+    });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: c.width >= c.height ? 'l' : 'p', unit: 'px', format: [c.width, c.height] });
+    pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, c.width, c.height);
+    blob = pdf.output('blob');
+  }
+  return { blob, ad: 'mailorder_' + adGuvenli + adEk + '.pdf' };
+}
 async function moUret(yazdir) {
   const h = document.getElementById('mo-uret-hata'); h.style.display = 'none';
   const f = MO.formlar.find(x => String(x.id) === document.getElementById('mo-uret-tedarikci').value);
@@ -17844,54 +17949,208 @@ async function moUret(yazdir) {
   if (!kart) return hata('Sanal kart seçin.');
   if (!tutar) return hata('Tutar girin.');
   if (!f.alanlar || !f.alanlar.length) return hata('Bu formda alan eşlemesi yok — “Alan Eşle” ile konumları belirleyin.');
-  const ctx = { tutar, tarih, aciklama, kart };
-  const adGuvenli = (f.tedarikci || 'tedarikci').replace(/[^\wığüşöçİĞÜŞÖÇ.-]+/g, '_');
   try {
-    let blob, ad;
-    if (f.format === 'pdf') {
-      const doc = await PDFLib.PDFDocument.load(moB64ToBytes(f.b64));
-      // Türkçe için Unicode font göm; indirilemezse Helvetica + ASCII'ye düş.
-      let font, asciiZorla = false;
-      try {
-        doc.registerFontkit(window.fontkit);
-        font = await doc.embedFont(await moFontYukle(), { subset: true });
-      } catch (e) {
-        font = await doc.embedFont(PDFLib.StandardFonts.Helvetica); asciiZorla = true;
-        showToast('Türkçe font yüklenemedi — metin ASCII olarak yazıldı.');
-      }
-      const pages = doc.getPages();
-      f.alanlar.forEach(a => {
-        const val = moUretDeger(a.key, ctx); if (!val) return;
-        const pg = pages[a.sayfa]; if (!pg) return;
-        const { width, height } = pg.getSize();
-        const fs = Math.max(6, a.fontFrac * height);
-        pg.drawText(asciiZorla ? moTrAscii(val) : String(val), { x: a.x * width, y: height - a.y * height - fs * 0.8, size: fs, font, color: PDFLib.rgb(0, 0, 0) });
-      });
-      const bytes = await doc.save();
-      blob = new Blob([bytes], { type: 'application/pdf' });
-      ad = 'mailorder_' + adGuvenli + '.pdf';
-    } else {
-      const im = await moLoadImage('data:' + (f.mime || 'image/png') + ';base64,' + f.b64);
-      const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
-      const cx = c.getContext('2d'); cx.drawImage(im, 0, 0); cx.fillStyle = '#000'; cx.textBaseline = 'top';
-      f.alanlar.forEach(a => {
-        const val = moUretDeger(a.key, ctx); if (!val) return;
-        const fpx = Math.max(8, a.fontFrac * c.height);
-        cx.font = fpx + 'px Helvetica, Arial, sans-serif';
-        cx.fillText(String(val), a.x * c.width, a.y * c.height);
-      });
-      // Tek sayfalık PDF üret (görselin üzerine)
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF({ orientation: c.width >= c.height ? 'l' : 'p', unit: 'px', format: [c.width, c.height] });
-      pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, c.width, c.height);
-      blob = pdf.output('blob');
-      ad = 'mailorder_' + adGuvenli + '.pdf';
-    }
+    const { blob, ad } = await moFormBlobUret(f, { tutar, tarih, aciklama, kart });
     if (yazdir) moYazdir(blob); else moIndir(blob, ad);
     showToast(yazdir ? 'Yazdırmaya gönderildi.' : 'Dolu form indirildi.');
   } catch (e) {
     hata('Form üretilemedi: ' + e.message);
   }
+}
+
+/* ── MO ONAY AKIŞI ───────────────────────────────────────────
+   Hazır MO → MO-xxxxx no al → kayıt oluştur (durum onayda) → imzalama
+   yetkilisine uygulama içi liste + Outlook bildirimi. Yetkili PDF'i
+   indirip imzalar/işler (onaylandı/reddedildi). Kayıtlar /api/mailorder/talep
+   ile satır-başına senkron. */
+let MO_TALEPLER = [];
+async function apiMoNextNo() {
+  const token = apiTokenAl(); if (!token) return null;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/next-no', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
+    const d = await r.json(); return d.no || null;
+  } catch (e) { return null; }
+}
+async function apiMoTaleplerYukle() {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/talepler', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return false; }
+    const d = await r.json();
+    if (Array.isArray(d.talepler)) MO_TALEPLER = d.talepler;
+    return true;
+  } catch (e) { return false; }
+}
+async function apiMoTalepKaydet(t) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/talep', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(t) });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function apiMoTalepSil(id) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/talep/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+// "Onaya Gönder" — hazır MO'yu imzalama yetkilisine yolla
+async function moOnayGonder() {
+  const h = document.getElementById('mo-uret-hata'); h.style.display = 'none';
+  const hata = m => { h.textContent = m; h.style.display = 'block'; };
+  const f = MO.formlar.find(x => String(x.id) === document.getElementById('mo-uret-tedarikci').value);
+  const kart = MO.kartlar.find(x => String(x.id) === document.getElementById('mo-uret-kart').value);
+  const tutar = document.getElementById('mo-uret-tutar').value.trim();
+  const tarih = document.getElementById('mo-uret-tarih').value.trim() || moBugun();
+  const aciklama = document.getElementById('mo-uret-aciklama').value.trim();
+  if (!f) return hata('Tedarikçi seçin.');
+  if (f.tip === 'portal') return hata('Portal tedarikçisi onaya gönderilemez.');
+  if (!kart) return hata('Sanal kart seçin.');
+  if (!tutar) return hata('Tutar girin.');
+  if (!f.alanlar || !f.alanlar.length) return hata('Bu formda alan eşlemesi yok — “Alan Eşle” ile konumları belirleyin.');
+  const yetkiliEmail = (AYARLAR.mailorderOnayci || '').toLowerCase().trim();
+  if (!yetkiliEmail) return hata('MO imzalama yetkilisi seçilmemiş — Ayarlar > Mail Order’dan belirleyin.');
+  const no = await apiMoNextNo();
+  if (!no) return hata('MO numarası alınamadı (sunucuya bağlanılamadı). Tekrar deneyin.');
+  const t = {
+    id: moUid(), no,
+    formId: f.id, tedarikci: f.tedarikci,
+    kartId: kart.id, kartEtiket: kart.etiket,
+    tutar, tarih, aciklama,
+    talepEdenEmail: _benEmail(), talepEdenAd: (aktifKullanici?.ad || _benEmail()),
+    yetkiliEmail, yetkiliAd: moOnayciAd(),
+    durum: 'onayda', olusturma: new Date().toISOString(), karar: null
+  };
+  MO_TALEPLER.unshift(t);
+  const ok = await apiMoTalepKaydet(t);
+  moSunucuUyar(ok, 'Onay talebi');
+  moOnayBildirimGonder(t);
+  // formu sıfırla (tutar/açıklama)
+  document.getElementById('mo-uret-tutar').value = '';
+  document.getElementById('mo-uret-aciklama').value = '';
+  renderMailOrder();
+  showToast('📤 ' + no + ' onaya gönderildi → ' + (t.yetkiliAd || yetkiliEmail));
+}
+async function moOnayBildirimGonder(t) {
+  try {
+    if (typeof graphMailHtmlGonder !== 'function') return;
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;">✍️ Mail Order Onayı Bekliyor</h2>
+        <p style="color:#666;margin:0 0 16px;">Bir mail order imzanızı/onayınızı bekliyor. EMON FAST > <b>Mail Order</b> ekranından inceleyip onaylayabilir, dolu formu indirebilirsiniz.</p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tedarikçi</td><td>${moEsc(t.tedarikci)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(t.tutar)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Kart</td><td>${moEsc(t.kartEtiket)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${moEsc(t.tarih)}</td></tr>
+          ${t.aciklama ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Açıklama</td><td>${moEsc(t.aciklama)}</td></tr>` : ''}
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep Eden</td><td>${moEsc(t.talepEdenAd)}</td></tr>
+        </table>
+      </div>`;
+    const ok = await graphMailHtmlGonder([t.yetkiliEmail], '[Mail Order Onayı] ' + t.no + ' — ' + t.tedarikci + ' onay bekliyor', html);
+    if (!ok) showToast('⚠ Yetkiliye bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir. Uygulama içi onay listesinde görünür.');
+  } catch (e) { console.error('moOnayBildirimGonder:', e); }
+}
+
+function moOnayciBenMiyim() { const b = _benEmail(); return !!b && b === (AYARLAR.mailorderOnayci || '').toLowerCase(); }
+function moTalepDurumRozet(t) {
+  const renk = t.durum === 'onaylandi' ? 'var(--green)' : t.durum === 'reddedildi' ? 'var(--red)' : 'var(--amber)';
+  const et = t.durum === 'onaylandi' ? '✅ Onaylandı' : t.durum === 'reddedildi' ? '❌ Reddedildi' : '⏳ Onayda';
+  return `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${renk};color:#08120c;white-space:nowrap;">${et}</span>`;
+}
+function moTalepSatirHtml(t, yetkiliGorunum) {
+  const ust = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span style="font-family:monospace;font-weight:700;">${moEsc(t.no)}</span>
+      ${moTalepDurumRozet(t)}
+      <span style="font-size:13px;font-weight:600;">${moEsc(t.tedarikci)}</span>
+      <span style="font-size:13px;color:var(--text2);">${moEsc(t.tutar)}</span>
+    </div>`;
+  const alt = `<div style="font-size:11px;color:var(--text3);margin-top:3px;">Kart: ${moEsc(t.kartEtiket)} · Tarih: ${moEsc(t.tarih)}${t.aciklama ? ' · ' + moEsc(t.aciklama) : ''} · ${yetkiliGorunum ? 'Talep eden: ' + moEsc(t.talepEdenAd) : 'Yetkili: ' + moEsc(t.yetkiliAd || t.yetkiliEmail)}${t.karar && t.karar.not ? ' · Not: ' + moEsc(t.karar.not) : ''}</div>`;
+  let butonlar = '';
+  if (yetkiliGorunum && t.durum === 'onayda') {
+    butonlar = `<button class="btn btn-sm btn-primary" onclick="moOnayKarar('${t.id}','onaylandi')">✅ Onayla ve İndir</button>
+      <button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 Önizle</button>
+      <button class="btn btn-sm" onclick="moOnayKarar('${t.id}','reddedildi')">❌ Reddet</button>`;
+  } else if (yetkiliGorunum && t.durum === 'onaylandi') {
+    butonlar = `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>`;
+  } else if (!yetkiliGorunum) {
+    butonlar = (t.durum === 'onaylandi') ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : '';
+    if (t.durum === 'onayda') butonlar += `<button class="btn btn-sm" onclick="moOnayIptal('${t.id}')">🗑 İptal</button>`;
+  }
+  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">${ust}${alt}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${butonlar}</div>
+    </div>`;
+}
+function moOnayListeRender() {
+  const ben = _benEmail();
+  const bekBolum = document.getElementById('mo-onay-bekleyen-bolum');
+  const bekListe = document.getElementById('mo-onay-bekleyen-liste');
+  const benimListe = document.getElementById('mo-onay-benim-liste');
+  if (bekBolum && bekListe) {
+    const benimYetki = moOnayciBenMiyim();
+    bekBolum.style.display = benimYetki ? 'block' : 'none';
+    if (benimYetki) {
+      const bek = MO_TALEPLER.filter(t => (t.yetkiliEmail || '').toLowerCase() === ben && t.durum === 'onayda');
+      bekListe.innerHTML = bek.length ? bek.map(t => moTalepSatirHtml(t, true)).join('') : '<div style="font-size:12px;color:var(--text3);">Bekleyen onay yok.</div>';
+    }
+  }
+  if (benimListe) {
+    const benimler = MO_TALEPLER.filter(t => (t.talepEdenEmail || '').toLowerCase() === ben).sort((a, b) => (b.olusturma || '').localeCompare(a.olusturma || ''));
+    benimListe.innerHTML = benimler.length ? benimler.map(t => moTalepSatirHtml(t, false)).join('') : '<div style="font-size:12px;color:var(--text3);">Henüz onaya gönderdiğin MO yok.</div>';
+  }
+}
+async function moOnayIndir(id) {
+  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
+  const f = MO.formlar.find(x => x.id === t.formId);
+  const kart = MO.kartlar.find(x => x.id === t.kartId);
+  if (!f) { showToast('Form şablonu bulunamadı (silinmiş olabilir).'); return; }
+  if (!kart) { showToast('Sanal kart bulunamadı (silinmiş olabilir).'); return; }
+  try {
+    const { blob, ad } = await moFormBlobUret(f, { tutar: t.tutar, tarih: t.tarih, aciklama: t.aciklama, kart, no: t.no });
+    moIndir(blob, ad);
+  } catch (e) { showToast('Form üretilemedi: ' + e.message); }
+}
+async function moOnayKarar(id, durum) {
+  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
+  if (!moOnayciBenMiyim()) { showToast('Yalnızca imzalama yetkilisi karar verebilir.'); return; }
+  let not = '';
+  if (durum === 'reddedildi') { not = prompt('Reddetme nedeni (opsiyonel):') || ''; }
+  t.durum = durum;
+  t.karar = { tarih: new Date().toISOString(), not };
+  moSunucuUyar(await apiMoTalepKaydet(t), 'Onay kararı');
+  moOnayListeRender(); moBadgeGuncelle();
+  if (durum === 'onaylandi') { showToast('✅ ' + t.no + ' onaylandı — dolu form indiriliyor.'); await moOnayIndir(id); }
+  else showToast('❌ ' + t.no + ' reddedildi.');
+}
+async function moOnayIptal(id) {
+  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
+  if ((t.talepEdenEmail || '').toLowerCase() !== _benEmail()) { showToast('Yalnızca talep eden iptal edebilir.'); return; }
+  if (t.durum !== 'onayda') { showToast('Yalnızca onay bekleyen MO iptal edilebilir.'); return; }
+  if (!confirm(t.no + ' onay talebi iptal edilsin mi?')) return;
+  MO_TALEPLER = MO_TALEPLER.filter(x => x.id !== id);
+  moSunucuUyar(await apiMoTalepSil(id), 'İptal');
+  moOnayListeRender(); moBadgeGuncelle();
+}
+// Sayfayı açmadan rozeti tazele (yalnız erişimi olan kullanıcı sunucuya sorar)
+async function moBadgeYenile() {
+  if (!mailorderGorunur()) return;
+  await apiMoTaleplerYukle();
+  moBadgeGuncelle();
+}
+function moBadgeGuncelle() {
+  const el = document.getElementById('badge-mailorder');
+  if (!el) return;
+  const ben = _benEmail();
+  const n = moOnayciBenMiyim() ? MO_TALEPLER.filter(t => (t.yetkiliEmail || '').toLowerCase() === ben && t.durum === 'onayda').length : 0;
+  el.textContent = n;
+  el.style.display = n > 0 ? 'inline-flex' : 'none';
 }
 
 /* ──────────────────────────────────────────────────────────────
