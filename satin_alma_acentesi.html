@@ -2085,6 +2085,17 @@
       </div>
     </div>
 
+    <!-- MO Arşivi (sonuçlanmış MO'lar; silme yalnız admin) -->
+    <div class="card" id="mo-arsiv-card" style="margin-bottom:16px;display:none;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:700;">🗂 MO Arşivi</span>
+        <span style="font-size:11px;color:var(--text3);">onaylanan/sonuçlanan mail order'lar</span>
+        <div style="flex:1;"></div>
+        <input type="text" id="mo-arsiv-ara" placeholder="MO no / tedarikçi ara…" oninput="moArsivRender()" style="max-width:220px;">
+      </div>
+      <div id="mo-arsiv-liste"></div>
+    </div>
+
     <!-- Sanal Kart Kasası -->
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
@@ -17623,6 +17634,7 @@ function renderMailOrder() {
   moFormListeRender();
   moUretSecimDoldur();
   moOnayListeRender();
+  moArsivRender();
   // "Onaya Gönder" butonu yalnız imzalama yetkilisi tanımlıysa anlamlı
   const onayBtn = document.getElementById('mo-onay-btn');
   if (onayBtn) onayBtn.style.display = (AYARLAR.mailorderOnayci || '') ? '' : 'none';
@@ -18323,6 +18335,50 @@ function moOnayListeRender() {
     const benimler = MO_TALEPLER.filter(t => (t.talepEdenEmail || '').toLowerCase() === ben).sort((a, b) => (b.olusturma || '').localeCompare(a.olusturma || ''));
     benimListe.innerHTML = benimler.length ? benimler.map(t => moTalepSatirHtml(t, false)).join('') : '<div style="font-size:12px;color:var(--text3);">Henüz onaya gönderdiğin MO yok.</div>';
   }
+}
+// MO Arşivi — sonuçlanmış (onaylandı/reddedildi) MO'lar. Admin + imzalama yetkilisi görür; SİLME yalnız admin.
+function moArsivRender() {
+  const card = document.getElementById('mo-arsiv-card');
+  const liste = document.getElementById('mo-arsiv-liste');
+  if (!card || !liste) return;
+  const gor = aktifKullanici?.rol === 'admin' || moOnayciBenMiyim();
+  card.style.display = gor ? '' : 'none';
+  if (!gor) return;
+  const admin = aktifKullanici?.rol === 'admin';
+  const q = (document.getElementById('mo-arsiv-ara')?.value || '').toLowerCase().trim();
+  let kayitlar = MO_TALEPLER.filter(t => t.durum !== 'onayda');
+  if (q) kayitlar = kayitlar.filter(t => (t.no || '').toLowerCase().includes(q) || (t.tedarikci || '').toLowerCase().includes(q));
+  kayitlar.sort((a, b) => (((b.karar && b.karar.tarih) || b.olusturma || '')).localeCompare(((a.karar && a.karar.tarih) || a.olusturma || '')));
+  if (!kayitlar.length) { liste.innerHTML = '<div style="font-size:12px;color:var(--text3);">Arşivde kayıt yok.</div>'; return; }
+  liste.innerHTML = kayitlar.map(t => {
+    const tarihKb = (t.karar && t.karar.tarih) || t.olusturma || '';
+    const tarih = tarihKb ? new Date(tarihKb).toLocaleDateString('tr-TR') : '—';
+    const damga = (t.tedarikciyeGonderildi ? ' · 📧 tedarikçiye' : '') + (t.gonderildi ? ' · 📧 satıcıya' : '');
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-family:monospace;font-weight:700;">${moEsc(t.no)}</span>
+          ${moTalepDurumRozet(t)}
+          <span style="font-size:13px;font-weight:600;">${moEsc(t.tedarikci)}</span>
+          <span style="font-size:13px;color:var(--text2);">${moEsc(t.tutar)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px;">Talep eden: ${moEsc(t.talepEdenAd)} · ${tarih}${damga}${t.karar && t.karar.not ? ' · Not: ' + moEsc(t.karar.not) : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${t.durum === 'onaylandi' ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : ''}
+        ${admin ? `<button class="btn btn-sm" onclick="moArsivSil('${t.id}')">🗑 Sil</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+async function moArsivSil(id) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Arşivden silme yetkisi yalnızca admin.'); return; }
+  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
+  if (!confirm(t.no + ' (' + t.tedarikci + ') arşivden KALICI olarak silinsin mi?')) return;
+  MO_TALEPLER = MO_TALEPLER.filter(x => x.id !== id);
+  moSunucuUyar(await apiMoTalepSil(id), 'Arşiv silme');
+  moArsivRender(); moOnayListeRender(); moBadgeGuncelle();
+  showToast('🗑 ' + t.no + ' arşivden silindi.');
 }
 async function moOnayIndir(id) {
   const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
