@@ -2052,7 +2052,13 @@
       <div class="grid2">
         <div class="form-group">
           <label class="form-label">Tutar *</label>
-          <input type="text" id="mo-uret-tutar" placeholder="Örn: 12.500,00 TL" autocomplete="off">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="number" id="mo-uret-tutar-lira" min="0" step="1" placeholder="0" inputmode="numeric" style="flex:1;" title="Lira" oninput="moTutarOnizle()">
+            <span style="font-weight:700;">,</span>
+            <input type="number" id="mo-uret-tutar-kurus" min="0" max="99" step="1" placeholder="00" inputmode="numeric" style="width:64px;" title="Kuruş" oninput="moTutarOnizle()">
+            <span style="font-weight:700;">TL</span>
+          </div>
+          <div id="mo-uret-tutar-onizleme" style="font-size:11px;color:var(--text3);margin-top:4px;"></div>
         </div>
         <div class="form-group">
           <label class="form-label">Tarih</label>
@@ -17524,6 +17530,34 @@ function moAlanEtiket(key) { const a = MO_ALANLAR.find(x => x.key === key); retu
 if (window.pdfjsLib) { try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (_) {} }
 
 function moBugun() { const d = new Date(), p = n => String(n).padStart(2, '0'); return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear(); }
+// Lira + kuruş → "5.000,00 TL" (binlik ayraç nokta, ondalık virgül)
+function moTutarFormatla(lira, kurus) {
+  const l = Math.max(0, Math.floor(Number(lira) || 0));
+  let k = Math.floor(Number(kurus) || 0); if (k < 0) k = 0; if (k > 99) k = 99;
+  return l.toLocaleString('tr-TR') + ',' + String(k).padStart(2, '0') + ' TL';
+}
+// Saklı tutarı görüntü için biçimle (formatlıysa olduğu gibi; düz "5000" ise TL'ye çevir)
+function moTutarGoster(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '—';
+  if (/tl/i.test(s)) return s;
+  const num = s.replace(/\./g, '').replace(',', '.');
+  if (/^\d+(\.\d+)?$/.test(num)) { const f = parseFloat(num); const l = Math.floor(f); const k = Math.round((f - l) * 100); return moTutarFormatla(l, k); }
+  return s;
+}
+// Üret ekranındaki lira/kuruş girişlerinden tutar metni
+function moUretTutarOku() {
+  const lira = document.getElementById('mo-uret-tutar-lira')?.value || '';
+  const kurus = document.getElementById('mo-uret-tutar-kurus')?.value || '';
+  const l = Math.floor(Number(lira) || 0), k = Math.floor(Number(kurus) || 0);
+  if (l <= 0 && k <= 0) return '';
+  return moTutarFormatla(l, k);
+}
+function moTutarOnizle() {
+  const el = document.getElementById('mo-uret-tutar-onizleme'); if (!el) return;
+  const t = moUretTutarOku();
+  el.textContent = t ? '→ ' + t : '';
+}
 function moNoMaskele(no) { const t = String(no || '').replace(/\s+/g, ''); const son = t.slice(-4); return '•••• •••• •••• ' + (son || '????'); }
 function moNoBicim(no) { return String(no || '').replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim(); }
 function moEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -18072,7 +18106,7 @@ async function moUret(yazdir) {
   const h = document.getElementById('mo-uret-hata'); h.style.display = 'none';
   const f = MO.formlar.find(x => String(x.id) === document.getElementById('mo-uret-tedarikci').value);
   const kart = MO.kartlar.find(x => String(x.id) === document.getElementById('mo-uret-kart').value);
-  const tutar = document.getElementById('mo-uret-tutar').value.trim();
+  const tutar = moUretTutarOku();
   const tarih = document.getElementById('mo-uret-tarih').value.trim() || moBugun();
   const aciklama = document.getElementById('mo-uret-aciklama').value.trim();
   const hata = m => { h.textContent = m; h.style.display = 'block'; };
@@ -18137,7 +18171,7 @@ async function moOnayGonder() {
   const hata = m => { h.textContent = m; h.style.display = 'block'; };
   const f = MO.formlar.find(x => String(x.id) === document.getElementById('mo-uret-tedarikci').value);
   const kart = MO.kartlar.find(x => String(x.id) === document.getElementById('mo-uret-kart').value);
-  const tutar = document.getElementById('mo-uret-tutar').value.trim();
+  const tutar = moUretTutarOku();
   const tarih = document.getElementById('mo-uret-tarih').value.trim() || moBugun();
   const aciklama = document.getElementById('mo-uret-aciklama').value.trim();
   if (!f) return hata('Tedarikçi seçin.');
@@ -18163,8 +18197,10 @@ async function moOnayGonder() {
   moSunucuUyar(ok, 'Onay talebi');
   moOnayBildirimGonder(t);
   // formu sıfırla (tutar/açıklama)
-  document.getElementById('mo-uret-tutar').value = '';
+  document.getElementById('mo-uret-tutar-lira').value = '';
+  document.getElementById('mo-uret-tutar-kurus').value = '';
   document.getElementById('mo-uret-aciklama').value = '';
+  moTutarOnizle();
   renderMailOrder();
   showToast('📤 ' + no + ' onaya gönderildi → ' + (t.yetkiliAd || yetkiliEmail));
 }
@@ -18178,7 +18214,7 @@ async function moOnayBildirimGonder(t) {
         <table style="font-size:13px;border-collapse:collapse;">
           <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Tedarikçi</td><td>${moEsc(t.tedarikci)}</td></tr>
-          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(t.tutar)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(moTutarGoster(t.tutar))}</td></tr>
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Kart</td><td>${moEsc(t.kartEtiket)}</td></tr>
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${moEsc(t.tarih)}</td></tr>
           ${t.aciklama ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Açıklama</td><td>${moEsc(t.aciklama)}</td></tr>` : ''}
@@ -18236,7 +18272,7 @@ async function moSaticiyaGonder(id) {
       <table style="font-size:13px;border-collapse:collapse;">
         <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
         <tr><td style="padding:2px 12px 2px 0;color:#666;">Tedarikçi</td><td>${moEsc(t.tedarikci)}</td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(t.tutar)}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(moTutarGoster(t.tutar))}</td></tr>
         <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylayan</td><td>${moEsc(t.yetkiliAd || t.yetkiliEmail)}</td></tr>
       </table>
     </div>`;
@@ -18269,7 +18305,7 @@ async function moTedarikciyeGonder(id) {
       <p style="margin:0 0 12px;">${moEsc(t.tedarikci)} adına onaylanmış mail order ödeme formu ektedir. Bilgilerinize sunarız.</p>
       <table style="font-size:13px;border-collapse:collapse;">
         <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(t.tutar)}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(moTutarGoster(t.tutar))}</td></tr>
         <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${moEsc(t.tarih)}</td></tr>
       </table>
     </div>`;
@@ -18295,7 +18331,7 @@ function moTalepSatirHtml(t, yetkiliGorunum) {
       <span style="font-family:monospace;font-weight:700;">${moEsc(t.no)}</span>
       ${moTalepDurumRozet(t)}
       <span style="font-size:13px;font-weight:600;">${moEsc(t.tedarikci)}</span>
-      <span style="font-size:13px;color:var(--text2);">${moEsc(t.tutar)}</span>
+      <span style="font-size:13px;color:var(--text2);">${moEsc(moTutarGoster(t.tutar))}</span>
     </div>`;
   const alt = `<div style="font-size:11px;color:var(--text3);margin-top:3px;">Kart: ${moEsc(t.kartEtiket)} · Tarih: ${moEsc(t.tarih)}${t.aciklama ? ' · ' + moEsc(t.aciklama) : ''} · ${yetkiliGorunum ? 'Talep eden: ' + moEsc(t.talepEdenAd) : 'Yetkili: ' + moEsc(t.yetkiliAd || t.yetkiliEmail)}${t.karar && t.karar.not ? ' · Not: ' + moEsc(t.karar.not) : ''}</div>`;
   let butonlar = '';
@@ -18362,7 +18398,7 @@ function moArsivRender() {
           <span style="font-family:monospace;font-weight:700;">${moEsc(t.no)}</span>
           ${moTalepDurumRozet(t)}
           <span style="font-size:13px;font-weight:600;">${moEsc(t.tedarikci)}</span>
-          <span style="font-size:13px;color:var(--text2);">${moEsc(t.tutar)}</span>
+          <span style="font-size:13px;color:var(--text2);">${moEsc(moTutarGoster(t.tutar))}</span>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:3px;">Talep eden: ${moEsc(t.talepEdenAd)} · ${tarih}${damga}${t.karar && t.karar.not ? ' · Not: ' + moEsc(t.karar.not) : ''}</div>
       </div>
