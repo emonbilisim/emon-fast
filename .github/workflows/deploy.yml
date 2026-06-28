@@ -373,6 +373,91 @@ jobs:
             PATCH
             node /tmp/emon-patch3.js
 
+      - name: Patch backend (mailorder — sanal KK kasasi + form sablonlari)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/emonfast
+            set -a; . ./.env; set +a
+            # 7a) DDL: satir-basina-bir-kayit tablolari (JSONB). Dizi-clobber riski yok;
+            #     her kart/form bagimsiz upsert/delete edilir. id = istemci uid (TEXT).
+            PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL'
+            CREATE TABLE IF NOT EXISTS mailorder_kartlar (
+              id TEXT PRIMARY KEY,
+              data JSONB NOT NULL,
+              guncelleme TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS mailorder_formlar (
+              id TEXT PRIMARY KEY,
+              data JSONB NOT NULL,
+              guncelleme TIMESTAMPTZ DEFAULT NOW()
+            );
+            SQL
+            # 7b) Route enjeksiyonu (idempotent, ADMIN-ONLY): GET /api/mailorder +
+            #     PUT/DELETE /api/mailorder/kart + PUT/DELETE /api/mailorder/form
+            cat > /tmp/emon-patch-mo.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            let degisti = false;
+            const yedek = () => { if (!degisti) fs.writeFileSync(f + '.bak.mo', s); };
+            // Yetki: admin her zaman; diger roller ayarlar.genel.mailorderRoller'da varsa.
+            // (Frontend AYARLAR.mailorderRoller ile ayni kaynak — admin Ayarlar'dan rol acar/kapatir.)
+            const yetki = "    if (!(await _moYetkili(req))) return res.status(403).json({ ok: false, hata: 'yetki yok' });\n";
+            const moRoute =
+              "async function _moYetkili(req) { try { if (!req.kullanici) return false; if (req.kullanici.rol === 'admin') return true; const _r = await pool.query(\"SELECT deger FROM ayarlar WHERE anahtar='genel'\"); const _g = (_r.rows[0] && _r.rows[0].deger) || {}; const _roller = Array.isArray(_g.mailorderRoller) ? _g.mailorderRoller : []; return _roller.indexOf(req.kullanici.rol) >= 0; } catch (e) { return false; } } // mailorder v1\n" +
+              "app.get('/api/mailorder', authMiddleware, async (req, res) => { // mailorder v1\n" +
+              "  try {\n" + yetki +
+              "    const k = await pool.query('SELECT data FROM mailorder_kartlar ORDER BY guncelleme DESC');\n" +
+              "    const g = await pool.query('SELECT data FROM mailorder_formlar ORDER BY guncelleme DESC');\n" +
+              "    res.json({ ok: true, kartlar: k.rows.map(x => x.data), formlar: g.rows.map(x => x.data) });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.put('/api/mailorder/kart', authMiddleware, async (req, res) => { // mailorder v1\n" +
+              "  try {\n" + yetki +
+              "    const k = (req.body && typeof req.body === 'object') ? req.body : {};\n" +
+              "    if (!k.id) return res.status(400).json({ ok: false, hata: 'id gerekli' });\n" +
+              "    await pool.query('INSERT INTO mailorder_kartlar (id, data, guncelleme) VALUES ($1,$2,NOW()) ON CONFLICT (id) DO UPDATE SET data=$2, guncelleme=NOW()', [String(k.id), JSON.stringify(k)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.delete('/api/mailorder/kart/:id', authMiddleware, async (req, res) => { // mailorder v1\n" +
+              "  try {\n" + yetki +
+              "    await pool.query('DELETE FROM mailorder_kartlar WHERE id=$1', [String(req.params.id)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.put('/api/mailorder/form', authMiddleware, async (req, res) => { // mailorder v1\n" +
+              "  try {\n" + yetki +
+              "    const g = (req.body && typeof req.body === 'object') ? req.body : {};\n" +
+              "    if (!g.id) return res.status(400).json({ ok: false, hata: 'id gerekli' });\n" +
+              "    await pool.query('INSERT INTO mailorder_formlar (id, data, guncelleme) VALUES ($1,$2,NOW()) ON CONFLICT (id) DO UPDATE SET data=$2, guncelleme=NOW()', [String(g.id), JSON.stringify(g)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.delete('/api/mailorder/form/:id', authMiddleware, async (req, res) => { // mailorder v1\n" +
+              "  try {\n" + yetki +
+              "    await pool.query('DELETE FROM mailorder_formlar WHERE id=$1', [String(req.params.id)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n";
+            if (s.includes('// mailorder v1')) {
+              console.log('mailorder route zaten var');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", moRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('mailorder route eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, mailorder eklenemedi');
+            }
+            if (degisti) fs.writeFileSync(f, s); else console.log('server.js (mailorder) zaten guncel');
+            PATCH
+            node /tmp/emon-patch-mo.js
+
       - name: Patch backend (veri-guard — katastrofik tablo kaybi korumasi)
         uses: appleboy/ssh-action@master
         with:

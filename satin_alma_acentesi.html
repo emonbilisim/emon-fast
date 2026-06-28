@@ -489,6 +489,10 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<!-- Mail Order: tedarikçi formu üzerine metin bindirme (pdf-lib) + form önizleme/konum seçimi (pdf.js) -->
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 <img id="emon-logo-data" src="data:image/jpeg;base64,/9j/4Q/+RXhpZgAATU0AKgAAAAgABgESAAMAAAABAAEAAAEaAAUAAAABAAAAVgEbAAUAAAABAAAAXgEoAAMAAAABAAIAAAITAAMAAAABAAEAAIdpAAQAAAABAAAAZgAAAAAAAABIAAAAAQAAAEgAAAABAAeQAAAHAAAABDAyMjGRAQAHAAAABAECAwCgAAAHAAAABDAxMDCgAQADAAAAAQABAACgAgAEAAAAAQAAAgKgAwAEAAAAAQAAAKikBgADAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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" style="display:none;" alt="">
@@ -580,6 +584,9 @@
     <div class="nav-item" onclick="goPage('kullanicilar',this)" id="nav-kullanicilar">
       <span class="icon">🔐</span> Kullanıcılar
       <span id="onay-badge" style="display:none;background:var(--amber);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
+    </div>
+    <div class="nav-item" onclick="goPage('mailorder',this)" id="nav-mailorder" style="display:none;">
+      <span class="icon">💳</span> Mail Order
     </div>
     <div class="nav-item" onclick="goPage('ayarlar',this)" id="nav-ayarlar" data-admin-only>
       <span class="icon">⚙</span> Ayarlar
@@ -1803,6 +1810,30 @@
       </div>
     </div>
 
+    <!-- Mail Order Modülü -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div style="flex:1;min-width:240px;">
+        <div class="card-title" style="margin-bottom:4px;">💳 Mail Order Modülü</div>
+        <div style="font-size:12px;color:var(--text3);line-height:1.6;">
+          Tedarikçi formunu sanal kartla doldurma + kart kasası. <b>Admin her zaman erişir.</b>
+          Aşağıdan hangi rollerin de erişebileceğini seçin — işaretli roldeki kullanıcılarda
+          sol menüde <b>💳 Mail Order</b> görünür. Kart kasasında saklı kart bilgileri (CVV dâhil)
+          o rollere açılır; dikkatli seçin.
+        </div>
+        <div id="mailorder-rol-durum" style="font-size:12px;font-weight:600;margin-top:10px;"></div>
+      </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input type="checkbox" id="ayar-mailorder-satici" onchange="mailorderRolToggle('satici',this)" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>🧑‍💼 Satıcılara aç</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input type="checkbox" id="ayar-mailorder-operasyon" onchange="mailorderRolToggle('operasyon',this)" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>🛠 Operasyona aç</span>
+        </label>
+      </div>
+    </div>
+
     <!-- Mail İmzası -->
     <div class="card" style="margin-top:16px;">
       <div class="card-title" style="margin-bottom:4px;">✉️ Mail İmzası</div>
@@ -1977,6 +2008,72 @@
         <span class="badge badge-blue" id="gorev-benim-sayi">0</span>
       </div>
       <div id="gorev-benim-liste" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+  </div>
+
+  <!-- MAIL ORDER: tedarikçi sanal KK ödeme (pilot, cihaz-yerel) -->
+  <div class="content page" id="page-mailorder">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:600;">💳 Mail Order</div>
+        <div style="font-size:12px;color:var(--text3);">Tedarikçi formunu sanal kart ile otomatik doldur — kart kasası bu cihazda saklanır (pilot)</div>
+      </div>
+    </div>
+
+    <!-- Ödeme Üret -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:14px;">⚡ Ödeme Üret</div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Tedarikçi *</label>
+          <select id="mo-uret-tedarikci" onchange="moUretTedarikciDegisti()"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Sanal Kart *</label>
+          <select id="mo-uret-kart" onchange="moUretTedarikciDegisti()"></select>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="form-group">
+          <label class="form-label">Tutar *</label>
+          <input type="text" id="mo-uret-tutar" placeholder="Örn: 12.500,00 TL" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tarih</label>
+          <input type="text" id="mo-uret-tarih" placeholder="GG.AA.YYYY" autocomplete="off">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Açıklama (opsiyonel)</label>
+        <input type="text" id="mo-uret-aciklama" placeholder="Örn: sipariş no / referans" autocomplete="off">
+      </div>
+      <div id="mo-uret-portal" style="display:none;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:12px;margin-bottom:12px;font-size:13px;"></div>
+      <div id="mo-uret-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary" id="mo-uret-btn" onclick="moUret()">📄 Doldur ve İndir</button>
+        <button class="btn" id="mo-yazdir-btn" onclick="moUret(true)">🖨 Yazdır</button>
+      </div>
+    </div>
+
+    <!-- Sanal Kart Kasası -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:700;">🔒 Sanal Kart Kasası</span>
+        <span style="font-size:11px;color:var(--text3);">maskeli — “göster” ile aç</span>
+        <div style="flex:1;"></div>
+        <button class="btn btn-sm btn-primary" onclick="moKartModalAc()">➕ Kart Ekle</button>
+      </div>
+      <div id="mo-kart-liste"></div>
+    </div>
+
+    <!-- Tedarikçi Form Şablonları -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:700;">📋 Tedarikçi Form Şablonları</span>
+        <div style="flex:1;"></div>
+        <button class="btn btn-sm btn-primary" onclick="moFormModalAc()">➕ Form Ekle</button>
+      </div>
+      <div id="mo-form-liste"></div>
     </div>
   </div>
 
@@ -3137,6 +3234,97 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
   </div>
 </div>
 
+<!-- MODAL: Sanal Kart Ekle/Düzenle -->
+<div class="modal-overlay" id="modal-moKart">
+  <div class="modal" style="width:min(96vw,520px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title" id="mo-kart-modal-title">➕ Sanal Kart</div>
+    <div class="form-group">
+      <label class="form-label">Etiket *</label>
+      <input type="text" id="mo-kart-etiket" placeholder="Örn: Garanti Sanal 1 / İşlem limiti 50K" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Kart Numarası *</label>
+      <input type="text" id="mo-kart-no" placeholder="0000 0000 0000 0000" inputmode="numeric" autocomplete="off">
+    </div>
+    <div class="grid2">
+      <div class="form-group">
+        <label class="form-label">Son Kul. (AA/YY) *</label>
+        <input type="text" id="mo-kart-sonkul" placeholder="AA/YY" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">CVV</label>
+        <input type="text" id="mo-kart-cvv" placeholder="###" inputmode="numeric" autocomplete="off">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Kart Sahibi *</label>
+      <input type="text" id="mo-kart-sahip" placeholder="Kart üzerindeki isim" autocomplete="off">
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">CVV bu cihazda saklanır (sanal/limitli kartlar için bilerek tercih edildi). Kasaya yalnız admin erişebilir.</div>
+    <div id="mo-kart-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin-bottom:10px;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('moKart')">İptal</button>
+      <button class="btn btn-primary" onclick="moKartKaydet()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Tedarikçi Formu Ekle -->
+<div class="modal-overlay" id="modal-moForm">
+  <div class="modal" style="width:min(96vw,520px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">➕ Tedarikçi Formu</div>
+    <div class="form-group">
+      <label class="form-label">Tedarikçi *</label>
+      <select id="mo-form-tedarikci"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ödeme Tipi</label>
+      <select id="mo-form-tip" onchange="moFormTipDegisti()">
+        <option value="form">Form (mail order belgesi doldurulur)</option>
+        <option value="portal">Portal (form yok — kart bilgisi kopyalanır)</option>
+      </select>
+    </div>
+    <div class="form-group" id="mo-form-dosya-grup">
+      <label class="form-label">Boş Form (PDF veya görsel) *</label>
+      <input type="file" id="mo-form-dosya" accept="application/pdf,image/png,image/jpeg">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Tedarikçinin boş mail order formunu yükleyin. Yükledikten sonra alan eşleme ekranı açılır.<br><b>Excel/Word formu mu?</b> Office'te bir kez “PDF olarak kaydet” yapıp PDF'i yükleyin (boş form nadiren değişir, tek seferlik).</div>
+    </div>
+    <div id="mo-form-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin-bottom:10px;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('moForm')">İptal</button>
+      <button class="btn btn-primary" onclick="moFormKaydet()">İleri →</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Form Alan Eşleme Editörü -->
+<div class="modal-overlay" id="modal-moFormEdit">
+  <div class="modal" style="width:min(98vw,960px);max-height:94vh;overflow-y:auto;">
+    <div class="modal-title" id="mo-edit-title">🎯 Alan Eşleme</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Önce bir alan tipine tıkla, sonra formda gelmesi gereken yere tıkla. Yerleştirilen etiketi sürükleyerek taşıyabilirsin. Üzerine tıklayıp “Sil” ile kaldır.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;" id="mo-edit-paleti"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;font-size:12px;color:var(--text2);">
+      <span>Yazı boyutu:</span>
+      <input type="number" id="mo-edit-font" value="11" min="6" max="48" style="width:70px;" onchange="moEditFontGuncelle()">
+      <span id="mo-edit-sayfa-nav" style="display:none;align-items:center;gap:6px;">
+        <button class="btn btn-sm" onclick="moEditSayfa(-1)">◀</button>
+        <span id="mo-edit-sayfa-bilgi">1 / 1</span>
+        <button class="btn btn-sm" onclick="moEditSayfa(1)">▶</button>
+      </span>
+      <span id="mo-edit-secili" style="margin-left:auto;color:var(--text3);"></span>
+    </div>
+    <div id="mo-edit-saha" style="position:relative;overflow:auto;max-height:60vh;border:1px solid var(--border);border-radius:var(--radius);background:#888;display:inline-block;width:100%;">
+      <canvas id="mo-edit-canvas" style="display:block;"></canvas>
+      <div id="mo-edit-overlay" style="position:absolute;left:0;top:0;width:100%;height:100%;"></div>
+    </div>
+    <div id="mo-edit-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin:10px 0;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('moFormEdit')">Kapat</button>
+      <button class="btn btn-primary" onclick="moEditKaydet()">💾 Eşlemeyi Kaydet</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -3973,8 +4161,8 @@ function goPage(id, el) {
     showToast('Bu sayfaya erişim yetkiniz yok.');
     return;
   }
-  // Operasyon rolü: yalnız izinli sayfalara girebilir
-  if (aktifKullanici?.rol === 'operasyon' && !OPERASYON_SAYFALAR.includes(id)) {
+  // Operasyon rolü: yalnız izinli sayfalara girebilir (Mail Order admin ayarıyla açıldıysa hariç)
+  if (aktifKullanici?.rol === 'operasyon' && !OPERASYON_SAYFALAR.includes(id) && !(id === 'mailorder' && mailorderGorunur())) {
     showToast('Bu sayfaya erişim yetkiniz yok.');
     return;
   }
@@ -3982,11 +4170,15 @@ function goPage(id, el) {
     showToast('CRM modülü şu an kapalı.');
     return;
   }
+  if (id === 'mailorder' && !mailorderGorunur()) {
+    showToast('Mail Order modülü size kapalı.');
+    return;
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('page-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM'};
+  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order'};
   document.getElementById('page-title').textContent = titles[id] || id;
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
@@ -3999,6 +4191,7 @@ function goPage(id, el) {
   if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); otoHatirlatDurumGuncelle(); hpListeDurumGuncelle(); }
   if (id === 'crm') renderCRM();
   if (id === 'gorevler') { renderGorevler(); gorevlerYenile(); }
+  if (id === 'mailorder') { renderMailOrder(); moYenile(); }
   // Liste/özet sayfalarına geçişte sunucudan taze veri çek (başka
   // kullanıcıların eklediği müşteri/tedarikçi/talepler görünsün)
   if (id === 'musteriler' || id === 'tedarikciler' || id === 'panel' || id === 'talepler') {
@@ -4025,7 +4218,8 @@ function closeModal(id) { document.getElementById('modal-' + id).classList.remov
 // önlemek için arka plana tıklayınca önce onay sorulur (İptal butonu doğrudan kapatır).
 const _KORUMALI_MODALLAR = new Set([
   'musteriForm','yeniTedarikci','duzenleTedarikci','yeniTalep','topluYapistir',
-  'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif','teklifMailOnay'
+  'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif','teklifMailOnay',
+  'moKart','moForm','moFormEdit'
 ]);
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
   if (e.target !== m) return; // yalnızca arka plana (içeriğe değil) tıklama
@@ -10082,6 +10276,7 @@ function rolUygula() {
   onayBekleyenBadgeGuncelle();
   if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
   crmNavGuncelle();
+  mailorderNavGuncelle();
   // Operasyon yetkisiz/varsayılan (panel) bir sayfadaysa izinli sayfaya geçir
   if (isOperasyon) {
     const aktifSayfa = document.querySelector('.page.active')?.id?.replace('page-', '');
@@ -12545,6 +12740,7 @@ let AYARLAR = {
   awayMode: false,
   onayBildirimMaili: '', // satıcı fiyat onayı gönderince uyarı maili gidecek admin e-postası
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
+  mailorderRoller: [], // Mail Order modülüne erişebilen roller (admin her zaman erişir). örn: ['satici','operasyon']
   talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
   crmHedefAylikYeniMusteri: 0,             // CRM: aylık yeni müşteri hedefi (0 = belirsiz)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
@@ -12841,6 +13037,32 @@ function crmAktifToggle(cb) {
     : '📇 CRM ekibe kapatıldı — yalnızca admin görüyor (veri birikmeye devam eder).');
 }
 
+// Mail Order: rol-bazlı aç/kapa (admin Ayarlar'dan). AYARLAR.mailorderRoller senkron.
+function mailorderRolToggle(rol, cb) {
+  let roller = Array.isArray(AYARLAR.mailorderRoller) ? AYARLAR.mailorderRoller.slice() : [];
+  if (cb.checked) { if (!roller.includes(rol)) roller.push(rol); }
+  else { roller = roller.filter(r => r !== rol); }
+  AYARLAR.mailorderRoller = roller;
+  veriKaydet();
+  mailorderRolDurumGuncelle();
+  mailorderNavGuncelle();
+  const ad = rol === 'satici' ? 'Satıcılar' : rol === 'operasyon' ? 'Operasyon' : rol;
+  showToast(cb.checked ? '💳 Mail Order ' + ad + ' rolüne açıldı.' : '🔒 Mail Order ' + ad + ' rolüne kapatıldı.');
+}
+function mailorderRolDurumGuncelle() {
+  const roller = Array.isArray(AYARLAR.mailorderRoller) ? AYARLAR.mailorderRoller : [];
+  const sCb = document.getElementById('ayar-mailorder-satici');
+  const oCb = document.getElementById('ayar-mailorder-operasyon');
+  if (sCb) sCb.checked = roller.includes('satici');
+  if (oCb) oCb.checked = roller.includes('operasyon');
+  const el = document.getElementById('mailorder-rol-durum');
+  if (el) {
+    const adlar = roller.map(r => r === 'satici' ? 'Satıcı' : r === 'operasyon' ? 'Operasyon' : r);
+    el.textContent = adlar.length ? '💳 Açık roller: Admin + ' + adlar.join(', ') : '🔒 Yalnızca admin erişebiliyor.';
+    el.style.color = adlar.length ? 'var(--green)' : 'var(--text3)';
+  }
+}
+
 function crmAktifDurumGuncelle() {
   const cb = document.getElementById('ayar-crm-aktif');
   if (cb) cb.checked = !!AYARLAR.crmAktif;
@@ -12858,6 +13080,7 @@ function ayarlariYukle() {
   awayModeDurumGuncelle();
   izinYonetimRender();
   crmAktifDurumGuncelle();
+  mailorderRolDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
@@ -13194,6 +13417,7 @@ function renderPanelMetrikler() {
   // Takip hatırlatıcıları (CRM)
   renderPanelTakip();
   crmNavGuncelle();
+  mailorderNavGuncelle();
   // Satıcılardan gelen fiyat onay talepleri (sadece admin)
   renderPanelFiyatOnaylari();
   // Onay bekleyenler (sadece admin)
@@ -17134,6 +17358,522 @@ msalBaslat();
   // Microsoft redirect sonrası token kontrolü
   setTimeout(async () => { try { await msalHazirla(); } catch {} }, 500);
 })();
+
+/* ══════════════════════════════════════════════════════════════
+   MAIL ORDER — tedarikçi sanal KK ödeme (pilot, CİHAZ-YEREL)
+   Kart kasası + tedarikçi form şablonu (alan eşleme) + form doldurma.
+   Veri ana senkron blob'una (emonfast_v1) GİRMEZ; ayrı localStorage
+   anahtarında tutulur (formlar büyük base64 → blob şişmesin). Ölçeklenince
+   ayrı sunucu tablosuna taşınacak (bkz. gorevler deseni).
+   Karışık format: PDF + taranmış görsel. Excel/Word → bir kez PDF'e çevirip yükle.
+   ══════════════════════════════════════════════════════════════ */
+const MO_KEY = 'emonfast_mailorder';
+let MO = (() => { try { return JSON.parse(localStorage.getItem(MO_KEY) || 'null') || { kartlar: [], formlar: [], sayac: 0 }; } catch (_) { return { kartlar: [], formlar: [], sayac: 0 }; } })();
+if (!Array.isArray(MO.kartlar)) MO.kartlar = [];
+if (!Array.isArray(MO.formlar)) MO.formlar = [];
+// Legacy: eski yerel kayıtlar sayısal id'liyse string'e çevir (onclick'ler tırnaklı id bekler).
+(() => { let d = false; MO.kartlar.forEach(k => { if (typeof k.id !== 'string') { k.id = String(k.id); d = true; } }); MO.formlar.forEach(f => { if (typeof f.id !== 'string') { f.id = String(f.id); d = true; } }); if (d) { try { localStorage.setItem(MO_KEY, JSON.stringify(MO)); } catch (_) {} } })();
+function moKaydet() { try { localStorage.setItem(MO_KEY, JSON.stringify(MO)); } catch (e) { showToast('⚠ Mail Order kaydedilemedi (depo dolu olabilir): ' + e.message); } }
+// Çoklu kullanıcı/cihaz: id çakışmasın diye yerel sayaç DEĞİL, benzersiz string üret
+// (bkz. talep-no yerel-sayaç çakışması). Sunucuda satır PK'sı bu id.
+function moUid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+let _moKartGoster = {};   // id → açık mı (maskeli liste için)
+
+// Doldurmada kullanılan alan tipleri
+const MO_ALANLAR = [
+  { key: 'tutar',    etiket: 'Tutar' },
+  { key: 'kartNo',   etiket: 'Kart No' },
+  { key: 'sonKul',   etiket: 'Son Kul.' },
+  { key: 'sahip',    etiket: 'Kart Sahibi' },
+  { key: 'cvv',      etiket: 'CVV' },
+  { key: 'tarih',    etiket: 'Tarih' },
+  { key: 'aciklama', etiket: 'Açıklama' },
+];
+function moAlanEtiket(key) { const a = MO_ALANLAR.find(x => x.key === key); return a ? a.etiket : key; }
+
+// pdf.js worker (form önizleme/konum seçimi)
+if (window.pdfjsLib) { try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (_) {} }
+
+function moBugun() { const d = new Date(), p = n => String(n).padStart(2, '0'); return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear(); }
+function moNoMaskele(no) { const t = String(no || '').replace(/\s+/g, ''); const son = t.slice(-4); return '•••• •••• •••• ' + (son || '????'); }
+function moNoBicim(no) { return String(no || '').replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim(); }
+function moEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+// Standart PDF fontu (Helvetica/WinAnsi) Türkçe ş/ğ/İ/ı kodlayamaz → çökmesin diye ASCII'ye indir.
+function moTrAscii(s) { return String(s == null ? '' : s).replace(/[şŞğĞıİçÇöÖüÜ]/g, c => ({ 'ş': 's', 'Ş': 'S', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I', 'ç': 'c', 'Ç': 'C', 'ö': 'o', 'Ö': 'O', 'ü': 'u', 'Ü': 'U' }[c])); }
+function moB64ToBytes(b64) { const bin = atob(b64); const len = bin.length, bytes = new Uint8Array(len); for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i); return bytes; }
+function moLoadImage(src) { return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; }); }
+function moIndir(blob, ad) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = ad; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); }
+function moYazdir(blob) { const url = URL.createObjectURL(blob); const w = window.open(url, '_blank'); if (!w) { showToast('Açılır pencere engellendi — indirip yazdırın.'); URL.revokeObjectURL(url); return; } setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 800); setTimeout(() => URL.revokeObjectURL(url), 60000); }
+// Türkçe karakterleri kodlayabilen Unicode font (DejaVu Sans). PDF metni için pdf-lib'e
+// fontkit ile gömülür; oturumda bir kez indirilip bellekte tutulur (tarayıcı da cache'ler).
+let _moFontBytes = null;
+async function moFontYukle() {
+  if (_moFontBytes) return _moFontBytes;
+  const r = await fetch('https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf');
+  if (!r.ok) throw new Error('font indirilemedi (' + r.status + ')');
+  _moFontBytes = new Uint8Array(await r.arrayBuffer());
+  return _moFontBytes;
+}
+
+// ── SUNUCU SENKRONU ─────────────────────────────────────────
+// Kart kasası + form şablonları ortak kullanım için sunucuda saklanır
+// (/api/mailorder, admin-only, satır-başına upsert — gorevler deseni).
+// localStorage çevrimdışı önbellek; sunucu yetkili kaynak.
+function moSunucuUyar(ok, etiket) { if (!ok) showToast('⚠ ' + (etiket || 'Değişiklik') + ' bu cihaza kaydedildi ama sunucuya yazılamadı — bağlantı gelince “Mail Order”ı tekrar açın.'); }
+async function apiMoYukle() {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return false; }
+    const v = await r.json();
+    const sunucuBos = (!v.kartlar || !v.kartlar.length) && (!v.formlar || !v.formlar.length);
+    const yerelVar = MO.kartlar.length || MO.formlar.length;
+    if (sunucuBos && yerelVar) {
+      // İlk geçiş: cihaz-yerel pilot veriyi sunucuya TAŞI, yereli koru (ezme).
+      for (const k of MO.kartlar) await apiMoKartKaydet(k);
+      for (const f of MO.formlar) await apiMoFormKaydet(f);
+      showToast('Mail Order verisi sunucuya taşındı (paylaşıma açıldı).');
+      return true;
+    }
+    if (Array.isArray(v.kartlar)) MO.kartlar = v.kartlar;
+    if (Array.isArray(v.formlar)) MO.formlar = v.formlar;
+    moKaydet();
+    return true;
+  } catch (e) { return false; }
+}
+async function apiMoKartKaydet(k) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/kart', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(k) });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function apiMoKartSil(id) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/kart/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function apiMoFormKaydet(f) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/form', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(f) });
+    if (r.status === 401) oturumSuresiDoldu();
+    if (r.status === 413) showToast('⚠ Form çok büyük — sunucu reddetti. Daha küçük/sıkıştırılmış PDF yükleyin.');
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function apiMoFormSil(id) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/form/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+// Sunucudan çek + (sayfa açıksa) yeniden çiz
+async function moYenile() {
+  const ok = await apiMoYukle();
+  if (document.getElementById('page-mailorder')?.classList.contains('active')) renderMailOrder();
+  return ok;
+}
+
+// ── ROL GÖRÜNÜRLÜĞÜ — admin Ayarlar'dan rol-bazlı aç/kapa (CRM gibi) ──
+// admin her zaman görür; satıcı/operasyon yalnız AYARLAR.mailorderRoller'da varsa.
+// Aynı kontrol BACKEND'de de var (ayarlar.genel.mailorderRoller) — açılan rol veriyi çekebilsin.
+function mailorderGorunur() {
+  if (aktifKullanici?.rol === 'admin') return true;
+  const roller = Array.isArray(AYARLAR.mailorderRoller) ? AYARLAR.mailorderRoller : [];
+  return roller.includes(aktifKullanici?.rol);
+}
+function mailorderNavGuncelle() {
+  const nav = document.getElementById('nav-mailorder');
+  if (nav) nav.style.display = mailorderGorunur() ? 'flex' : 'none';
+}
+
+// ── ANA RENDER ──────────────────────────────────────────────
+function renderMailOrder() {
+  // Üret: tarih varsayılan bugün
+  const tarihEl = document.getElementById('mo-uret-tarih');
+  if (tarihEl && !tarihEl.value) tarihEl.value = moBugun();
+  moKartListeRender();
+  moFormListeRender();
+  moUretSecimDoldur();
+}
+
+// ── SANAL KART KASASI ───────────────────────────────────────
+function moKartListeRender() {
+  const el = document.getElementById('mo-kart-liste');
+  if (!el) return;
+  if (!MO.kartlar.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Henüz kart yok. “Kart Ekle” ile başlayın.</div>'; return; }
+  el.innerHTML = MO.kartlar.map(k => {
+    const acik = _moKartGoster[k.id];
+    const no = acik ? moNoBicim(k.no) : moNoMaskele(k.no);
+    const cvv = acik ? (k.cvv || '—') : '•••';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
+      <div style="min-width:160px;">
+        <div style="font-weight:600;font-size:13px;">${moEsc(k.etiket)}</div>
+        <div style="font-size:11px;color:var(--text3);">${moEsc(k.sahip)}</div>
+      </div>
+      <div style="font-family:monospace;font-size:14px;letter-spacing:1px;">${moEsc(no)}</div>
+      <div style="font-size:12px;color:var(--text2);">SK: ${moEsc(k.sonKul || '—')}</div>
+      <div style="font-size:12px;color:var(--text2);">CVV: ${moEsc(cvv)}</div>
+      <div style="flex:1;"></div>
+      <button class="btn btn-sm" onclick="moKartGosterToggle('${k.id}')">${acik ? '🙈 Gizle' : '👁 Göster'}</button>
+      <button class="btn btn-sm" onclick="moKartModalAc('${k.id}')">✏️</button>
+      <button class="btn btn-sm" onclick="moKartSil('${k.id}')">🗑</button>
+    </div>`;
+  }).join('');
+}
+function moKartGosterToggle(id) { _moKartGoster[id] = !_moKartGoster[id]; moKartListeRender(); }
+let _moKartDuzenleId = null;
+function moKartModalAc(id) {
+  _moKartDuzenleId = id || null;
+  const k = id ? MO.kartlar.find(x => x.id === id) : null;
+  document.getElementById('mo-kart-modal-title').textContent = k ? '✏️ Sanal Kart' : '➕ Sanal Kart';
+  document.getElementById('mo-kart-etiket').value = k ? (k.etiket || '') : '';
+  document.getElementById('mo-kart-no').value = k ? moNoBicim(k.no) : '';
+  document.getElementById('mo-kart-sonkul').value = k ? (k.sonKul || '') : '';
+  document.getElementById('mo-kart-cvv').value = k ? (k.cvv || '') : '';
+  document.getElementById('mo-kart-sahip').value = k ? (k.sahip || '') : '';
+  const h = document.getElementById('mo-kart-hata'); h.style.display = 'none';
+  openModal('moKart');
+}
+async function moKartKaydet() {
+  const etiket = document.getElementById('mo-kart-etiket').value.trim();
+  const no = document.getElementById('mo-kart-no').value.replace(/\s+/g, '');
+  const sonKul = document.getElementById('mo-kart-sonkul').value.trim();
+  const cvv = document.getElementById('mo-kart-cvv').value.trim();
+  const sahip = document.getElementById('mo-kart-sahip').value.trim();
+  const h = document.getElementById('mo-kart-hata');
+  if (!etiket || !no || !sonKul || !sahip) { h.textContent = 'Etiket, kart no, son kullanım ve sahip zorunlu.'; h.style.display = 'block'; return; }
+  if (!/^\d{12,19}$/.test(no)) { h.textContent = 'Kart numarası 12–19 hane olmalı.'; h.style.display = 'block'; return; }
+  let k;
+  if (_moKartDuzenleId) {
+    k = MO.kartlar.find(x => x.id === _moKartDuzenleId);
+    if (k) Object.assign(k, { etiket, no, sonKul, cvv, sahip });
+  } else {
+    k = { id: moUid(), etiket, no, sonKul, cvv, sahip };
+    MO.kartlar.push(k);
+  }
+  moKaydet(); closeModal('moKart'); moKartListeRender(); moUretSecimDoldur();
+  showToast('Kart kaydedildi.');
+  if (k) moSunucuUyar(await apiMoKartKaydet(k), 'Kart');
+}
+async function moKartSil(id) {
+  const k = MO.kartlar.find(x => x.id === id); if (!k) return;
+  if (!confirm('“' + k.etiket + '” kartı silinsin mi?')) return;
+  MO.kartlar = MO.kartlar.filter(x => x.id !== id);
+  moKaydet(); moKartListeRender(); moUretSecimDoldur();
+  moSunucuUyar(await apiMoKartSil(id), 'Kart silme');
+}
+
+// ── TEDARİKÇİ FORM ŞABLONLARI ───────────────────────────────
+function moFormListeRender() {
+  const el = document.getElementById('mo-form-liste');
+  if (!el) return;
+  if (!MO.formlar.length) { el.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:8px 0;">Henüz form yok. “Form Ekle” ile bir tedarikçi formu yükleyin.</div>'; return; }
+  el.innerHTML = MO.formlar.map(f => {
+    const tipEt = f.tip === 'portal' ? '<span class="badge" style="background:var(--bg3);">Portal</span>' : `<span class="badge badge-blue">${(f.alanlar || []).length} alan</span>`;
+    const fmt = f.tip === 'portal' ? '—' : (f.format === 'pdf' ? 'PDF' : 'Görsel');
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
+      <div style="min-width:180px;font-weight:600;font-size:13px;">${moEsc(f.tedarikci)}</div>
+      <div style="font-size:12px;color:var(--text3);">${fmt}</div>
+      ${tipEt}
+      <div style="flex:1;"></div>
+      ${f.tip === 'portal' ? '' : `<button class="btn btn-sm" onclick="moEditAc('${f.id}')">🎯 Alan Eşle</button>`}
+      <button class="btn btn-sm" onclick="moFormSil('${f.id}')">🗑</button>
+    </div>`;
+  }).join('');
+}
+function moFormTipDegisti() {
+  const tip = document.getElementById('mo-form-tip').value;
+  document.getElementById('mo-form-dosya-grup').style.display = tip === 'portal' ? 'none' : '';
+}
+function moFormModalAc() {
+  const sel = document.getElementById('mo-form-tedarikci');
+  sel.innerHTML = '<option value="">Seçin...</option>';
+  [...new Set(TEDARIKCILER.map(r => r[0]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr')).forEach(firma => {
+    const o = document.createElement('option'); o.value = firma; o.textContent = firma; sel.appendChild(o);
+  });
+  document.getElementById('mo-form-tip').value = 'form';
+  document.getElementById('mo-form-dosya').value = '';
+  moFormTipDegisti();
+  document.getElementById('mo-form-hata').style.display = 'none';
+  openModal('moForm');
+}
+async function moFormKaydet() {
+  const tedarikci = document.getElementById('mo-form-tedarikci').value;
+  const tip = document.getElementById('mo-form-tip').value;
+  const h = document.getElementById('mo-form-hata');
+  if (!tedarikci) { h.textContent = 'Tedarikçi seçin.'; h.style.display = 'block'; return; }
+  if (MO.formlar.some(f => f.tedarikci === tedarikci)) { h.textContent = 'Bu tedarikçi için zaten bir form var. Önce onu silin.'; h.style.display = 'block'; return; }
+  if (tip === 'portal') {
+    const pf = { id: moUid(), tedarikci, tip: 'portal' };
+    MO.formlar.push(pf);
+    moKaydet(); closeModal('moForm'); moFormListeRender(); moUretSecimDoldur();
+    showToast('Portal tedarikçisi eklendi.');
+    moSunucuUyar(await apiMoFormKaydet(pf), 'Form');
+    return;
+  }
+  const file = document.getElementById('mo-form-dosya').files[0];
+  if (!file) { h.textContent = 'Boş formu (PDF veya görsel) yükleyin.'; h.style.display = 'block'; return; }
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isImg = /^image\//.test(file.type) || /\.(png|jpe?g)$/i.test(file.name);
+  if (!isPdf && !isImg) { h.textContent = 'Yalnız PDF, PNG veya JPG. (Excel/Word ise önce PDF olarak kaydedin.)'; h.style.display = 'block'; return; }
+  if (file.size > 8 * 1024 * 1024) { h.textContent = 'Dosya 8 MB üzeri — pilotta cihaz-yerel depo sınırlı. Daha küçük/PDF yükleyin.'; h.style.display = 'block'; return; }
+  const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+  const i = dataUrl.indexOf(','); const b64 = dataUrl.slice(i + 1);
+  const f = { id: moUid(), tedarikci, tip: 'form', format: isPdf ? 'pdf' : 'image', mime: file.type || (isPdf ? 'application/pdf' : 'image/png'), b64, alanlar: [] };
+  MO.formlar.push(f);
+  moKaydet(); closeModal('moForm'); moFormListeRender(); moUretSecimDoldur();
+  moSunucuUyar(await apiMoFormKaydet(f), 'Form');
+  moEditAc(f.id);   // hemen alan eşleme ekranına geç
+}
+async function moFormSil(id) {
+  const f = MO.formlar.find(x => x.id === id); if (!f) return;
+  if (!confirm('“' + f.tedarikci + '” formu silinsin mi?')) return;
+  MO.formlar = MO.formlar.filter(x => x.id !== id);
+  moKaydet(); moFormListeRender(); moUretSecimDoldur();
+  moSunucuUyar(await apiMoFormSil(id), 'Form silme');
+}
+
+// ── ALAN EŞLEME EDİTÖRÜ ─────────────────────────────────────
+let _moEdit = null;  // { idx, sayfa, sayfaSayisi, format, pdfDoc, imgEl, canvasW, canvasH, fontPx, seciliKey, alanlar:[{key,sayfa,x,y,fontFrac}] }
+async function moEditAc(id) {
+  const idx = MO.formlar.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  const f = MO.formlar[idx];
+  _moEdit = { idx, sayfa: 0, sayfaSayisi: 1, format: f.format, pdfDoc: null, imgEl: null, canvasW: 0, canvasH: 0, fontPx: 11, seciliKey: null, alanlar: JSON.parse(JSON.stringify(f.alanlar || [])) };
+  document.getElementById('mo-edit-title').textContent = '🎯 Alan Eşleme — ' + f.tedarikci;
+  document.getElementById('mo-edit-font').value = 11;
+  document.getElementById('mo-edit-hata').style.display = 'none';
+  moEditPaletiCiz();
+  openModal('moFormEdit');
+  const dataUrl = 'data:' + (f.mime || (f.format === 'pdf' ? 'application/pdf' : 'image/png')) + ';base64,' + f.b64;
+  try {
+    if (f.format === 'pdf') {
+      _moEdit.pdfDoc = await pdfjsLib.getDocument({ data: moB64ToBytes(f.b64) }).promise;
+      _moEdit.sayfaSayisi = _moEdit.pdfDoc.numPages;
+    } else {
+      _moEdit.imgEl = await moLoadImage(dataUrl);
+      _moEdit.sayfaSayisi = 1;
+    }
+    document.getElementById('mo-edit-sayfa-nav').style.display = _moEdit.sayfaSayisi > 1 ? 'inline-flex' : 'none';
+    await moEditSayfaCiz();
+  } catch (e) {
+    const h = document.getElementById('mo-edit-hata'); h.textContent = 'Form yüklenemedi: ' + e.message; h.style.display = 'block';
+  }
+  // overlay tıklama
+  const ov = document.getElementById('mo-edit-overlay');
+  ov.onclick = moEditTikla;
+}
+function moEditPaletiCiz() {
+  const el = document.getElementById('mo-edit-paleti');
+  el.innerHTML = MO_ALANLAR.map(a => `<button class="btn btn-sm" data-mokey="${a.key}" onclick="moEditKeySec('${a.key}')">${a.etiket}</button>`).join('');
+}
+function moEditKeySec(key) {
+  _moEdit.seciliKey = key;
+  document.querySelectorAll('#mo-edit-paleti [data-mokey]').forEach(b => b.classList.toggle('btn-primary', b.getAttribute('data-mokey') === key));
+  document.getElementById('mo-edit-secili').textContent = 'Yerleştir: ' + moAlanEtiket(key) + ' — forma tıkla';
+}
+async function moEditSayfa(d) {
+  const yeni = _moEdit.sayfa + d;
+  if (yeni < 0 || yeni >= _moEdit.sayfaSayisi) return;
+  _moEdit.sayfa = yeni;
+  await moEditSayfaCiz();
+}
+async function moEditSayfaCiz() {
+  const canvas = document.getElementById('mo-edit-canvas');
+  const ctx = canvas.getContext('2d');
+  const saha = document.getElementById('mo-edit-saha');
+  const enFazlaW = Math.max(320, (saha.clientWidth || 900) - 4);
+  if (_moEdit.format === 'pdf') {
+    const page = await _moEdit.pdfDoc.getPage(_moEdit.sayfa + 1);
+    const v0 = page.getViewport({ scale: 1 });
+    const scale = Math.min(2, enFazlaW / v0.width);
+    const vp = page.getViewport({ scale });
+    canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  } else {
+    const im = _moEdit.imgEl;
+    const scale = Math.min(2, enFazlaW / im.naturalWidth);
+    canvas.width = Math.round(im.naturalWidth * scale); canvas.height = Math.round(im.naturalHeight * scale);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(im, 0, 0, canvas.width, canvas.height);
+  }
+  _moEdit.canvasW = canvas.width; _moEdit.canvasH = canvas.height;
+  const ov = document.getElementById('mo-edit-overlay');
+  ov.style.width = canvas.width + 'px'; ov.style.height = canvas.height + 'px';
+  document.getElementById('mo-edit-sayfa-bilgi').textContent = (_moEdit.sayfa + 1) + ' / ' + _moEdit.sayfaSayisi;
+  moEditMarkerlariCiz();
+}
+function moEditTikla(e) {
+  if (e.target !== e.currentTarget) return;   // marker'a tıklama değil
+  if (!_moEdit.seciliKey) { showToast('Önce yukarıdan bir alan tipi seçin.'); return; }
+  const ov = e.currentTarget; const r = ov.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+  _moEdit.alanlar.push({ key: _moEdit.seciliKey, sayfa: _moEdit.sayfa, x, y, fontFrac: _moEdit.fontPx / _moEdit.canvasH });
+  moEditMarkerlariCiz();
+}
+function moEditMarkerlariCiz() {
+  const ov = document.getElementById('mo-edit-overlay');
+  ov.innerHTML = '';
+  _moEdit.alanlar.forEach((a, i) => {
+    if (a.sayfa !== _moEdit.sayfa) return;
+    const fpx = Math.max(8, a.fontFrac * _moEdit.canvasH);
+    const m = document.createElement('div');
+    m.style.cssText = `position:absolute;left:${a.x * 100}%;top:${a.y * 100}%;font-size:${fpx}px;background:rgba(37,99,235,0.14);border:1px solid #2563eb;border-radius:3px;padding:0 3px;white-space:nowrap;cursor:move;color:#0a3;line-height:1.1;`;
+    m.innerHTML = `<span style="color:#2563eb;font-weight:600;">${moEsc(moAlanEtiket(a.key))}</span> <span data-mosil="${i}" style="cursor:pointer;color:#e33;font-weight:700;padding-left:2px;">×</span>`;
+    m.addEventListener('mousedown', ev => {
+      if (ev.target.getAttribute('data-mosil') != null) { _moEdit.alanlar.splice(i, 1); moEditMarkerlariCiz(); ev.stopPropagation(); return; }
+      moMarkerSurukle(ev, i);
+    });
+    ov.appendChild(m);
+  });
+}
+function moMarkerSurukle(ev, i) {
+  ev.preventDefault(); ev.stopPropagation();
+  const ov = document.getElementById('mo-edit-overlay');
+  const r = ov.getBoundingClientRect();
+  const tasi = e => {
+    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    _moEdit.alanlar[i].x = x; _moEdit.alanlar[i].y = y; moEditMarkerlariCiz();
+  };
+  const birak = () => { document.removeEventListener('mousemove', tasi); document.removeEventListener('mouseup', birak); };
+  document.addEventListener('mousemove', tasi); document.addEventListener('mouseup', birak);
+}
+function moEditFontGuncelle() {
+  const v = parseInt(document.getElementById('mo-edit-font').value, 10);
+  if (v >= 6 && v <= 48) _moEdit.fontPx = v;
+}
+async function moEditKaydet() {
+  if (!_moEdit) return;
+  const f = MO.formlar[_moEdit.idx];
+  if (!f) return;
+  f.alanlar = JSON.parse(JSON.stringify(_moEdit.alanlar));
+  moKaydet(); closeModal('moFormEdit'); moFormListeRender(); moUretSecimDoldur();
+  showToast('Alan eşlemesi kaydedildi (' + f.alanlar.length + ' alan).');
+  moSunucuUyar(await apiMoFormKaydet(f), 'Form');
+}
+
+// ── ÖDEME ÜRET ──────────────────────────────────────────────
+function moUretSecimDoldur() {
+  const tSel = document.getElementById('mo-uret-tedarikci');
+  const kSel = document.getElementById('mo-uret-kart');
+  if (!tSel || !kSel) return;
+  const oncekiT = tSel.value, oncekiK = kSel.value;
+  tSel.innerHTML = '<option value="">Seçin...</option>';
+  MO.formlar.slice().sort((a, b) => a.tedarikci.localeCompare(b.tedarikci, 'tr')).forEach(f => {
+    const o = document.createElement('option'); o.value = String(f.id); o.textContent = f.tedarikci + (f.tip === 'portal' ? ' (portal)' : ''); tSel.appendChild(o);
+  });
+  kSel.innerHTML = '<option value="">Seçin...</option>';
+  MO.kartlar.forEach(k => { const o = document.createElement('option'); o.value = String(k.id); o.textContent = k.etiket + ' (' + moNoMaskele(k.no).slice(-4) + ')'; kSel.appendChild(o); });
+  if (oncekiT) tSel.value = oncekiT;
+  if (oncekiK) kSel.value = oncekiK;
+  moUretTedarikciDegisti();
+}
+function moUretTedarikciDegisti() {
+  const f = MO.formlar.find(x => String(x.id) === document.getElementById('mo-uret-tedarikci').value);
+  const portalEl = document.getElementById('mo-uret-portal');
+  const uretBtn = document.getElementById('mo-uret-btn');
+  const yazdirBtn = document.getElementById('mo-yazdir-btn');
+  if (f && f.tip === 'portal') {
+    const k = MO.kartlar.find(x => String(x.id) === document.getElementById('mo-uret-kart').value);
+    portalEl.style.display = 'block';
+    if (!k) { portalEl.innerHTML = 'Portal ödemesi: kopyalamak için önce bir <b>sanal kart</b> seçin.'; }
+    else {
+      const sat = (et, val, alan) => `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;"><span style="min-width:90px;color:var(--text3);">${et}</span><span style="font-family:monospace;flex:1;">${moEsc(val)}</span><button class="btn btn-sm" onclick="moKopyalaKart('${k.id}','${alan}')">kopyala</button></div>`;
+      portalEl.innerHTML = '<div style="font-weight:600;margin-bottom:6px;">Portal — kart bilgisi</div>' +
+        sat('Kart No', moNoBicim(k.no), 'no') + sat('Son Kul.', k.sonKul, 'sonKul') + sat('CVV', k.cvv || '—', 'cvv') + sat('Sahip', k.sahip, 'sahip');
+    }
+    uretBtn.style.display = 'none'; yazdirBtn.style.display = 'none';
+  } else {
+    portalEl.style.display = 'none';
+    uretBtn.style.display = ''; yazdirBtn.style.display = '';
+  }
+}
+function moKopyala(t) { navigator.clipboard?.writeText(t).then(() => showToast('Kopyalandı.'), () => showToast('Kopyalanamadı.')); }
+function moKopyalaKart(id, alan) { const k = MO.kartlar.find(x => x.id === id); if (!k) return; const v = alan === 'no' ? String(k.no).replace(/\s+/g, '') : (k[alan] || ''); moKopyala(v); }
+
+function moUretDeger(key, ctx) {
+  switch (key) {
+    case 'tutar': return ctx.tutar;
+    case 'kartNo': return moNoBicim(ctx.kart.no);
+    case 'sonKul': return ctx.kart.sonKul || '';
+    case 'sahip': return ctx.kart.sahip || '';
+    case 'cvv': return ctx.kart.cvv || '';
+    case 'tarih': return ctx.tarih;
+    case 'aciklama': return ctx.aciklama;
+    default: return '';
+  }
+}
+async function moUret(yazdir) {
+  const h = document.getElementById('mo-uret-hata'); h.style.display = 'none';
+  const f = MO.formlar.find(x => String(x.id) === document.getElementById('mo-uret-tedarikci').value);
+  const kart = MO.kartlar.find(x => String(x.id) === document.getElementById('mo-uret-kart').value);
+  const tutar = document.getElementById('mo-uret-tutar').value.trim();
+  const tarih = document.getElementById('mo-uret-tarih').value.trim() || moBugun();
+  const aciklama = document.getElementById('mo-uret-aciklama').value.trim();
+  const hata = m => { h.textContent = m; h.style.display = 'block'; };
+  if (!f) return hata('Tedarikçi seçin.');
+  if (f.tip === 'portal') return hata('Portal tedarikçisi — yukarıdan kart bilgisini kopyalayın.');
+  if (!kart) return hata('Sanal kart seçin.');
+  if (!tutar) return hata('Tutar girin.');
+  if (!f.alanlar || !f.alanlar.length) return hata('Bu formda alan eşlemesi yok — “Alan Eşle” ile konumları belirleyin.');
+  const ctx = { tutar, tarih, aciklama, kart };
+  const adGuvenli = (f.tedarikci || 'tedarikci').replace(/[^\wığüşöçİĞÜŞÖÇ.-]+/g, '_');
+  try {
+    let blob, ad;
+    if (f.format === 'pdf') {
+      const doc = await PDFLib.PDFDocument.load(moB64ToBytes(f.b64));
+      // Türkçe için Unicode font göm; indirilemezse Helvetica + ASCII'ye düş.
+      let font, asciiZorla = false;
+      try {
+        doc.registerFontkit(window.fontkit);
+        font = await doc.embedFont(await moFontYukle(), { subset: true });
+      } catch (e) {
+        font = await doc.embedFont(PDFLib.StandardFonts.Helvetica); asciiZorla = true;
+        showToast('Türkçe font yüklenemedi — metin ASCII olarak yazıldı.');
+      }
+      const pages = doc.getPages();
+      f.alanlar.forEach(a => {
+        const val = moUretDeger(a.key, ctx); if (!val) return;
+        const pg = pages[a.sayfa]; if (!pg) return;
+        const { width, height } = pg.getSize();
+        const fs = Math.max(6, a.fontFrac * height);
+        pg.drawText(asciiZorla ? moTrAscii(val) : String(val), { x: a.x * width, y: height - a.y * height - fs * 0.8, size: fs, font, color: PDFLib.rgb(0, 0, 0) });
+      });
+      const bytes = await doc.save();
+      blob = new Blob([bytes], { type: 'application/pdf' });
+      ad = 'mailorder_' + adGuvenli + '.pdf';
+    } else {
+      const im = await moLoadImage('data:' + (f.mime || 'image/png') + ';base64,' + f.b64);
+      const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+      const cx = c.getContext('2d'); cx.drawImage(im, 0, 0); cx.fillStyle = '#000'; cx.textBaseline = 'top';
+      f.alanlar.forEach(a => {
+        const val = moUretDeger(a.key, ctx); if (!val) return;
+        const fpx = Math.max(8, a.fontFrac * c.height);
+        cx.font = fpx + 'px Helvetica, Arial, sans-serif';
+        cx.fillText(String(val), a.x * c.width, a.y * c.height);
+      });
+      // Tek sayfalık PDF üret (görselin üzerine)
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: c.width >= c.height ? 'l' : 'p', unit: 'px', format: [c.width, c.height] });
+      pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, c.width, c.height);
+      blob = pdf.output('blob');
+      ad = 'mailorder_' + adGuvenli + '.pdf';
+    }
+    if (yazdir) moYazdir(blob); else moIndir(blob, ad);
+    showToast(yazdir ? 'Yazdırmaya gönderildi.' : 'Dolu form indirildi.');
+  } catch (e) {
+    hata('Form üretilemedi: ' + e.message);
+  }
+}
 
 /* ──────────────────────────────────────────────────────────────
    OTOMATİK SÜRÜM KONTROLÜ — Uygulama tek-sayfa (SPA): bir sekme uzun
