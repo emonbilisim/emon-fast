@@ -18447,9 +18447,9 @@ async function moOnayKarar(id, durum) {
   t.durum = durum;
   t.karar = { tarih: new Date().toISOString(), not };
   moSunucuUyar(await apiMoTalepKaydet(t), 'Onay kararı');
-  moOnayListeRender(); moBadgeGuncelle();
+  moOnayListeRender(); moArsivRender(); moBadgeGuncelle();
   if (durum === 'onaylandi') { showToast('✅ ' + t.no + ' onaylandı — dolu form indiriliyor.'); await moOnayIndir(id); }
-  else showToast('❌ ' + t.no + ' reddedildi.');
+  else showToast('❌ ' + t.no + ' reddedildi — arşive taşındı.');
 }
 async function moOnayIptal(id) {
   const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
