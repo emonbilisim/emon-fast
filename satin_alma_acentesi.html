@@ -17382,13 +17382,26 @@ let _moKartGoster = {};   // id → açık mı (maskeli liste için)
 // Doldurmada kullanılan alan tipleri
 const MO_ALANLAR = [
   { key: 'tutar',    etiket: 'Tutar' },
-  { key: 'kartNo',   etiket: 'Kart No' },
-  { key: 'sonKul',   etiket: 'Son Kul.' },
+  { key: 'kartNo',   etiket: 'Kart No (tam)' },
+  { key: 'kartNo1',  etiket: 'Kart No 1-4' },
+  { key: 'kartNo2',  etiket: 'Kart No 5-8' },
+  { key: 'kartNo3',  etiket: 'Kart No 9-12' },
+  { key: 'kartNo4',  etiket: 'Kart No 13-16' },
+  { key: 'sonKul',   etiket: 'Son Kul. (tam)' },
+  { key: 'sonKulAy', etiket: 'Son Kul. AA' },
+  { key: 'sonKulYil',etiket: 'Son Kul. YY' },
   { key: 'sahip',    etiket: 'Kart Sahibi' },
   { key: 'cvv',      etiket: 'CVV' },
   { key: 'tarih',    etiket: 'Tarih' },
   { key: 'aciklama', etiket: 'Açıklama' },
 ];
+// Kart no'yu 4'erli bloklara, son kullanımı AA/YY'ye ayırmak için yardımcılar.
+function moKartHaneleri(no) { return String(no == null ? '' : no).replace(/\D/g, ''); }
+function moSonKulParcala(s) {
+  const m = String(s == null ? '' : s).match(/(\d{1,2})\s*[\/\-.]?\s*(\d{2,4})/);
+  if (!m) return { ay: '', yil: '' };
+  return { ay: m[1].padStart(2, '0'), yil: m[2].slice(-2) };
+}
 function moAlanEtiket(key) { const a = MO_ALANLAR.find(x => x.key === key); return a ? a.etiket : key; }
 
 // pdf.js worker (form önizleme/konum seçimi)
@@ -17804,7 +17817,13 @@ function moUretDeger(key, ctx) {
   switch (key) {
     case 'tutar': return ctx.tutar;
     case 'kartNo': return moNoBicim(ctx.kart.no);
+    case 'kartNo1': return moKartHaneleri(ctx.kart.no).slice(0, 4);
+    case 'kartNo2': return moKartHaneleri(ctx.kart.no).slice(4, 8);
+    case 'kartNo3': return moKartHaneleri(ctx.kart.no).slice(8, 12);
+    case 'kartNo4': return moKartHaneleri(ctx.kart.no).slice(12, 16);
     case 'sonKul': return ctx.kart.sonKul || '';
+    case 'sonKulAy': return moSonKulParcala(ctx.kart.sonKul).ay;
+    case 'sonKulYil': return moSonKulParcala(ctx.kart.sonKul).yil;
     case 'sahip': return ctx.kart.sahip || '';
     case 'cvv': return ctx.kart.cvv || '';
     case 'tarih': return ctx.tarih;
