@@ -1839,6 +1839,15 @@
         <span style="font-size:11px;color:var(--text3);">“Onaya Gönder” ile oluşturulan MO'lar bu kişiye düşer.</span>
         <div id="mailorder-onayci-durum" style="font-size:12px;font-weight:600;width:100%;"></div>
       </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+        <label class="form-label" style="margin:0 0 8px;">🖋️ Kaşe / İmza Görseli</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Onaylanan MO'larda formdaki “Kaşe/İmza” alanına basılır. Şeffaf arka planlı PNG önerilir.</div>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <img id="mailorder-kase-onizleme" style="display:none;max-height:70px;max-width:200px;border:1px solid var(--border);border-radius:6px;background:#fff;padding:4px;">
+          <input type="file" id="ayar-mailorder-kase" accept="image/png,image/jpeg" onchange="moKaseYukle(this)">
+          <button class="btn btn-sm" id="mailorder-kase-kaldir" onclick="moKaseKaldir()" style="display:none;">🗑 Kaldır</button>
+        </div>
+      </div>
     </div>
 
     <!-- Mail İmzası -->
@@ -3327,6 +3336,9 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
     <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;font-size:12px;color:var(--text2);">
       <span>Yazı boyutu:</span>
       <input type="number" id="mo-edit-font" value="11" min="6" max="48" style="width:70px;" onchange="moEditFontGuncelle()">
+      <span>Kaşe boyutu %:</span>
+      <input type="number" id="mo-edit-kase" value="22" min="5" max="80" style="width:70px;" onchange="moEditKaseGuncelle()" title="Kaşe/imza genişliği — sayfa genişliğinin yüzdesi">
+      <span id="mo-edit-kase-uyari" style="display:none;color:var(--amber);font-size:11px;">⚠ Ayarlar'da kaşe görseli yok</span>
       <span id="mo-edit-sayfa-nav" style="display:none;align-items:center;gap:6px;">
         <button class="btn btn-sm" onclick="moEditSayfa(-1)">◀</button>
         <span id="mo-edit-sayfa-bilgi">1 / 1</span>
@@ -12764,6 +12776,7 @@ let AYARLAR = {
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
   mailorderRoller: [], // Mail Order modülüne erişebilen roller (admin her zaman erişir). örn: ['satici','operasyon']
   mailorderOnayci: '', // MO imzalama yetkilisi (e-posta) — onaya gönderilen MO'lar bu kişiye düşer
+  mailorderKase: '',   // Kaşe/imza görseli (data URL) — onaylanınca forma basılır
   talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
   crmHedefAylikYeniMusteri: 0,             // CRM: aylık yeni müşteri hedefi (0 = belirsiz)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
@@ -13110,6 +13123,34 @@ function moOnayciDurumGuncelle() {
     el.style.color = AYARLAR.mailorderOnayci ? 'var(--green)' : 'var(--amber)';
   }
 }
+// Kaşe/imza görseli — admin yükler, AYARLAR.mailorderKase (data URL) senkron.
+async function moKaseYukle(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!/^image\/(png|jpe?g)$/.test(file.type)) { showToast('Yalnız PNG veya JPG.'); input.value = ''; return; }
+  if (file.size > 2 * 1024 * 1024) { showToast('Görsel 2 MB üzeri — daha küçük bir kaşe yükleyin.'); input.value = ''; return; }
+  const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+  AYARLAR.mailorderKase = dataUrl;
+  veriKaydet();
+  moKaseDurumGuncelle();
+  showToast('🖋️ Kaşe/imza görseli kaydedildi.');
+}
+function moKaseKaldir() {
+  if (!confirm('Kaşe/imza görseli kaldırılsın mı?')) return;
+  AYARLAR.mailorderKase = '';
+  veriKaydet();
+  const inp = document.getElementById('ayar-mailorder-kase'); if (inp) inp.value = '';
+  moKaseDurumGuncelle();
+  showToast('Kaşe/imza görseli kaldırıldı.');
+}
+function moKaseDurumGuncelle() {
+  const img = document.getElementById('mailorder-kase-onizleme');
+  const kaldir = document.getElementById('mailorder-kase-kaldir');
+  const var_ = !!(AYARLAR.mailorderKase || '');
+  if (img) { img.src = var_ ? AYARLAR.mailorderKase : ''; img.style.display = var_ ? 'inline-block' : 'none'; }
+  if (kaldir) kaldir.style.display = var_ ? '' : 'none';
+}
+
 // Yetkilinin adını çöz (KULLANICILAR/ekip içinden), yoksa e-postayı göster
 function moOnayciAd() {
   const email = (AYARLAR.mailorderOnayci || '').toLowerCase();
@@ -13137,6 +13178,7 @@ function ayarlariYukle() {
   crmAktifDurumGuncelle();
   mailorderRolDurumGuncelle();
   moOnayciDurumGuncelle();
+  moKaseDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
@@ -17450,7 +17492,9 @@ const MO_ALANLAR = [
   { key: 'cvv',      etiket: 'CVV' },
   { key: 'tarih',    etiket: 'Tarih' },
   { key: 'aciklama', etiket: 'Açıklama' },
+  { key: 'kase',     etiket: '🖋️ Kaşe/İmza' },
 ];
+const MO_KASE_KEY = 'kase'; // metin değil görsel alan — onaylanınca basılır
 // Kart no'yu 4'erli bloklara, son kullanımı AA/YY'ye ayırmak için yardımcılar.
 function moKartHaneleri(no) { return String(no == null ? '' : no).replace(/\D/g, ''); }
 function moSonKulParcala(s) {
@@ -17722,9 +17766,12 @@ async function moEditAc(id) {
   const idx = MO.formlar.findIndex(x => x.id === id);
   if (idx < 0) return;
   const f = MO.formlar[idx];
-  _moEdit = { idx, sayfa: 0, sayfaSayisi: 1, format: f.format, pdfDoc: null, imgEl: null, canvasW: 0, canvasH: 0, fontPx: 11, seciliKey: null, alanlar: JSON.parse(JSON.stringify(f.alanlar || [])) };
+  _moEdit = { idx, sayfa: 0, sayfaSayisi: 1, format: f.format, pdfDoc: null, imgEl: null, canvasW: 0, canvasH: 0, fontPx: 11, kaseW: 0.22, seciliKey: null, alanlar: JSON.parse(JSON.stringify(f.alanlar || [])) };
   document.getElementById('mo-edit-title').textContent = '🎯 Alan Eşleme — ' + f.tedarikci;
   document.getElementById('mo-edit-font').value = 11;
+  document.getElementById('mo-edit-kase').value = 22;
+  const kaseUyari = document.getElementById('mo-edit-kase-uyari');
+  if (kaseUyari) kaseUyari.style.display = (AYARLAR.mailorderKase || '') ? 'none' : '';
   document.getElementById('mo-edit-hata').style.display = 'none';
   moEditPaletiCiz();
   openModal('moFormEdit');
@@ -17791,7 +17838,11 @@ function moEditTikla(e) {
   if (!_moEdit.seciliKey) { showToast('Önce yukarıdan bir alan tipi seçin.'); return; }
   const ov = e.currentTarget; const r = ov.getBoundingClientRect();
   const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-  _moEdit.alanlar.push({ key: _moEdit.seciliKey, sayfa: _moEdit.sayfa, x, y, fontFrac: _moEdit.fontPx / _moEdit.canvasH });
+  if (_moEdit.seciliKey === MO_KASE_KEY) {
+    _moEdit.alanlar.push({ key: MO_KASE_KEY, sayfa: _moEdit.sayfa, x, y, wFrac: _moEdit.kaseW });
+  } else {
+    _moEdit.alanlar.push({ key: _moEdit.seciliKey, sayfa: _moEdit.sayfa, x, y, fontFrac: _moEdit.fontPx / _moEdit.canvasH });
+  }
   moEditMarkerlariCiz();
 }
 function moEditMarkerlariCiz() {
@@ -17799,10 +17850,19 @@ function moEditMarkerlariCiz() {
   ov.innerHTML = '';
   _moEdit.alanlar.forEach((a, i) => {
     if (a.sayfa !== _moEdit.sayfa) return;
-    const fpx = Math.max(8, a.fontFrac * _moEdit.canvasH);
     const m = document.createElement('div');
-    m.style.cssText = `position:absolute;left:${a.x * 100}%;top:${a.y * 100}%;font-size:${fpx}px;background:rgba(37,99,235,0.14);border:1px solid #2563eb;border-radius:3px;padding:0 3px;white-space:nowrap;cursor:move;color:#0a3;line-height:1.1;`;
-    m.innerHTML = `<span style="color:#2563eb;font-weight:600;">${moEsc(moAlanEtiket(a.key))}</span> <span data-mosil="${i}" style="cursor:pointer;color:#e33;font-weight:700;padding-left:2px;">×</span>`;
+    if (a.key === MO_KASE_KEY) {
+      // Kaşe/imza: gerçek genişlikte (wFrac) görsel/kutu önizleme
+      const wpx = Math.max(20, (a.wFrac || 0.22) * _moEdit.canvasW);
+      const kase = AYARLAR.mailorderKase || '';
+      m.style.cssText = `position:absolute;left:${a.x * 100}%;top:${a.y * 100}%;width:${wpx}px;border:1px dashed #16a34a;border-radius:3px;background:${kase ? 'transparent' : 'rgba(22,163,74,0.10)'};cursor:move;`;
+      m.innerHTML = (kase ? `<img src="${kase}" style="width:100%;display:block;opacity:0.85;">` : `<div style="font-size:11px;color:#16a34a;padding:8px 4px;text-align:center;">Kaşe/İmza</div>`)
+        + `<span data-mosil="${i}" style="position:absolute;top:-8px;right:-8px;cursor:pointer;color:#fff;background:#e33;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center;font-weight:700;font-size:11px;">×</span>`;
+    } else {
+      const fpx = Math.max(8, a.fontFrac * _moEdit.canvasH);
+      m.style.cssText = `position:absolute;left:${a.x * 100}%;top:${a.y * 100}%;font-size:${fpx}px;background:rgba(37,99,235,0.14);border:1px solid #2563eb;border-radius:3px;padding:0 3px;white-space:nowrap;cursor:move;color:#0a3;line-height:1.1;`;
+      m.innerHTML = `<span style="color:#2563eb;font-weight:600;">${moEsc(moAlanEtiket(a.key))}</span> <span data-mosil="${i}" style="cursor:pointer;color:#e33;font-weight:700;padding-left:2px;">×</span>`;
+    }
     m.addEventListener('mousedown', ev => {
       if (ev.target.getAttribute('data-mosil') != null) { _moEdit.alanlar.splice(i, 1); moEditMarkerlariCiz(); ev.stopPropagation(); return; }
       moMarkerSurukle(ev, i);
@@ -17825,6 +17885,10 @@ function moMarkerSurukle(ev, i) {
 function moEditFontGuncelle() {
   const v = parseInt(document.getElementById('mo-edit-font').value, 10);
   if (v >= 6 && v <= 48) _moEdit.fontPx = v;
+}
+function moEditKaseGuncelle() {
+  const v = parseInt(document.getElementById('mo-edit-kase').value, 10);
+  if (v >= 5 && v <= 80) _moEdit.kaseW = v / 100;
 }
 async function moEditKaydet() {
   if (!_moEdit) return;
@@ -17893,10 +17957,20 @@ function moUretDeger(key, ctx) {
     default: return '';
   }
 }
+// AYARLAR.mailorderKase data URL'ini {mime,b64}'e ayır
+function moKaseParcala() {
+  const d = AYARLAR.mailorderKase || '';
+  const m = d.match(/^data:(image\/[a-z]+);base64,(.+)$/i);
+  return m ? { mime: m[1], b64: m[2] } : null;
+}
 // Formu (PDF/görsel) ctx değerleriyle doldurup tek PDF blob üretir. moUret + onay indirme paylaşır.
-async function moFormBlobUret(f, ctx) {
+// opts.kaseEkle=true → onaylanan MO: formdaki Kaşe/İmza alanlarına AYARLAR.mailorderKase basılır.
+async function moFormBlobUret(f, ctx, opts) {
+  opts = opts || {};
   const adGuvenli = (f.tedarikci || 'tedarikci').replace(/[^\wığüşöçİĞÜŞÖÇ.-]+/g, '_');
   const adEk = ctx.no ? ('_' + String(ctx.no).replace(/[^\w-]+/g, '')) : '';
+  const kaseAlanlar = (f.alanlar || []).filter(a => a.key === MO_KASE_KEY);
+  const kaseUygula = opts.kaseEkle && kaseAlanlar.length && (AYARLAR.mailorderKase || '');
   let blob;
   if (f.format === 'pdf') {
     const doc = await PDFLib.PDFDocument.load(moB64ToBytes(f.b64));
@@ -17917,6 +17991,19 @@ async function moFormBlobUret(f, ctx) {
       const fs = Math.max(6, a.fontFrac * height);
       pg.drawText(asciiZorla ? moTrAscii(val) : String(val), { x: a.x * width, y: height - a.y * height - fs * 0.8, size: fs, font, color: PDFLib.rgb(0, 0, 0) });
     });
+    if (kaseUygula) {
+      const kp = moKaseParcala();
+      if (kp) {
+        const kb = moB64ToBytes(kp.b64);
+        const kImg = /png/i.test(kp.mime) ? await doc.embedPng(kb) : await doc.embedJpg(kb);
+        kaseAlanlar.forEach(a => {
+          const pg = pages[a.sayfa]; if (!pg) return;
+          const { width, height } = pg.getSize();
+          const w = (a.wFrac || 0.22) * width, hh = w * (kImg.height / kImg.width);
+          pg.drawImage(kImg, { x: a.x * width, y: height - a.y * height - hh, width: w, height: hh });
+        });
+      }
+    }
     const bytes = await doc.save();
     blob = new Blob([bytes], { type: 'application/pdf' });
   } else {
@@ -17929,6 +18016,13 @@ async function moFormBlobUret(f, ctx) {
       cx.font = fpx + 'px Helvetica, Arial, sans-serif';
       cx.fillText(String(val), a.x * c.width, a.y * c.height);
     });
+    if (kaseUygula) {
+      const kImg = await moLoadImage(AYARLAR.mailorderKase);
+      kaseAlanlar.forEach(a => {
+        const w = (a.wFrac || 0.22) * c.width, hh = w * (kImg.naturalHeight / kImg.naturalWidth);
+        cx.drawImage(kImg, a.x * c.width, a.y * c.height, w, hh);
+      });
+    }
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ orientation: c.width >= c.height ? 'l' : 'p', unit: 'px', format: [c.width, c.height] });
     pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, c.width, c.height);
@@ -18058,6 +18152,67 @@ async function moOnayBildirimGonder(t) {
   } catch (e) { console.error('moOnayBildirimGonder:', e); }
 }
 
+// Blob → base64 (büyük diziler için parça parça, çağrı yığını taşmasın)
+async function moBlobB64(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let s = ''; const CH = 0x8000;
+  for (let i = 0; i < buf.length; i += CH) s += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+  return btoa(s);
+}
+// Outlook (Graph) ile EKLİ mail gönder (PDF ekiyle)
+async function moGraphEkliMail(toList, subject, html, ekAdi, ekB64) {
+  try {
+    if (msalInstance && aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount);
+    if (!msGraphToken) return false;
+    const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: {
+          subject,
+          body: { contentType: 'HTML', content: html },
+          toRecipients: toList.map(a => ({ emailAddress: { address: a } })),
+          attachments: [{ '@odata.type': '#microsoft.graph.fileAttachment', name: ekAdi, contentType: 'application/pdf', contentBytes: ekB64 }]
+        },
+        saveToSentItems: true
+      })
+    });
+    return resp.ok || resp.status === 202;
+  } catch (e) { console.error('moGraphEkliMail:', e); return false; }
+}
+// Onaylanan, kaşeli MO PDF'ini talep eden satıcıya ekli mail olarak gönder
+async function moSaticiyaGonder(id) {
+  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
+  if (!moOnayciBenMiyim()) { showToast('Yalnızca imzalama yetkilisi gönderebilir.'); return; }
+  if (t.durum !== 'onaylandi') { showToast('Önce onaylayın.'); return; }
+  const alici = (t.talepEdenEmail || '').toLowerCase();
+  if (!alici) { showToast('Talep edenin e-postası bulunamadı.'); return; }
+  showToast('Damgalı PDF hazırlanıyor…');
+  let res; try { res = await moTalepPdfUret(t); } catch (e) { showToast('PDF üretilemedi: ' + e.message); return; }
+  if (!res) { showToast('Form veya kart bulunamadı (silinmiş olabilir).'); return; }
+  const b64 = await moBlobB64(res.blob);
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+      <h2 style="margin:0 0 4px;">✅ Mail Order Onaylandı</h2>
+      <p style="color:#666;margin:0 0 16px;">${moEsc(t.no)} numaralı mail order imzalandı/kaşelendi. Onaylı form ektedir; tedarikçiye iletebilirsiniz.</p>
+      <table style="font-size:13px;border-collapse:collapse;">
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tedarikçi</td><td>${moEsc(t.tedarikci)}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(t.tutar)}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylayan</td><td>${moEsc(t.yetkiliAd || t.yetkiliEmail)}</td></tr>
+      </table>
+    </div>`;
+  const ok = await moGraphEkliMail([alici], '[Mail Order Onaylandı] ' + t.no + ' — ' + t.tedarikci, html, res.ad, b64);
+  if (ok) {
+    t.gonderildi = new Date().toISOString();
+    moSunucuUyar(await apiMoTalepKaydet(t), 'Gönderim kaydı');
+    moOnayListeRender();
+    showToast('📧 ' + t.no + ' satıcıya (' + alici + ') gönderildi.');
+  } else {
+    showToast('⚠ Gönderilemedi — Outlook (M365) bağlı değil olabilir. “İndir” ile alıp elle iletebilirsiniz.');
+  }
+}
+
 function moOnayciBenMiyim() { const b = _benEmail(); return !!b && b === (AYARLAR.mailorderOnayci || '').toLowerCase(); }
 function moTalepDurumRozet(t) {
   const renk = t.durum === 'onaylandi' ? 'var(--green)' : t.durum === 'reddedildi' ? 'var(--red)' : 'var(--amber)';
@@ -18078,7 +18233,9 @@ function moTalepSatirHtml(t, yetkiliGorunum) {
       <button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 Önizle</button>
       <button class="btn btn-sm" onclick="moOnayKarar('${t.id}','reddedildi')">❌ Reddet</button>`;
   } else if (yetkiliGorunum && t.durum === 'onaylandi') {
-    butonlar = `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>`;
+    butonlar = `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>
+      <button class="btn btn-sm btn-primary" onclick="moSaticiyaGonder('${t.id}')">📧 Satıcıya Gönder</button>`
+      + (t.gonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ gönderildi</span>` : '');
   } else if (!yetkiliGorunum) {
     butonlar = (t.durum === 'onaylandi') ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : '';
     if (t.durum === 'onayda') butonlar += `<button class="btn btn-sm" onclick="moOnayIptal('${t.id}')">🗑 İptal</button>`;
@@ -18113,9 +18270,17 @@ async function moOnayIndir(id) {
   if (!f) { showToast('Form şablonu bulunamadı (silinmiş olabilir).'); return; }
   if (!kart) { showToast('Sanal kart bulunamadı (silinmiş olabilir).'); return; }
   try {
-    const { blob, ad } = await moFormBlobUret(f, { tutar: t.tutar, tarih: t.tarih, aciklama: t.aciklama, kart, no: t.no });
+    // Onaylanan MO indirilirken kaşe/imza basılır; bekleyen önizlemede basılmaz.
+    const { blob, ad } = await moFormBlobUret(f, { tutar: t.tutar, tarih: t.tarih, aciklama: t.aciklama, kart, no: t.no }, { kaseEkle: t.durum === 'onaylandi' });
     moIndir(blob, ad);
   } catch (e) { showToast('Form üretilemedi: ' + e.message); }
+}
+// Onaylı, kaşeli MO PDF'ini üret (satıcıya gönderme için)
+async function moTalepPdfUret(t) {
+  const f = MO.formlar.find(x => x.id === t.formId);
+  const kart = MO.kartlar.find(x => x.id === t.kartId);
+  if (!f || !kart) return null;
+  return moFormBlobUret(f, { tutar: t.tutar, tarih: t.tarih, aciklama: t.aciklama, kart, no: t.no }, { kaseEkle: true });
 }
 async function moOnayKarar(id, durum) {
   const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
