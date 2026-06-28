@@ -3314,6 +3314,11 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
         <option value="portal">Portal (form yok — kart bilgisi kopyalanır)</option>
       </select>
     </div>
+    <div class="form-group">
+      <label class="form-label">Tedarikçi E-posta(ları)</label>
+      <input type="text" id="mo-form-eposta" placeholder="ornek@firma.com; muhasebe@firma.com" autocomplete="off">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Onaylanan MO bu adres(ler)e gönderilebilir. Birden fazla için virgül/noktalı virgülle ayırın.</div>
+    </div>
     <div class="form-group" id="mo-form-dosya-grup">
       <label class="form-label">Boş Form (PDF veya görsel) *</label>
       <input type="file" id="mo-form-dosya" accept="application/pdf,image/png,image/jpeg">
@@ -17698,15 +17703,33 @@ function moFormListeRender() {
   el.innerHTML = MO.formlar.map(f => {
     const tipEt = f.tip === 'portal' ? '<span class="badge" style="background:var(--bg3);">Portal</span>' : `<span class="badge badge-blue">${(f.alanlar || []).length} alan</span>`;
     const fmt = f.tip === 'portal' ? '—' : (f.format === 'pdf' ? 'PDF' : 'Görsel');
+    const epostaEt = f.eposta ? `<span style="font-size:11px;color:var(--text2);">✉️ ${moEsc(f.eposta)}</span>` : `<span style="font-size:11px;color:var(--amber);">✉️ e-posta yok</span>`;
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="min-width:180px;font-weight:600;font-size:13px;">${moEsc(f.tedarikci)}</div>
       <div style="font-size:12px;color:var(--text3);">${fmt}</div>
       ${tipEt}
+      ${epostaEt}
       <div style="flex:1;"></div>
+      <button class="btn btn-sm" onclick="moFormEpostaDuzenle('${f.id}')">✉️ E-posta</button>
       ${f.tip === 'portal' ? '' : `<button class="btn btn-sm" onclick="moEditAc('${f.id}')">🎯 Alan Eşle</button>`}
       <button class="btn btn-sm" onclick="moFormSil('${f.id}')">🗑</button>
     </div>`;
   }).join('');
+}
+// E-posta dizgesini listeye ayır (virgül/noktalı virgül/boşluk/satır) + basit doğrula
+function moEpostaListe(str) {
+  return String(str || '').split(/[,;\s]+/).map(s => s.trim()).filter(s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
+}
+async function moFormEpostaDuzenle(id) {
+  const f = MO.formlar.find(x => x.id === id); if (!f) return;
+  const giris = prompt('“' + f.tedarikci + '” için MO gönderilecek e-posta(lar)\n(birden fazla için virgül/noktalı virgülle ayırın):', f.eposta || '');
+  if (giris === null) return;
+  const temiz = giris.trim();
+  if (temiz && !moEpostaListe(temiz).length) { showToast('Geçerli e-posta bulunamadı.'); return; }
+  f.eposta = temiz;
+  moKaydet(); moFormListeRender();
+  moSunucuUyar(await apiMoFormKaydet(f), 'Form e-postası');
+  showToast(temiz ? 'Tedarikçi e-postası kaydedildi.' : 'Tedarikçi e-postası temizlendi.');
 }
 function moFormTipDegisti() {
   const tip = document.getElementById('mo-form-tip').value;
@@ -17720,6 +17743,7 @@ function moFormModalAc() {
   });
   document.getElementById('mo-form-tip').value = 'form';
   document.getElementById('mo-form-dosya').value = '';
+  document.getElementById('mo-form-eposta').value = '';
   moFormTipDegisti();
   document.getElementById('mo-form-hata').style.display = 'none';
   openModal('moForm');
@@ -17727,11 +17751,13 @@ function moFormModalAc() {
 async function moFormKaydet() {
   const tedarikci = document.getElementById('mo-form-tedarikci').value;
   const tip = document.getElementById('mo-form-tip').value;
+  const eposta = document.getElementById('mo-form-eposta').value.trim();
   const h = document.getElementById('mo-form-hata');
   if (!tedarikci) { h.textContent = 'Tedarikçi seçin.'; h.style.display = 'block'; return; }
   if (MO.formlar.some(f => f.tedarikci === tedarikci)) { h.textContent = 'Bu tedarikçi için zaten bir form var. Önce onu silin.'; h.style.display = 'block'; return; }
+  if (eposta && !moEpostaListe(eposta).length) { h.textContent = 'Geçerli bir e-posta girin (veya boş bırakın).'; h.style.display = 'block'; return; }
   if (tip === 'portal') {
-    const pf = { id: moUid(), tedarikci, tip: 'portal' };
+    const pf = { id: moUid(), tedarikci, tip: 'portal', eposta };
     MO.formlar.push(pf);
     moKaydet(); closeModal('moForm'); moFormListeRender(); moUretSecimDoldur();
     showToast('Portal tedarikçisi eklendi.');
@@ -17746,7 +17772,7 @@ async function moFormKaydet() {
   if (file.size > 8 * 1024 * 1024) { h.textContent = 'Dosya 8 MB üzeri — pilotta cihaz-yerel depo sınırlı. Daha küçük/PDF yükleyin.'; h.style.display = 'block'; return; }
   const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
   const i = dataUrl.indexOf(','); const b64 = dataUrl.slice(i + 1);
-  const f = { id: moUid(), tedarikci, tip: 'form', format: isPdf ? 'pdf' : 'image', mime: file.type || (isPdf ? 'application/pdf' : 'image/png'), b64, alanlar: [] };
+  const f = { id: moUid(), tedarikci, tip: 'form', eposta, format: isPdf ? 'pdf' : 'image', mime: file.type || (isPdf ? 'application/pdf' : 'image/png'), b64, alanlar: [] };
   MO.formlar.push(f);
   moKaydet(); closeModal('moForm'); moFormListeRender(); moUretSecimDoldur();
   moSunucuUyar(await apiMoFormKaydet(f), 'Form');
@@ -18213,6 +18239,39 @@ async function moSaticiyaGonder(id) {
   }
 }
 
+// Onaylanan, kaşeli MO PDF'ini TEDARİKÇİ e-posta(larına) ekli mail olarak gönder
+async function moTedarikciyeGonder(id) {
+  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
+  if (!moOnayciBenMiyim()) { showToast('Yalnızca imzalama yetkilisi gönderebilir.'); return; }
+  if (t.durum !== 'onaylandi') { showToast('Önce onaylayın.'); return; }
+  const f = MO.formlar.find(x => x.id === t.formId);
+  const alicilar = moEpostaListe(f && f.eposta);
+  if (!alicilar.length) { showToast('Tedarikçi e-postası tanımlı değil — form satırındaki “✉️ E-posta” ile ekleyin.'); return; }
+  showToast('Damgalı PDF hazırlanıyor…');
+  let res; try { res = await moTalepPdfUret(t); } catch (e) { showToast('PDF üretilemedi: ' + e.message); return; }
+  if (!res) { showToast('Form veya kart bulunamadı (silinmiş olabilir).'); return; }
+  const b64 = await moBlobB64(res.blob);
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+      <p style="margin:0 0 12px;">Sayın Yetkili,</p>
+      <p style="margin:0 0 12px;">${moEsc(t.tedarikci)} adına onaylanmış mail order ödeme formu ektedir. Bilgilerinize sunarız.</p>
+      <table style="font-size:13px;border-collapse:collapse;">
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(t.tutar)}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${moEsc(t.tarih)}</td></tr>
+      </table>
+    </div>`;
+  const ok = await moGraphEkliMail(alicilar, '[Mail Order] ' + t.no + ' — ' + t.tedarikci, html, res.ad, b64);
+  if (ok) {
+    t.tedarikciyeGonderildi = new Date().toISOString();
+    moSunucuUyar(await apiMoTalepKaydet(t), 'Tedarikçi gönderimi');
+    moOnayListeRender();
+    showToast('📧 ' + t.no + ' tedarikçiye gönderildi (' + alicilar.join(', ') + ').');
+  } else {
+    showToast('⚠ Gönderilemedi — Outlook (M365) bağlı değil olabilir. “İndir” ile alıp elle iletebilirsiniz.');
+  }
+}
+
 function moOnayciBenMiyim() { const b = _benEmail(); return !!b && b === (AYARLAR.mailorderOnayci || '').toLowerCase(); }
 function moTalepDurumRozet(t) {
   const renk = t.durum === 'onaylandi' ? 'var(--green)' : t.durum === 'reddedildi' ? 'var(--red)' : 'var(--amber)';
@@ -18234,8 +18293,10 @@ function moTalepSatirHtml(t, yetkiliGorunum) {
       <button class="btn btn-sm" onclick="moOnayKarar('${t.id}','reddedildi')">❌ Reddet</button>`;
   } else if (yetkiliGorunum && t.durum === 'onaylandi') {
     butonlar = `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>
-      <button class="btn btn-sm btn-primary" onclick="moSaticiyaGonder('${t.id}')">📧 Satıcıya Gönder</button>`
-      + (t.gonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ gönderildi</span>` : '');
+      <button class="btn btn-sm btn-primary" onclick="moTedarikciyeGonder('${t.id}')">📧 Tedarikçiye Gönder</button>
+      <button class="btn btn-sm" onclick="moSaticiyaGonder('${t.id}')">📧 Satıcıya Gönder</button>`
+      + (t.tedarikciyeGonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ tedarikçiye</span>` : '')
+      + (t.gonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ satıcıya</span>` : '');
   } else if (!yetkiliGorunum) {
     butonlar = (t.durum === 'onaylandi') ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : '';
     if (t.durum === 'onayda') butonlar += `<button class="btn btn-sm" onclick="moOnayIptal('${t.id}')">🗑 İptal</button>`;
