@@ -1065,6 +1065,7 @@
           <div class="card-sub" id="satis-durum-sub">Ürün bazlı kar marjı</div>
         </div>
         <div style="display:flex;gap:8px;" id="satis-header-aksiyonlar">
+          <button class="btn btn-sm" onclick="altKalemModalAc()" id="btn-alt-kalem" title="İstenen ürün bulunamadıysa müşteriye birden fazla alternatif ürünü kendi fiyatıyla sun">↹ Alternatifler</button>
           <button class="btn btn-sm" onclick="musteriMarjUygula()" id="btn-musteri-marj">👤 Müşteri Marjı</button>
           <button class="btn btn-sm" onclick="satisHesaplaReset()" id="btn-sifirla">↺ Sıfırla</button>
         </div>
@@ -3186,6 +3187,19 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
   </div>
 </div>
 
+<!-- MODAL: Alternatif Ürünler (her ürün için çoklu, kendi fiyatıyla) -->
+<div class="modal-overlay" id="modal-altKalem">
+  <div class="modal" style="width:min(96vw,680px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">↹ Alternatif Ürünler</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">İstenen ürün bulunamadıysa, her ürün için <b>birden fazla alternatif</b> ürünü <b>kendi birim fiyatıyla</b> ekleyin. Müşteri teklifinde ilgili ürünün altında <b>opsiyonel seçenekler</b> olarak gösterilir; genel toplama dahil edilmez (müşteri tercih eder).</div>
+    <div id="alt-kalem-icerik"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('altKalem')">İptal</button>
+      <button class="btn btn-primary" onclick="altKalemKaydet()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Kullanıcı Ekle / Düzenle -->
 <!-- MODAL: Revize Talebi -->
 <div class="modal-overlay" id="modal-revizeTalebi">
@@ -4321,7 +4335,7 @@ function closeModal(id) { document.getElementById('modal-' + id).classList.remov
 const _KORUMALI_MODALLAR = new Set([
   'musteriForm','yeniTedarikci','duzenleTedarikci','yeniTalep','topluYapistir',
   'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif','teklifMailOnay',
-  'moKart','moForm','moFormEdit'
+  'moKart','moForm','moFormEdit','altKalem'
 ]);
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
   if (e.target !== m) return; // yalnızca arka plana (içeriğe değil) tıklama
@@ -8478,6 +8492,63 @@ function satisSatirBirim(row) {
 // Müşteriye gidecek teklif satırlarını TEK kaynaktan üret.
 // Öncelik: ekranda açık satış tablosundaki gerçek girilen birim fiyatlar (yalnızca aktif talep için
 // orada). Tablo yoksa (arşiv vb.) ya da bir satır boşsa, talebe kayıtlı musteriTeklifFiyatlar'a düşer.
+// ── ALTERNATİF ÜRÜNLER (her ürün için çoklu, kendi fiyatıyla) ──────────────
+// t.altKalemler = { <urunIdx>: [ {ad, kod, fiyat, para} ] }. Müşteri teklifinde
+// ilgili ürünün altında opsiyonel seçenek olarak gösterilir; toplama dahil DEĞİL.
+const MO_PARA_SEMBOL = { TRY:'₺', USD:'$', EUR:'€' };
+function altKalemModalAc() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) { showToast('Talep bulunamadı.'); return; }
+  const urunler = (t.urunler && t.urunler.length) ? t.urunler : [{ aciklama: t.urun, kod: '' }];
+  const mevcut = t.altKalemler || {};
+  const el = document.getElementById('alt-kalem-icerik');
+  el.innerHTML = urunler.map((u, i) =>
+    `<div style="border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:10px;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${moEsc(u.aciklama || '—')}${u.kod ? ` <span style="font-size:11px;color:var(--text3);font-family:monospace;">${moEsc(u.kod)}</span>` : ''}</div>
+      <div id="alt-kalem-liste-${i}" data-uidx="${i}"></div>
+      <button type="button" class="btn btn-sm" onclick="altKalemSatir(${i})" style="margin-top:4px;">＋ Alternatif Ekle</button>
+    </div>`
+  ).join('');
+  urunler.forEach((u, i) => (Array.isArray(mevcut[i]) ? mevcut[i] : []).forEach(a => altKalemSatir(i, a)));
+  openModal('altKalem');
+}
+function altKalemSatir(i, a) {
+  a = a || {};
+  const kap = document.getElementById('alt-kalem-liste-' + i); if (!kap) return;
+  const row = document.createElement('div');
+  row.className = 'alt-kalem-row';
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap;';
+  const v = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  row.innerHTML =
+    `<input type="text" class="ak-ad" placeholder="Alternatif ürün adı" value="${v(a.ad)}" style="flex:2;min-width:150px;">`
+    + `<input type="text" class="ak-kod" placeholder="Kod" value="${v(a.kod)}" style="width:90px;font-family:var(--font-mono);">`
+    + `<input type="number" class="ak-fiyat" placeholder="Birim fiyat" value="${a.fiyat != null && a.fiyat !== '' ? a.fiyat : ''}" step="0.01" min="0" style="width:100px;">`
+    + `<select class="ak-para" style="width:74px;"><option value="TRY">₺ TL</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option></select>`
+    + `<button type="button" class="btn btn-sm" style="color:var(--red);" title="Kaldır" onclick="this.parentNode.remove()">✕</button>`;
+  kap.appendChild(row);
+  if (a.para) { const sel = row.querySelector('.ak-para'); if (sel) sel.value = a.para; }
+}
+function altKalemKaydet() {
+  const t = TALEPLER[aktifTalepIdx]; if (!t) return;
+  const res = {};
+  document.querySelectorAll('#alt-kalem-icerik [id^="alt-kalem-liste-"]').forEach(kap => {
+    const i = kap.getAttribute('data-uidx');
+    const arr = Array.from(kap.querySelectorAll('.alt-kalem-row')).map(r => ({
+      ad: (r.querySelector('.ak-ad')?.value || '').trim(),
+      kod: (r.querySelector('.ak-kod')?.value || '').trim(),
+      fiyat: parseFloat(r.querySelector('.ak-fiyat')?.value) || 0,
+      para: r.querySelector('.ak-para')?.value || 'TRY',
+    })).filter(a => a.ad || a.kod);
+    if (arr.length) res[i] = arr;
+  });
+  t.altKalemler = res;
+  veriKaydet();
+  closeModal('altKalem');
+  if (typeof satisBolumunuGuncelle === 'function') satisBolumunuGuncelle();
+  const n = Object.values(res).reduce((s, a) => s + a.length, 0);
+  showToast(n ? ('↹ ' + n + ' alternatif kaydedildi — müşteri teklifinde ürün altında gösterilecek.') : 'Alternatifler temizlendi.');
+}
+
 // Mail gövdesi, mail PDF eki ve "PDF İndir" hep bu fonksiyonu kullanır → tutarlı fiyatlar.
 function musteriTeklifSatirlari(talepIdx) {
   const idx = talepIdx != null ? talepIdx : aktifTalepIdx;
@@ -8508,9 +8579,16 @@ function musteriTeklifSatirlari(talepIdx) {
     const altKayit = t.musteriTeklifFiyatlar?.[i];
     const altAd  = (altCanli?.ad  ?? altKayit?.altAd)  || '';
     const altKod = (altCanli?.kod ?? altKayit?.altKod) || '';
+    // Çoklu alternatif (kendi fiyatıyla) — toplama dahil DEĞİL, opsiyonel seçenek
+    const altListe = (t.altKalemler && Array.isArray(t.altKalemler[i])) ? t.altKalemler[i] : [];
+    const alternatifler = altListe.map(a => {
+      const ap = a.para || 'TRY';
+      const bf = parseFloat(a.fiyat) || 0;
+      return { ad: a.ad || '', kod: a.kod || '', birimFiyat: bf, para: ap, sembol: semboller[ap] || '₺', adet, toplam: bf * adet };
+    });
     return { aciklama: u.aciklama||'', kod: u.kod||'', adet, birim: u.birim||'Adet',
              birimFiyat, para, sembol: semboller[para] || '₺', toplam: birimFiyat * adet,
-             altAd, altKod };
+             altAd, altKod, alternatifler };
   });
 }
 
@@ -8961,6 +9039,9 @@ async function teklifMailGonderEt() {
       + '<td style="padding:8px 12px;border:1px solid #e0e0e0;font-family:monospace;font-size:12px;color:#555;">' + (u.kod||'&mdash;') + '</td>'
       + '<td style="padding:8px 12px;border:1px solid #e0e0e0;font-weight:500;">' + u.aciklama
         + ((u.altAd || u.altKod) ? '<div style="font-size:11px;color:#b9770b;font-weight:600;margin-top:3px;">↹ Alternatif ürün sunulmaktadır: ' + String(u.altAd||'').replace(/</g,'&lt;') + (u.altKod ? ' (Kod: ' + String(u.altKod).replace(/</g,'&lt;') + ')' : '') + '</div>' : '')
+        + ((u.alternatifler && u.alternatifler.length) ? u.alternatifler.map(a =>
+            '<div style="font-size:11px;color:#b9770b;font-weight:600;margin-top:3px;">↹ Alternatif (opsiyonel): ' + String(a.ad||'').replace(/</g,'&lt;') + (a.kod ? ' (Kod: ' + String(a.kod).replace(/</g,'&lt;') + ')' : '') + ' &mdash; <span style="color:#1565C0;">' + a.sembol + a.birimFiyat.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</span> /adet' + (a.adet>1 ? ' &middot; satır ' + a.sembol + a.toplam.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '') + '</div>'
+          ).join('') : '')
         + '</td>'
       + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center;">' + u.adet + ' ' + u.birim + '</td>'
       + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:right;">' + fmt(u.birimFiyat) + '</td>'
@@ -8979,6 +9060,7 @@ async function teklifMailGonderEt() {
   + (kurAck.tip === 'tl'
       ? 'Fiyatlar\u0131m\u0131z <b>TL</b> baz\u0131nda ge\u00e7erlidir; d\u00f6viz kuru uygulanmaz.<br>'
       : 'Aksi taraf\u0131n\u0131zca talep edilmedi\u011fi s\u00fcrece \u00fcr\u00fcnler <b>Fatura Tarihindeki ' + kurAck.tipAd + '</b> \u00fczerinden fiyatlanacakt\u0131r.<br>')
+  + (urunSatirlari.some(u => u.alternatifler && u.alternatifler.length) ? '<b>\u21b9 Alternatif (opsiyonel)</b> i\u015faretli \u00fcr\u00fcnler talep edilen \u00fcr\u00fcn yerine sunulan se\u00e7eneklerdir; tercihinize g\u00f6re fiyatland\u0131r\u0131l\u0131r ve <b>genel toplama dahil de\u011fildir.</b><br>' : '')
   + '<b>&#x1F69A; T\u00fcm T\u00fcrkiye\u2019ye lojistik bedel teklife dahildir.</b>'
   + '</td></tr></table>'
 
@@ -11468,8 +11550,13 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   const minRows=16;           // az ürün varken formu doldurmak için min görsel satır
   let stripe=0;
   urunSatirlari.forEach(u=>{
-    const hasAlt=!!(u.altAd||u.altKod);
-    const rowH=RH+(hasAlt?ALT_H:0);
+    // Alt-satır metinleri: eski tek alternatif (fiyatsız) + yeni çoklu alternatif (kendi fiyatıyla)
+    const altLines=[];
+    if(u.altAd||u.altKod) altLines.push('>> Alternatif sunulan ürün: '+(u.altAd||'')+(u.altKod?'  (Kod: '+u.altKod+')':''));
+    (u.alternatifler||[]).forEach(a=>{
+      altLines.push('>> Alternatif (opsiyonel): '+(a.ad||'')+(a.kod?' (Kod: '+a.kod+')':'')+'   '+(symMap[a.para]||'TL')+' '+fmt2(a.birimFiyat)+' /adet');
+    });
+    const rowH=RH+altLines.length*ALT_H;
     if(stripe%2===0) fr(LM,Y,CW,rowH,LGRI);
     const vals=[u.kod||'',u.aciklama||'',symMap[u.para]||'TL',String(u.adet||1),fmt2(u.birimFiyat),fmt2(u.toplam)];
     sf(KOYU,7,'normal');
@@ -11480,12 +11567,13 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
       const pad=alns[j]==='C'?cws[j]/2:alns[j]==='R'?cws[j]-1.5:1.5;
       doc.text(txt,xs[j]+pad,Y+4,{align:alns[j]==='C'?'center':alns[j]==='R'?'right':'left'});
     });
-    if(hasAlt){
+    if(altLines.length){
       sf([155,119,11],6,'normal');
-      let atxt='>> Alternatif sunulan ürün: '+(u.altAd||'')+(u.altKod?'  (Kod: '+u.altKod+')':'');
-      const aw=C.ac+C.par+C.adet-3;
-      atxt=(doc.splitTextToSize(atxt,aw)[0])||atxt;
-      doc.text(atxt,xs[1]+1.5,Y+RH+3);
+      const aw=CW-6;
+      altLines.forEach((t2,k)=>{
+        const line=(doc.splitTextToSize(t2,aw)[0])||t2;
+        doc.text(line,xs[1]+1.5,Y+RH+3+k*ALT_H);
+      });
     }
     ln(LM,Y+rowH,LM+CW,Y+rowH,SGRI,0.15);
     Y+=rowH; stripe++;
@@ -11531,7 +11619,15 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
     Y+=9;
   }
 
-  // (Alternatif ürün bilgisi artık her ürün satırının altında gösteriliyor — toplu bölüm kaldırıldı.)
+  // Alternatif ürün bilgisi artık her ürün satırının altında gösteriliyor (toplu bölüm kaldırıldı).
+  // Çoklu/fiyatlı alternatif varsa: opsiyonel olduğunu ve toplama dahil olmadığını belirt.
+  if (urunSatirlari.some(u => u.alternatifler && u.alternatifler.length)) {
+    Y+=2; fr(LM,Y,CW,7,[255,243,219]);
+    doc.setDrawColor(245,166,35); doc.setLineWidth(2); doc.line(LM,Y,LM,Y+7);
+    sf([155,119,11],6,'normal');
+    doc.text(doc.splitTextToSize('>> "(opsiyonel)" alternatif urunler, talep edilen urun yerine sunulan seceneklerdir; tercihinize gore fiyatlanir ve genel toplama DAHIL DEGILDIR.',CW-8).slice(0,1),LM+3.5,Y+4);
+    Y+=9;
+  }
 
   Y+=1;
   sf(KOYU,7.5,'normal');
