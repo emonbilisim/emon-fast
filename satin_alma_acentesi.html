@@ -16146,11 +16146,23 @@ function otoTalepSil(taslakId) {
   showToast('Taslak yoksayıldı.');
 }
 
+const _ottOnayMesgul = new Set(); // çift-tık/yarış koruması: aynı taslak için eşzamanlı onayı engelle
 async function otoTalepOnayla(taslakId) {
+  if (_ottOnayMesgul.has(taslakId)) return; // apiTalepNoReserve await'i sürerken 2. tık → 2. talep oluşmasın
   const cfg = otoTalepCfg();
   const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
   if (ix < 0) return;
   const ts = cfg.taslaklar[ix];
+
+  // Aynı KAYNAK MAİLDEN zaten talep oluşmuşsa ikincisini yapma (mailId tekilliği) —
+  // bir mailin birden fazla talep numarası üretmesini önler.
+  if (ts.mailId && TALEPLER.some(t => t.mailId === ts.mailId)) {
+    showToast('⚠ Bu mailden zaten bir talep oluşturulmuş — yinelenmedi. (Taslak kaldırıldı.)');
+    const _i = cfg.taslaklar.findIndex(x => x.id === taslakId);
+    if (_i >= 0) cfg.taslaklar.splice(_i, 1);
+    otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+    return;
+  }
 
   const musteriAd = (document.getElementById('ott-musteri-' + taslakId)?.value || '').trim();
   if (!musteriAd) { showToast('⚠ Lütfen bir müşteri seçin.'); return; }
@@ -16163,6 +16175,11 @@ async function otoTalepOnayla(taslakId) {
     if (aciklama) urunler.push({ aciklama, kod: g('[id$="-kod"]'), adet: g('[id$="-adet"]') || '1', birim: g('[id$="-birim"]') || 'Adet' });
   });
   if (urunler.length === 0) { showToast('⚠ En az bir ürün satırı gerekli.'); return; }
+
+  _ottOnayMesgul.add(taslakId);
+  const _onayBtn = document.querySelector(`[onclick="otoTalepOnayla('${taslakId}')"]`);
+  if (_onayBtn) { _onayBtn.disabled = true; _onayBtn.textContent = '⏳ Oluşturuluyor...'; }
+  try {
 
   const urunOzet = urunler.length === 1
     ? `${urunler[0].aciklama}${urunler[0].kod ? ' (' + urunler[0].kod + ')' : ''}`
@@ -16210,6 +16227,10 @@ async function otoTalepOnayla(taslakId) {
   kaliciVeriKaydet('Talep'); // onaylanan mail talebini HEMEN ortak sunucuya yaz
   showToast(`✅ #${noKesin ? no : talepNoBicimle(talepNoSayi(no))} talebi oluşturuldu (${musteriAd}).`);
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ öncesi bağlantı gerekli (çakışma önlemi).');
+  } finally {
+    _ottOnayMesgul.delete(taslakId);
+    if (_onayBtn) { _onayBtn.disabled = false; _onayBtn.textContent = '✅ Talep Oluştur'; }
+  }
 }
 
 // ↹↹ Mail içeri alırken manuel/AI alternatif ürün teklifi satırı ekle
