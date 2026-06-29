@@ -2553,10 +2553,15 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
     </div>
     <div class="form-group"><label class="form-label">Ürün / Hizmet Grubu *</label><input type="text" id="nt-urun" placeholder="örn. DELL, LENOVO, KABLO..."></div>
     <div class="grid2">
-      <div class="form-group"><label class="form-label">İlgili Kişi</label><input type="text" id="nt-kisi" placeholder="Ad Soyad"></div>
+      <div class="form-group"><label class="form-label">İlgili Kişi *</label><input type="text" id="nt-kisi" placeholder="Ad Soyad"></div>
       <div class="form-group"><label class="form-label">Telefon</label><input type="text" id="nt-tel" placeholder="0212 XXX XX XX"></div>
     </div>
-    <div class="form-group"><label class="form-label">E-posta</label><input type="email" id="nt-mail" placeholder="ornek@firma.com.tr"></div>
+    <div class="form-group"><label class="form-label">E-posta *</label><input type="email" id="nt-mail" placeholder="ornek@firma.com.tr"></div>
+    <div class="form-group">
+      <label class="form-label">Ek İlgili Kişiler (opsiyonel)</label>
+      <div id="nt-ek-kisiler"></div>
+      <button type="button" class="btn btn-sm" onclick="tedEkKisiSatir('nt')" style="margin-top:4px;">＋ Kişi Ekle</button>
+    </div>
     <div class="form-group">
       <label class="form-label">Ödeme Şekli</label>
       <div style="display:flex;flex-direction:column;gap:8px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2);padding:14px;">
@@ -2668,6 +2673,11 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
       <div class="form-group"><label class="form-label">Telefon</label><input type="text" id="dt-tel"></div>
     </div>
     <div class="form-group"><label class="form-label">E-posta</label><input type="email" id="dt-mail"></div>
+    <div class="form-group">
+      <label class="form-label">Ek İlgili Kişiler (opsiyonel)</label>
+      <div id="dt-ek-kisiler"></div>
+      <button type="button" class="btn btn-sm" onclick="tedEkKisiSatir('dt')" style="margin-top:4px;">＋ Kişi Ekle</button>
+    </div>
     <div class="form-group">
       <label class="form-label">Ödeme Şekli</label>
       <div style="display:flex;flex-direction:column;gap:8px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border2);padding:14px;">
@@ -3645,7 +3655,8 @@ function filterTedarikciler() {
 
   TEDARIKCILER.forEach((r, idx) => {
     const kat = kategori(r[1]);
-    if ((q === '' || aramaKucult(r.slice(0,5).join(' ')).includes(q)) && (cat === '' || kat === cat)) {
+    const ekKisiText = (Array.isArray(r[7]) ? r[7] : []).map(k => (k.ad||'')+' '+(k.mail||'')+' '+(k.tel||'')).join(' ');
+    if ((q === '' || aramaKucult(r.slice(0,5).join(' ') + ' ' + ekKisiText).includes(q)) && (cat === '' || kat === cat)) {
       const mail = r[4] && r[4] !== '—' ? `<a href="mailto:${r[4]}" style="color:var(--accent2);font-size:12px;">${r[4]}</a>` : '<span style="color:var(--text3);">—</span>';
       const tr = document.createElement('tr');
       tr.dataset.idx = idx;
@@ -3653,7 +3664,7 @@ function filterTedarikciler() {
         <td data-label="" style="width:32px;"><input type="checkbox" class="ted-cb" data-idx="${idx}" onchange="tedSecimGuncelle()" style="accent-color:var(--accent);width:14px;height:14px;" ${!isAdmin?'style="display:none"':''}></td>
         <td data-label="Firma" style="font-weight:500;min-width:130px;">${r[0]}</td>
         <td data-label="Kategori">${badgeHtml(kat)}<div style="font-size:11px;color:var(--text3);margin-top:3px;max-width:180px;">${r[1]}</div></td>
-        <td data-label="Kişi" style="min-width:110px;">${r[2]}</td>
+        <td data-label="Kişi" style="min-width:110px;">${r[2]}${(Array.isArray(r[7]) && r[7].length) ? ` <span style="font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;" title="${r[7].map(k=>(k.ad||'')+(k.mail?' <'+k.mail+'>':'')).join(', ').replace(/"/g,'&quot;')}">+${r[7].length} kişi</span>` : ''}</td>
         <td data-label="Telefon" style="font-size:12px;white-space:nowrap;font-family:'DM Mono',monospace;">${r[3]}</td>
         <td data-label="E-posta">${mail}</td>
         <td data-label="Ödeme" style="min-width:140px;">${odemeBadgeleri(r[5])}<div style="margin-top:3px;">${kargoBadge(r[6]||{})}</div></td>
@@ -3713,6 +3724,33 @@ function tedTopluSil() {
 }
 
 // YENİ TEDARİKÇİ EKLE
+// ── Ek ilgili kişiler (tedarikçi) — birincil kişi r[2..4], ekler r[7]=[{ad,tel,mail}] ──
+function tedEkKisiSatir(pre, ad, tel, mail) {
+  const kap = document.getElementById(pre + '-ek-kisiler'); if (!kap) return;
+  const row = document.createElement('div');
+  row.className = 'ted-ek-kisi';
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;';
+  row.innerHTML =
+    `<input type="text" class="tek-ad" placeholder="Ad Soyad" value="${(ad||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;">`
+    + `<input type="text" class="tek-tel" placeholder="Telefon" value="${(tel||'').replace(/"/g,'&quot;')}" style="width:120px;">`
+    + `<input type="email" class="tek-mail" placeholder="E-posta" value="${(mail||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;">`
+    + `<button type="button" class="btn btn-sm" title="Kaldır" onclick="this.parentNode.remove()" style="color:var(--red);">✕</button>`;
+  kap.appendChild(row);
+}
+function tedEkKisileriOku(pre) {
+  const kap = document.getElementById(pre + '-ek-kisiler'); if (!kap) return [];
+  return Array.from(kap.querySelectorAll('.ted-ek-kisi')).map(row => ({
+    ad: (row.querySelector('.tek-ad')?.value || '').trim(),
+    tel: (row.querySelector('.tek-tel')?.value || '').trim(),
+    mail: (row.querySelector('.tek-mail')?.value || '').trim(),
+  })).filter(k => k.ad || k.mail || k.tel);
+}
+function tedEkKisileriDoldur(pre, arr) {
+  const kap = document.getElementById(pre + '-ek-kisiler'); if (!kap) return;
+  kap.innerHTML = '';
+  (Array.isArray(arr) ? arr : []).forEach(k => tedEkKisiSatir(pre, k.ad, k.tel, k.mail));
+}
+
 function tedarikciEkle() {
   const firma = document.getElementById('nt-firma').value.trim();
   const urun = document.getElementById('nt-urun').value.trim();
@@ -3748,7 +3786,8 @@ function tedarikciEkle() {
   hata.style.display = 'none';
   const odeme = getOdeme('nt');
   const kargo = getKargo('nt');
-  const yeniSatir = [firma.toUpperCase(), urun.toUpperCase(), kisi.toUpperCase(), tel, mail, odeme, kargo];
+  const ekKisiler = tedEkKisileriOku('nt');
+  const yeniSatir = [firma.toUpperCase(), urun.toUpperCase(), kisi.toUpperCase(), tel, mail, odeme, kargo, ekKisiler];
 
   // Satıcı yeni kayıt ekliyorsa onaya gönder
   if (aktifKullanici?.rol === 'satici') {
@@ -3768,6 +3807,7 @@ function tedarikciEkle() {
   TEDARIKCILER.unshift(yeniSatir);
   // Formu sıfırla
   ['nt-firma','nt-urun','nt-kisi','nt-tel','nt-mail','nt-not','nt-komisyon','nt-vade-gun','nt-kargo-tutar','nt-kargo-not'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  tedEkKisileriDoldur('nt', []);
   document.getElementById('nt-kategori').value = '';
   ['nt-odeme-havale','nt-odeme-kk-kom','nt-odeme-vadeli','nt-odeme-kk-komlu'].forEach(id => { const el=document.getElementById(id); if(el) el.checked=false; });
   const komisyonWrap = document.getElementById('nt-komisyon-wrap');
@@ -3789,6 +3829,7 @@ function tedarikciDuzenle(idx) {
   document.getElementById('dt-tel').value = r[3];
   document.getElementById('dt-mail').value = r[4];
   document.getElementById('dt-index').value = idx;
+  tedEkKisileriDoldur('dt', r[7] || []);
   setOdeme('dt', r[5] || {});
   setKargo('dt', r[6] || { durum:'belirsiz' });
   // Satıcı doğrudan düzenleyemez — sadece değişiklik talebi oluşturur
@@ -3814,6 +3855,7 @@ function tedarikciGuncelle() {
     document.getElementById('dt-mail').value.trim(),
     getOdeme('dt'),
     getKargo('dt'),
+    tedEkKisileriOku('dt'),
   ];
 
   // Satıcı → doğrudan değiştirmez, admin onayına "değişiklik talebi" gönderir
@@ -4266,6 +4308,8 @@ function openModal(id) {
       });
     }
   }
+  // Yeni tedarikçi modalı her açılışta ek-kişi satırları temiz başlasın (iptal sonrası bayat kalmasın)
+  if (id === 'yeniTedarikci' && typeof tedEkKisileriDoldur === 'function') tedEkKisileriDoldur('nt', []);
   document.getElementById('modal-' + id).classList.add('open');
 }
 function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
@@ -6303,6 +6347,11 @@ function rfqFirmaMap() {
     if (r[2] && r[2]!=='—' && !m[firma].kisiler.includes(r[2])) m[firma].kisiler.push(r[2]);
     if (r[4] && r[4]!=='—' && !m[firma].mailler.includes(r[4])) m[firma].mailler.push(r[4]);
     if (r[3] && r[3]!=='—' && !m[firma].tel.includes(r[3])) m[firma].tel.push(r[3]);
+    (Array.isArray(r[7]) ? r[7] : []).forEach(k => {  // ek ilgili kişiler
+      if (k.ad && !m[firma].kisiler.includes(k.ad)) m[firma].kisiler.push(k.ad);
+      if (k.mail && !m[firma].mailler.includes(k.mail)) m[firma].mailler.push(k.mail);
+      if (k.tel && !m[firma].tel.includes(k.tel)) m[firma].tel.push(k.tel);
+    });
   });
   return m;
 }
