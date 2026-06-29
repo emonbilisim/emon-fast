@@ -10734,6 +10734,22 @@ async function portalArsivMailiGonder(t, tabloHtml, toplamStr) {
 }
 
 // Admin: onayla
+// Aynı no'lu (ve aynı müşterili) YİNELENEN talep varsa onay/red durumunu onlara da uygula.
+// Sebep: fiyat onayları talep NO'su ile listeleniyor; geçmişteki no-çakışmasından kalan bir
+// çift kayıt 'bekliyor' kalırsa admin onayladığı halde aynı no tekrar tekrar onay isteyebilir.
+function fiyatOnayYinelenleriEsitle(t) {
+  let n = 0;
+  TALEPLER.forEach(o => {
+    if (o !== t && o.no === t.no && (o.musteri || '') === (t.musteri || '') && o.fiyatOnayDurumu === 'bekliyor') {
+      o.fiyatOnayDurumu = t.fiyatOnayDurumu;
+      o.fiyatOnayTalep = JSON.parse(JSON.stringify(t.fiyatOnayTalep || {}));
+      n++;
+    }
+  });
+  if (n) console.warn('[fiyat-onay] ' + t.no + ': ' + n + ' yinelenen kayıt da ' + t.fiyatOnayDurumu + ' yapıldı (çift-kayıt koruması).');
+  return n;
+}
+
 async function adminFiyatOnayla() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -10758,6 +10774,7 @@ async function adminFiyatOnayla() {
   t.fiyatOnayTalep.adminTarih     = new Date().toISOString();
   t.fiyatOnayTalep.adminSatisData = adminData;
   t.fiyatOnayTalep.adminDegisiklik = degisiklikVar;
+  fiyatOnayYinelenleriEsitle(t); // varsa aynı no'lu çift kayıt da onaylansın (tekrar sormasın)
   // Portal talebi ise onaylanan fiyat tablosunu (DOM canlıyken) yakala
   const _portalTablo  = t.portalTalebi ? satisTabloEmailHtml() : '';
   const _portalToplam = document.getElementById('satis-toplam')?.textContent || adminData.toplamStr || '';
@@ -10800,6 +10817,7 @@ async function adminFiyatReddet() {
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
   t.fiyatOnayTalep.adminNot = not;
   t.fiyatOnayTalep.adminTarih = new Date().toISOString();
+  fiyatOnayYinelenleriEsitle(t); // varsa aynı no'lu çift kayıt da reddedilsin
   await kaliciVeriKaydet('Fiyat reddi'); // HEMEN ortak sunucuya yaz
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
