@@ -8916,8 +8916,8 @@ async function teklifMailGonderEt() {
   + '<table style="border-collapse:collapse;width:100%;font-size:13px;font-family:Calibri,Arial,sans-serif;margin:16px 0;">'
   + '<thead><tr style="background:#1565C0;color:#ffffff;">'
   + '<th style="padding:9px 12px;text-align:center;border:1px solid #1565C0;width:36px;">#</th>'
-  + '<th style="padding:9px 12px;text-align:left;border:1px solid #1565C0;width:90px;">R\u00fcn Kodu</th>'
-  + '<th style="padding:9px 12px;text-align:left;border:1px solid #1565C0;">R\u00fcn / A\u00e7\u0131klama</th>'
+  + '<th style="padding:9px 12px;text-align:left;border:1px solid #1565C0;width:90px;">\u00dcr\u00fcn Kodu</th>'
+  + '<th style="padding:9px 12px;text-align:left;border:1px solid #1565C0;">\u00dcr\u00fcn / A\u00e7\u0131klama</th>'
   + '<th style="padding:9px 12px;text-align:center;border:1px solid #1565C0;width:80px;">Miktar</th>'
   + '<th style="padding:9px 12px;text-align:right;border:1px solid #1565C0;width:110px;">Birim Fiyat</th>'
   + '<th style="padding:9px 12px;text-align:right;border:1px solid #1565C0;width:110px;">Sat\u0131r Toplam</th>'
@@ -11429,23 +11429,37 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   Y+=HH;
   const tblTop=Y;
 
-  const minRows=20;
-  const totalRows=Math.max(urunSatirlari.length,minRows);
-  for(let i=0;i<totalRows;i++){
-    const u=urunSatirlari[i];
-    if(i%2===0) fr(LM,Y,CW,RH,LGRI);
-    if(u){
-      const vals=[u.kod||'',u.aciklama||'',symMap[u.para]||'TL',String(u.adet||1),fmt2(u.birimFiyat),fmt2(u.toplam)];
-      sf(KOYU,7,'normal');
-      vals.forEach((v,j)=>{
-        let txt=String(v);
-        while(doc.getTextWidth(txt)>cws[j]-3&&txt.length>1) txt=txt.slice(0,-1);
-        if(String(v)!==txt) txt=txt.slice(0,-2)+'..';
-        const pad=alns[j]==='C'?cws[j]/2:alns[j]==='R'?cws[j]-1.5:1.5;
-        doc.text(txt,xs[j]+pad,Y+4,{align:alns[j]==='C'?'center':alns[j]==='R'?'right':'left'});
-      });
+  // Her ürün satırı; alternatifi olan kalemin HEMEN ALTINA kendi alternatif açıklaması
+  // (marke/amber) yazılır — çoklu alternatifte karışmaz (eskiden tek toplu bölümdeydi).
+  const ALT_H=4.6;            // alternatif alt-satırı yüksekliği
+  const minRows=16;           // az ürün varken formu doldurmak için min görsel satır
+  let stripe=0;
+  urunSatirlari.forEach(u=>{
+    const hasAlt=!!(u.altAd||u.altKod);
+    const rowH=RH+(hasAlt?ALT_H:0);
+    if(stripe%2===0) fr(LM,Y,CW,rowH,LGRI);
+    const vals=[u.kod||'',u.aciklama||'',symMap[u.para]||'TL',String(u.adet||1),fmt2(u.birimFiyat),fmt2(u.toplam)];
+    sf(KOYU,7,'normal');
+    vals.forEach((v,j)=>{
+      let txt=String(v);
+      while(doc.getTextWidth(txt)>cws[j]-3&&txt.length>1) txt=txt.slice(0,-1);
+      if(String(v)!==txt) txt=txt.slice(0,-2)+'..';
+      const pad=alns[j]==='C'?cws[j]/2:alns[j]==='R'?cws[j]-1.5:1.5;
+      doc.text(txt,xs[j]+pad,Y+4,{align:alns[j]==='C'?'center':alns[j]==='R'?'right':'left'});
+    });
+    if(hasAlt){
+      sf([155,119,11],6,'normal');
+      let atxt='>> Alternatif sunulan ürün: '+(u.altAd||'')+(u.altKod?'  (Kod: '+u.altKod+')':'');
+      const aw=C.ac+C.par+C.adet-3;
+      atxt=(doc.splitTextToSize(atxt,aw)[0])||atxt;
+      doc.text(atxt,xs[1]+1.5,Y+RH+3);
     }
-    ln(LM,Y,LM+CW,Y,SGRI,0.15);
+    ln(LM,Y+rowH,LM+CW,Y+rowH,SGRI,0.15);
+    Y+=rowH; stripe++;
+  });
+  for(let i=stripe;i<minRows;i++){
+    if(i%2===0) fr(LM,Y,CW,RH,LGRI);
+    ln(LM,Y+RH,LM+CW,Y+RH,SGRI,0.15);
     Y+=RH;
   }
 
@@ -11484,26 +11498,7 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
     Y+=9;
   }
 
-  // ALTERNATİF ÜRÜN BİLGİSİ — talep edilen yerine alternatif sunulan kalemler (dikkat çekici)
-  const altSatirlar = urunSatirlari
-    .map((u,i) => (u.altAd || u.altKod) ? { urun: u.aciklama||'', ad: u.altAd||'', kod: u.altKod||'' } : null)
-    .filter(Boolean);
-  if (altSatirlar.length) {
-    Y += 2;
-    const yuk = 6 + altSatirlar.length * 4.2;
-    fr(LM, Y, CW, yuk, [255, 243, 219]);
-    doc.setDrawColor(245,166,35); doc.setLineWidth(2); doc.line(LM, Y, LM, Y+yuk);
-    sf([155,119,11], 7, 'bold');
-    doc.text('ALTERNATIF URUN BILGISI', LM+3.5, Y+4.2);
-    sf([90,90,90], 6.5, 'normal');
-    let yy = Y + 4.2;
-    altSatirlar.forEach(a => {
-      yy += 4.2;
-      let txt = '- "' + a.urun + '" yerine: ' + a.ad + (a.kod ? '  (Kod: ' + a.kod + ')' : '');
-      doc.text(doc.splitTextToSize(txt, CW-7).slice(0,1), LM+3.5, yy);
-    });
-    Y += yuk + 2;
-  }
+  // (Alternatif ürün bilgisi artık her ürün satırının altında gösteriliyor — toplu bölüm kaldırıldı.)
 
   Y+=1;
   sf(KOYU,7.5,'normal');
