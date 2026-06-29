@@ -10577,6 +10577,7 @@ function fiyatOnayiniGecersizKil(t) {
   t = t || TALEPLER[aktifTalepIdx];
   if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
   t.fiyatOnayDurumu = null;
+  t.fiyatOnaySira = Date.now();   // monotonik karar damgası (geçersiz kılma da en yeni karar)
   if (t.fiyatOnayTalep) {
     delete t.fiyatOnayTalep.adminSatisData;
     delete t.fiyatOnayTalep.adminTarih;
@@ -10656,6 +10657,7 @@ async function fiyatOnayTalep() {
   // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez)
   if (AYARLAR.awayMode) {
     t.fiyatOnayDurumu = 'onaylandi';
+    t.fiyatOnaySira = Date.now();   // monotonik karar damgası (merge'de en yeni kazanır)
     t.fiyatOnayTalep.adminNot        = '🌙 Otomatik onay — admin away (uzakta) modunda.' + (not ? ' • Satıcı notu: ' + not : '');
     t.fiyatOnayTalep.adminTarih      = new Date().toISOString();
     t.fiyatOnayTalep.adminSatisData  = saticiData;
@@ -10672,6 +10674,7 @@ async function fiyatOnayTalep() {
   }
 
   t.fiyatOnayDurumu = 'bekliyor';
+  t.fiyatOnaySira = Date.now();   // monotonik karar damgası
   // ÖNCE sunucuya yaz, SONRA admine mail. Aksi halde mail gider ama veri ortak
   // tabana yansımazsa admin talebi göremez (yerelde kalır).
   const kayitOk = await kaliciVeriKaydet('Onay talebi');
@@ -10777,6 +10780,7 @@ function fiyatOnayYinelenleriEsitle(t) {
     if (o !== t && o.no === t.no && (o.musteri || '') === (t.musteri || '') && o.fiyatOnayDurumu === 'bekliyor') {
       o.fiyatOnayDurumu = t.fiyatOnayDurumu;
       o.fiyatOnayTalep = JSON.parse(JSON.stringify(t.fiyatOnayTalep || {}));
+      o.fiyatOnaySira = t.fiyatOnaySira || Date.now();
       n++;
     }
   });
@@ -10803,6 +10807,7 @@ async function adminFiyatOnayla() {
     : 'Onay notu (isteğe bağlı):') || '';
 
   t.fiyatOnayDurumu = 'onaylandi';
+  t.fiyatOnaySira = Date.now();   // monotonik karar damgası — bayat 'bekliyor' bunu geri alamaz
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
   t.fiyatOnayTalep.adminNot       = not;
   t.fiyatOnayTalep.adminTarih     = new Date().toISOString();
@@ -10848,6 +10853,7 @@ async function adminFiyatReddet() {
   const not = prompt('Red gerekçesi:') || '';
   if (!not) { showToast('Red gerekçesi gerekli.'); return; }
   t.fiyatOnayDurumu = 'reddedildi';
+  t.fiyatOnaySira = Date.now();   // monotonik karar damgası
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
   t.fiyatOnayTalep.adminNot = not;
   t.fiyatOnayTalep.adminTarih = new Date().toISOString();
@@ -16810,6 +16816,24 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   const ob = base.ONAY_BEKLEYENLER || {}, ol = local.ONAY_BEKLEYENLER || {}, os = server.ONAY_BEKLEYENLER || {};
   const sonuc = JSON.parse(JSON.stringify(local)); // tüm alanlar yerelden başlasın
   sonuc.TALEPLER        = _mergeDizi(base.TALEPLER,        local.TALEPLER,        server.TALEPLER,        r => r.no, noDelete);
+  // Fiyat onayı çakışma çözümü: admin'in onayı/reddi, bayat bir satıcı oturumunun
+  // 'bekliyor'u tarafından geri alınmasın. Karar damgası (fiyatOnaySira) EN YENİ olan
+  // taraf (yerel/sunucu) kazanır — base-diff'ten bağımsız. (Damgasız eski kayıtlar atlanır.)
+  try {
+    const _lT = new Map((local.TALEPLER || []).map(t => [t.no, t]));
+    const _sT = new Map((server.TALEPLER || []).map(t => [t.no, t]));
+    sonuc.TALEPLER.forEach(t => {
+      const l = _lT.get(t.no), s = _sT.get(t.no);
+      const ls = (l && l.fiyatOnaySira) || 0, ss = (s && s.fiyatOnaySira) || 0;
+      if (!ls && !ss) return;
+      const kazanan = ss > ls ? s : l;
+      if (kazanan) {
+        t.fiyatOnayDurumu = kazanan.fiyatOnayDurumu;
+        t.fiyatOnayTalep  = kazanan.fiyatOnayTalep;
+        t.fiyatOnaySira   = Math.max(ls, ss);
+      }
+    });
+  } catch (_) {}
   sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma, noDelete);
   sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
   sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
