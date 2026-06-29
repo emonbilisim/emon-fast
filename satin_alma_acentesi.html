@@ -8831,8 +8831,9 @@ function teklifMailOnayModaliAc(t, toMail, toAd, mod) {
   const bilgiEl = document.getElementById('teklif-mail-bilgi');
   if (toEl) toEl.value = toMail;
   // Kendi (gönderen) adreslerimiz CC önerisinden çıkarılır.
-  const benim = [aktifKullanici?.msAccount, aktifKullanici?.email]
-    .map(s => (s || '').toLowerCase()).filter(Boolean);
+  // NOT: msAccount bir MSAL hesap NESNESİdir (string değil) — e-posta .username'dedir.
+  const benim = [aktifKullanici?.msAccount?.username, aktifKullanici?.email]
+    .map(s => (typeof s === 'string' ? s : '').toLowerCase()).filter(Boolean);
   const ccUniq = [...new Set((Array.isArray(t.cc) ? t.cc : [])
     .map(a => (a || '').trim().toLowerCase()).filter(Boolean)
     .filter(a => a !== (toMail || '').toLowerCase() && !benim.includes(a)))];
