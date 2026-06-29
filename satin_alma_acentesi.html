@@ -9780,6 +9780,9 @@ async function talepKaydet() {
 
   closeModal('yeniTalep');
   const { no, kesin: noKesin } = await apiTalepNoReserve(); // sunucu-taraflı atomik numara — çakışma önlenir
+  const _sahipEmail = yeniTalepSahibiEmail(musteriAd);
+  const _sahipK = saticiKullaniciBul(_sahipEmail);
+  const _vekaleten = _sahipEmail !== (aktifKullanici?.email || '').toLowerCase();
   TALEPLER.unshift({
     no,
     noKesin, // false ise numara geçici (çevrimdışı) — RFQ öncesi sunucudan kesinleştirilir
@@ -9796,12 +9799,13 @@ async function talepKaydet() {
     not: document.getElementById('talep-not').value.trim(),
     oncelik: document.getElementById('talep-oncelik').value,
     portalTalebi: !!document.getElementById('talep-portal')?.checked,
-    satici: aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
-    saticiEmail: (aktifKullanici?.email || '').toLowerCase(), // KALICI kimlik — cihazlar arası kararlı, sahiplik bunun üzerinden çözülür
+    satici: (_sahipK?.id != null) ? _sahipK.id : aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
+    saticiEmail: _sahipEmail, // KALICI kimlik — cihazlar arası kararlı, sahiplik bunun üzerinden çözülür (vekâleten ise asil'e)
   });
   renderTalepler();
   const _gosNo = noKesin ? no : talepNoBicimle(talepNoSayi(no));
-  showToast(`"${musteriAd}" için #${_gosNo} numaralı talep oluşturuldu!`);
+  showToast(`"${musteriAd}" için #${_gosNo} numaralı talep oluşturuldu!`
+    + (_vekaleten ? ` (izindeki sorumlusu ${_sahipK?.ad || _sahipEmail} adına — siz de görürsünüz)` : ''));
   await kaliciVeriKaydet('Talep'); // HEMEN ortak sunucuya yaz — yerelde kalıp kaybolmasın
   if (!noKesin) showToast('⚠ Sunucuya ulaşılamadı — talep numarası geçici. RFQ göndermeden önce bağlantı sağlanmalı (çakışma önlemi).');
 }
@@ -11711,6 +11715,27 @@ function talepKapsamVekil(t) {
   const iz = izinKayitlari()[sahip];
   if (!_izinAktif(iz)) return false;
   return (iz.vekil || '').toLowerCase() === (aktifKullanici.email || '').toLowerCase();
+}
+
+// Bir müşterinin sorumlu satıcı e-postasını çöz (m.satici e-posta ya da eski id)
+function musteriSahibiEmail(m) {
+  if (!m) return '';
+  const k = saticiKullaniciBul(m.satici);
+  if (k && k.email) return k.email.toLowerCase();
+  return (typeof m.satici === 'string' && m.satici.includes('@')) ? m.satici.toLowerCase() : '';
+}
+// Yeni talebin sahibi: normalde oluşturan. ANCAK oluşturan, müşterinin İZİNDEKİ
+// sorumlusunun VEKİLİ ise → talep ASİL sorumluda kalsın (asil de görür; vekil zaten
+// talepKapsamVekil ile görür). Böylece vekil yürütse de iş asilde görünür.
+function yeniTalepSahibiEmail(musteriAd) {
+  const benim = (aktifKullanici?.email || '').toLowerCase();
+  const m = (MUSTERILER || []).find(x => (x.firma || '') === musteriAd);
+  const sahip = musteriSahibiEmail(m);
+  if (sahip && sahip !== benim && izindeMi(sahip)) {
+    const iz = izinKayitlari()[sahip];
+    if ((iz?.vekil || '').toLowerCase() === benim) return sahip; // asil'e ata, vekil vekâleten görür
+  }
+  return benim;
 }
 
 // Ayarlar (admin): ekip üyeleri için izinde + vekil + bitiş satırları
@@ -15919,6 +15944,8 @@ async function otoTalepOnayla(taslakId) {
   // STZ inputları: önce kullanıcının girdiği (varsa mailden algılanan ön-doldurulu) değer, yoksa otomatik
   const stzInpTarih = (document.getElementById('ott-stz-tarih-' + taslakId)?.value || '').trim();
   const stzInpSaat  = (document.getElementById('ott-stz-saat-'  + taslakId)?.value || '').trim();
+  const _ottSahipEmail = yeniTalepSahibiEmail(musteriAd); // müşteri izindeki sorumlusunun vekiliysem asil'e ata
+  const _ottSahipK = saticiKullaniciBul(_ottSahipEmail);
   TALEPLER.unshift({
     no,
     noKesin, // false ise numara geçici (çevrimdışı) — RFQ öncesi sunucudan kesinleştirilir
@@ -15938,8 +15965,8 @@ async function otoTalepOnayla(taslakId) {
     _kaynak: 'oto-mail',
     mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
     cc: Array.isArray(ts.cc) ? ts.cc : [],  // gelen mailin CC'leri — teklifte CC önerisi
-    satici: aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
-    saticiEmail: (aktifKullanici?.email || '').toLowerCase(), // KALICI kimlik — cihazlar arası kararlı
+    satici: (_ottSahipK?.id != null) ? _ottSahipK.id : aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
+    saticiEmail: _ottSahipEmail, // KALICI kimlik — vekâleten ise müşterinin izindeki asıl sorumlusu
   });
 
   if (ts.mailId && !cfg.islenenMailIdler.includes(ts.mailId)) cfg.islenenMailIdler.push(ts.mailId); // kaynak mail tekrar taranmasın
