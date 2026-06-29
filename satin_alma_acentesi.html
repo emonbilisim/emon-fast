@@ -3792,6 +3792,7 @@ function tedarikciEkle() {
   // Satıcı yeni kayıt ekliyorsa onaya gönder
   if (aktifKullanici?.rol === 'satici') {
     ONAY_BEKLEYENLER.tedarikciler.push({
+      _id: _onayYeniId(),
       satir: yeniSatir,
       _onayDurumu: 'bekliyor',
       _onayTarih: new Date().toISOString(),
@@ -3863,6 +3864,7 @@ function tedarikciGuncelle() {
     const eski = TEDARIKCILER[idx];
     if (!eski) { showToast('Tedarikçi bulunamadı.'); return; }
     ONAY_BEKLEYENLER.tedarikciler.push({
+      _id: _onayYeniId(),
       _tip: 'duzenle',
       idx,
       eskiSatir: JSON.parse(JSON.stringify(eski)),
@@ -5008,9 +5010,31 @@ const CRM_TIPLER = [
 function onayBekleyenleriYukle() {
   try {
     const k = JSON.parse(localStorage.getItem('emonfast_onay') || '{}');
-    ONAY_BEKLEYENLER.musteriler  = k.musteriler  || [];
-    ONAY_BEKLEYENLER.tedarikciler = k.tedarikciler || [];
+    ONAY_BEKLEYENLER._tombstone = (k._tombstone && typeof k._tombstone === 'object') ? k._tombstone : {};
+    const t = ONAY_BEKLEYENLER._tombstone;
+    ONAY_BEKLEYENLER.musteriler   = (k.musteriler   || []).filter(r => !(_onayKey(r) in t));
+    ONAY_BEKLEYENLER.tedarikciler = (k.tedarikciler || []).filter(r => !(_onayKey(r) in t));
   } catch {}
+}
+// ── Kayıt onayı kimlik + tombstone (mezar taşı) ──────────────
+// Sorun: admin bir onay/değişiklik talebini onaylayıp listeden çıkarsa da, bayat bir
+// satıcı oturumu ya da bayat baz, kaydı "yeni yerel kayıt" sanıp merge'de GERİ enjekte
+// ediyordu → "talebi tekrar tekrar istiyor". Çözüm: onaylanan/reddedilen kaydın anahtarı
+// tombstone'a yazılır; merge ve yükleme bu anahtarı her yerden filtreler. Tombstone
+// ONAY_BEKLEYENLER._tombstone içinde tutulur (backend 'onaylar' JSONB'sinde senkronlanır).
+function _onayYeniId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function _onayKey(r) { return (r && r._id) ? ('id:' + r._id) : ('c:' + _canon(r)); }
+function onayTombstoneEkle(r) {
+  if (!r) return;
+  if (!ONAY_BEKLEYENLER._tombstone || typeof ONAY_BEKLEYENLER._tombstone !== 'object') ONAY_BEKLEYENLER._tombstone = {};
+  ONAY_BEKLEYENLER._tombstone[_onayKey(r)] = Date.now();
+}
+// Sunucudan çekildikten sonra: tombstone'lanmış (onaylanmış/reddedilmiş) kayıtları ele
+function onayBekleyenTombstoneFiltrele() {
+  const t = ONAY_BEKLEYENLER._tombstone;
+  if (!t || typeof t !== 'object') return;
+  ONAY_BEKLEYENLER.musteriler   = (ONAY_BEKLEYENLER.musteriler   || []).filter(r => !(_onayKey(r) in t));
+  ONAY_BEKLEYENLER.tedarikciler = (ONAY_BEKLEYENLER.tedarikciler || []).filter(r => !(_onayKey(r) in t));
 }
 function onayBekleyenleriKaydet() {
   localStorage.setItem('emonfast_onay', JSON.stringify(ONAY_BEKLEYENLER));
@@ -5151,6 +5175,7 @@ function musteriKaydet() {
 
   // Satıcı yeni kayıt ekliyorsa onaya gönder
   if (aktifKullanici?.rol === 'satici' && idx === -1 && !onayIdx) {
+    kayit._id = _onayYeniId();
     kayit._onayDurumu = 'bekliyor';
     kayit._onayTarih  = new Date().toISOString();
     kayit._onayKullanici = aktifKullanici.ad;
@@ -5219,6 +5244,7 @@ function musteriKaydet() {
     if (eski.fiyatgrup && !kayit.fiyatgrup) kayit.fiyatgrup = eski.fiyatgrup; // ticari alanları koru
     ONAY_BEKLEYENLER.musteriler.push({
       ...kayit,
+      _id: _onayYeniId(),
       _tip: 'duzenle',
       eskiMusteri: JSON.parse(JSON.stringify(eski)),
       _onayDurumu: 'bekliyor',
@@ -10095,16 +10121,18 @@ async function onayMusteriKabul(i) {
     if (hedef < 0) hedef = MUSTERILER.findIndex(mm => mm.firma === kayit.firma);
     if (hedef < 0) {
       showToast('⚠ Hedef müşteri bulunamadı (silinmiş olabilir). Talep kaldırıldı.');
+      onayTombstoneEkle(kayit);
       ONAY_BEKLEYENLER.musteriler.splice(i, 1);
       onayBekleyenleriKaydet(); onayModalAc();
       return;
     }
-    const { _tip, eskiMusteri, _onayDurumu, _onayTarih, _onayKullanici, ...musteriVeri } = kayit;
+    const { _tip, eskiMusteri, _onayDurumu, _onayTarih, _onayKullanici, _id, ...musteriVeri } = kayit;
     musteriVeri.tarih = MUSTERILER[hedef].tarih; // orijinal kayıt tarihini koru
     // Ticari alanları (marj/fiyat grubu) satıcı değiştiremez — mevcut değeri koru
     if (MUSTERILER[hedef].fpKurallari && !musteriVeri.fpKurallari) musteriVeri.fpKurallari = MUSTERILER[hedef].fpKurallari;
     if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
     MUSTERILER[hedef] = musteriVeri;
+    onayTombstoneEkle(kayit);
     ONAY_BEKLEYENLER.musteriler.splice(i, 1);
     onayBekleyenleriKaydet(); filterMusteriler(); // onayBekleyenleriKaydet HEMEN flush eder
     onayModalAc();
@@ -10180,6 +10208,7 @@ async function onayMusteriKabul(i) {
 
 async function _onayMusteriKaydetSonra(i) {
   // musteriKaydet çalıştıktan sonra onay listesinden çıkar
+  onayTombstoneEkle(ONAY_BEKLEYENLER.musteriler[i]);
   ONAY_BEKLEYENLER.musteriler.splice(i, 1);
   onayBekleyenleriKaydet(); // HEMEN ortak sunucuya yazar (kalıcı)
   showToast('✅ Müşteri onaylandı ve sisteme eklendi!');
@@ -10189,6 +10218,7 @@ function onayMusteriReddet(i) {
   const kayit = ONAY_BEKLEYENLER.musteriler[i];
   if (!kayit) return;
   const neden = prompt('Red nedeni (isteğe bağlı):') ?? '';
+  onayTombstoneEkle(ONAY_BEKLEYENLER.musteriler[i]);
   ONAY_BEKLEYENLER.musteriler.splice(i, 1);
   onayBekleyenleriKaydet();
   onayModalAc();
@@ -10205,11 +10235,13 @@ async function onayTedarikciKabul(i) {
     if (hedef < 0 && typeof kayit.idx === 'number' && TEDARIKCILER[kayit.idx]) hedef = kayit.idx;
     if (hedef < 0) {
       showToast('⚠ Hedef tedarikçi bulunamadı (silinmiş/değişmiş olabilir). Talep kaldırıldı.');
+      onayTombstoneEkle(kayit);
       ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
       onayBekleyenleriKaydet(); onayModalAc();
       return;
     }
     TEDARIKCILER[hedef] = kayit.satir;
+    onayTombstoneEkle(kayit);
     ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
     onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
     onayModalAc();
@@ -10218,6 +10250,7 @@ async function onayTedarikciKabul(i) {
   }
 
   TEDARIKCILER.unshift(kayit.satir);
+  onayTombstoneEkle(kayit);
   ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
   onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
   onayModalAc();
@@ -10227,6 +10260,7 @@ async function onayTedarikciKabul(i) {
 function onayTedarikciReddet(i) {
   if (!ONAY_BEKLEYENLER.tedarikciler[i]) return;
   const neden = prompt('Red nedeni (isteğe bağlı):') ?? '';
+  onayTombstoneEkle(ONAY_BEKLEYENLER.tedarikciler[i]);
   ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
   onayBekleyenleriKaydet();
   onayModalAc();
@@ -16481,7 +16515,7 @@ async function apiVeriYukle() {
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
     if (veri.AYARLAR)          Object.assign(AYARLAR, veri.AYARLAR);
-    if (veri.ONAY_BEKLEYENLER) Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER);
+    if (veri.ONAY_BEKLEYENLER) { Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER); onayBekleyenTombstoneFiltrele(); }
     if (Array.isArray(veri.CRM_AKTIVITELER)) { CRM_AKTIVITELER.length = 0; CRM_AKTIVITELER.push(...veri.CRM_AKTIVITELER); }
     if (veri.crmSayac)         crmSayac = veri.crmSayac;
     if (veri.talepSayac)       talepSayac = veri.talepSayac;
@@ -16779,9 +16813,20 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma, noDelete);
   sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
   sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
+  // Tombstone (onaylanan/reddedilen kayıt anahtarları) — base/local/server birleşimi,
+  // en yeni zaman damgası; 21 günden eski kayıtlar budanır. Merge sonucu bu anahtarlara
+  // sahip bekleyen kayıtlar HER YERDEN filtrelenir → onaylanan talep geri enjekte olamaz.
+  const _tomb = {};
+  [ob._tombstone, ol._tombstone, os._tombstone].forEach(src => {
+    if (src && typeof src === 'object') for (const k in src) _tomb[k] = Math.max(_tomb[k] || 0, src[k] || 0);
+  });
+  const _tombKesim = Date.now() - 21 * 24 * 3600 * 1000;
+  for (const k in _tomb) if (_tomb[k] < _tombKesim) delete _tomb[k];
+  const _tombFiltre = arr => (arr || []).filter(r => !(_onayKey(r) in _tomb));
   sonuc.ONAY_BEKLEYENLER = {
-    musteriler:   _mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   r => _canon(r), noDelete),
-    tedarikciler: _mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, r => _canon(r), noDelete),
+    musteriler:   _tombFiltre(_mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   _onayKey, noDelete)),
+    tedarikciler: _tombFiltre(_mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, _onayKey, noDelete)),
+    _tombstone:   _tomb,
   };
   sonuc.talepTeklifleri = _mergeObje(base.talepTeklifleri, local.talepTeklifleri, server.talepTeklifleri);
   sonuc.KULLANICILAR    = _adminSahipli(local.KULLANICILAR, server.KULLANICILAR);
@@ -16928,7 +16973,7 @@ function veriYukle() {
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
     if (veri.dovizKurlari)     Object.assign(dovizKurlari, veri.dovizKurlari);
     if (veri.AYARLAR)          Object.assign(AYARLAR, veri.AYARLAR);
-    if (veri.ONAY_BEKLEYENLER) Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER);
+    if (veri.ONAY_BEKLEYENLER) { Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER); onayBekleyenTombstoneFiltrele(); }
     if (Array.isArray(veri.CRM_AKTIVITELER)) { CRM_AKTIVITELER.length = 0; CRM_AKTIVITELER.push(...veri.CRM_AKTIVITELER); }
     if (veri.crmSayac)         crmSayac = veri.crmSayac;
     if (Array.isArray(veri.KULLANICILAR) && veri.KULLANICILAR.length) {
