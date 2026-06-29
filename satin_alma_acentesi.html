@@ -8789,10 +8789,24 @@ async function musteriTeklifMaili() {
     return;
   }
 
-  const m       = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkili = m?.yetkililer?.[0];
-  const mail    = yetkili?.mail || '';
+  const m         = MUSTERILER.find(x => x.firma === t.musteri);
+  const yetkililer = m?.yetkililer || [];
+  // To önceliği: (1) talebi GÖNDEREN kişi (gelen mailden) → (2) gönderene eşleşen müşteri
+  // yetkilisi → (3) müşteri kartındaki ilk yetkili. Eskiden HER ZAMAN ilk yetkili alınıyordu;
+  // bu yüzden talep aylin.keskin'den gelse de teklif kartın ilk yetkilisine (ör. sadik) gidiyordu.
+  const epRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const istek = (t.gonderenMail || '').toLowerCase().trim();
+  let mail = '', ad = '';
+  if (istek && epRe.test(istek)) {
+    mail = istek;
+    const eslesen = yetkililer.find(y => (y.mail || '').toLowerCase() === istek);
+    ad = eslesen?.ad || t.gonderenAd || yetkililer[0]?.ad || 'İlgili';
+  } else {
+    mail = yetkililer[0]?.mail || '';
+    ad   = yetkililer[0]?.ad || 'İlgili';
+  }
   if (!mail) { showToast('Müşteri e-posta adresi bulunamadı!'); return; }
+  const yetkili = { ad, mail };
 
   // MS 365 bağlı değilse gerçek gönderim yapılamaz → modalı açmadan net uyar.
   if (!(aktifKullanici?.msAccount && msGraphToken)) {
@@ -16068,6 +16082,8 @@ async function otoTalepOnayla(taslakId) {
     _kaynak: 'oto-mail',
     mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
     cc: Array.isArray(ts.cc) ? ts.cc : [],  // gelen mailin CC'leri — teklifte CC önerisi
+    gonderenMail: (ts.gonderen || '').toLowerCase(),  // talebi gönderen kişi — teklif To önceliği
+    gonderenAd: ts.gonderenAd || '',
     satici: (_ottSahipK?.id != null) ? _ottSahipK.id : aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
     saticiEmail: _ottSahipEmail, // KALICI kimlik — vekâleten ise müşterinin izindeki asıl sorumlusu
   });
