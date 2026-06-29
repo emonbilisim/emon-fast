@@ -3172,6 +3172,7 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
     <div class="form-group">
       <label class="form-label">Alıcı (To) *</label>
       <input type="text" id="teklif-mail-to" placeholder="musteri@firma.com">
+      <div id="teklif-mail-yetkililer" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;"></div>
     </div>
     <div class="form-group">
       <label class="form-label">CC (Bilgi) — virgülle ayırın</label>
@@ -8831,6 +8832,11 @@ let _teklifMailOnayIdx = -1;
 function teklifMailOnayGonder() {
   return _teklifMailOnayMod === 'hatirlat' ? teklifHatirlatGonderEt() : teklifMailGonderEt();
 }
+// Yetkili çipinden To seç (pop-up); aktif çipi vurgula
+function teklifToSec(mail, btn) {
+  const el = document.getElementById('teklif-mail-to'); if (el) el.value = mail;
+  if (btn && btn.parentNode) btn.parentNode.querySelectorAll('button').forEach(b => b.classList.toggle('btn-primary', b === btn));
+}
 
 // Teklif/hatırlatma maili onay pop-up'ını To/CC ön-dolu açar.
 function teklifMailOnayModaliAc(t, toMail, toAd, mod) {
@@ -8844,6 +8850,19 @@ function teklifMailOnayModaliAc(t, toMail, toAd, mod) {
   const ccEl = document.getElementById('teklif-mail-cc');
   const bilgiEl = document.getElementById('teklif-mail-bilgi');
   if (toEl) toEl.value = toMail;
+  // Müşteri yetkilileri — tek tıkla To seçimi (özellikle elle/mevcut taleplerde doğru kişiyi seç)
+  const ykEl = document.getElementById('teklif-mail-yetkililer');
+  if (ykEl) {
+    const _m = MUSTERILER.find(x => x.firma === t.musteri);
+    const yk = (_m?.yetkililer || []).filter(y => y && y.mail);
+    ykEl.innerHTML = yk.length > 1
+      ? '<span style="font-size:11px;color:var(--text3);">Yetkili:</span> ' + yk.map(y => {
+          const e = (y.mail || '').toLowerCase();
+          const aktif = e === (toMail || '').toLowerCase();
+          return `<button type="button" class="btn btn-sm${aktif ? ' btn-primary' : ''}" style="font-size:11px;padding:3px 9px;" title="${moEsc(e)}" onclick="teklifToSec('${e.replace(/'/g, '')}',this)">${moEsc(y.ad || e)}</button>`;
+        }).join(' ')
+      : '';
+  }
   // Kendi (gönderen) adreslerimiz CC önerisinden çıkarılır.
   // NOT: msAccount bir MSAL hesap NESNESİdir (string değil) — e-posta .username'dedir.
   const benim = [aktifKullanici?.msAccount?.username, aktifKullanici?.email]
