@@ -261,6 +261,57 @@ find /var/backups -name 'emonfast_*.sql' -mtime +30 -delete
 > Ayrıca uygulama içinde **OneDrive otomatik yedek** (Ayarlar) ve **Dışa Aktar/İçe Aktar**
 > mevcut — bunlar veri-katmanı yedeğidir, sunucu kurulumunun yerini tutmaz.
 
+### 9b. Yedeği her gün OTOMATİK doğrula + bozuksa UYARI maili
+
+"Yedek alınıyor sanıp aslında bozuk/eksik" durumunu felaket gününden ÖNCE yakalamak için.
+
+**1) Araçları sunucuya kopyala** (repoda; deploy etmiyor):
+
+```bash
+mkdir -p /opt/emonfast-tools
+curl -fsSL https://raw.githubusercontent.com/emonbilisim/emon-fast/main/tools/yedek-dogrula.sh      -o /opt/emonfast-tools/yedek-dogrula.sh
+curl -fsSL https://raw.githubusercontent.com/emonbilisim/emon-fast/main/tools/yedek-kontrol-cron.sh -o /opt/emonfast-tools/yedek-kontrol-cron.sh
+chmod +x /opt/emonfast-tools/*.sh
+```
+
+**2) Mail gönderimi** (yeni sunucu varsayılan olarak mail YOLLAYAMAZ — basit MTA: msmtp):
+
+```bash
+apt install -y msmtp msmtp-mta
+cat > /etc/msmtprc <<'EOF'
+defaults
+auth           on
+tls            on
+tls_starttls   on
+logfile        /var/log/msmtp.log
+account        emon
+host           smtp.office365.com
+port           587
+from           bildirim@emon.com.tr
+user           bildirim@emon.com.tr
+password       UYGULAMA_PAROLASI     # M365 "uygulama parolası" (MFA varsa normal parola çalışmaz)
+account default : emon
+EOF
+chmod 600 /etc/msmtprc
+echo "test" | mail -s "EMON test" selim@emon.com.tr   # gelirse mail çalışıyor
+```
+
+> M365 kullanamıyorsanız: webhook ile uyarın → cron'da `mail` yerine
+> `ALERT_WEBHOOK=https://...` verin (script otomatik webhook'a düşer).
+
+**3) Cron** — her gün 04:30'da doğrula, bozuksa mail at:
+
+```bash
+cat > /etc/cron.d/emonfast-yedek-kontrol <<'EOF'
+# dak saat * * *  kullanıcı  komut
+30 4 * * * root BACKUP_DIR=/var/backups/emonfast ALERT_EMAIL=selim@emon.com.tr FRESH_DAYS=2 /opt/emonfast-tools/yedek-kontrol-cron.sh
+EOF
+```
+
+> Test: `BACKUP_DIR=/var/backups/emonfast /opt/emonfast-tools/yedek-kontrol-cron.sh; echo "exit=$?"`
+> — yedek tamsa sessiz `exit=0`; eksik/bozuksa mail gider + `exit=1`.
+> Log: `/var/log/emonfast-yedek-kontrol.log`.
+
 ---
 
 ## 10. (Opsiyonel) WireGuard erişimi
