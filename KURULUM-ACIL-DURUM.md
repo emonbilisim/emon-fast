@@ -40,6 +40,15 @@ kurulumdan ÖNCE tamamlayın:
 > kasada (parola yöneticisi / şifreli disk) ayrıca tutun. Bunlar repoda olmadığı için
 > tek kopya sunucuda kalırsa felakette kaybolur.
 
+> ✅ **Yedeği bu listeye göre OTOMATİK doğrulayın:**
+> ```bash
+> bash tools/yedek-dogrula.sh /yedek/dizini
+> # Daha sıkı: gerçek deneme-yükleme ile
+> TEST_RESTORE=1 bash tools/yedek-dogrula.sh /yedek/dizini
+> ```
+> Eksik/bayat/bozuk bir şey varsa kırmızı **x** ile listeler ve çıkış kodu `1` olur — bu
+> komutu günlük cron'a koyup başarısızlıkta uyarı maili tetikleyebilirsiniz.
+
 **Elinizde olması gereken erişimler:** yeni sunucuya `root` SSH; alan adı (DNS) yönetim
 paneli; GitHub repo (emonbilisim/emon-fast) yönetici erişimi.
 
