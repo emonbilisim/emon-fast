@@ -2639,6 +2639,11 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
           <input type="number" id="nt-min-kargo" placeholder="0 (yoksa boş bırakın)" min="0" style="width:160px;padding:5px 8px;font-size:12px;">
           <span style="font-size:11px;color:var(--text3);margin-left:8px;">Sipariş ne kadar küçük olursa olsun alınan minimum tutar</span>
         </div>
+        <div style="margin-top:8px;">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">Bedava Kargo Eşiği <span id="nt-bedava-para" style="color:var(--text3);">(kargo para birimi)</span></div>
+          <input type="number" id="nt-bedava-limit" placeholder="0 (yoksa boş bırakın)" min="0" style="width:160px;padding:5px 8px;font-size:12px;">
+          <span style="font-size:11px;color:var(--text3);margin-left:8px;">Sipariş toplamı bu tutarı geçerse kargo ücretsiz (örn. 200 üzeri bedava)</span>
+        </div>
       </div>
     </div>
 
@@ -2754,6 +2759,11 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
           <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">Minimum Kargo / Servis Bedeli (₺)</div>
           <input type="number" id="dt-min-kargo" placeholder="0 (yoksa boş bırakın)" min="0" style="width:160px;padding:5px 8px;font-size:12px;">
           <span style="font-size:11px;color:var(--text3);margin-left:8px;">Sipariş ne kadar küçük olursa olsun alınan minimum tutar</span>
+        </div>
+        <div style="margin-top:8px;">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">Bedava Kargo Eşiği <span id="dt-bedava-para" style="color:var(--text3);">(kargo para birimi)</span></div>
+          <input type="number" id="dt-bedava-limit" placeholder="0 (yoksa boş bırakın)" min="0" style="width:160px;padding:5px 8px;font-size:12px;">
+          <span style="font-size:11px;color:var(--text3);margin-left:8px;">Sipariş toplamı bu tutarı geçerse kargo ücretsiz (örn. 200 üzeri bedava)</span>
         </div>
       </div>
     </div>
@@ -3479,8 +3489,10 @@ function kargoBadge(kargo) {
   if (!kargo || kargo.durum === 'belirsiz' || !kargo.durum) return '';
   const paraSimge = kargo.para === 'USD' ? '$' : kargo.para === 'EUR' ? '€' : '₺';
   const tutarStr = kargo.tutar ? ` (${paraSimge}${kargo.tutar}${kargo.para && kargo.para !== 'TRY' ? ' ' + kargo.para : ''} ${kargo.tip === 'birim' ? '/ birim' : kargo.tip === 'agirlik' ? '/ kg' : ''})` : '';
+  const bedavaStr = (parseFloat(kargo.bedavaLimit) > 0)
+    ? ` <span class="badge badge-green" style="font-size:10px;">${paraSimge}${kargo.bedavaLimit} üzeri bedava</span>` : '';
   if (kargo.durum === 'dahil') return `<span class="badge badge-green" style="font-size:10px;">Kargo Dahil${tutarStr}</span>`;
-  if (kargo.durum === 'haric') return `<span class="badge badge-amber" style="font-size:10px;">Kargo Hariç${tutarStr}</span>`;
+  if (kargo.durum === 'haric') return `<span class="badge badge-amber" style="font-size:10px;">Kargo Hariç${tutarStr}</span>${bedavaStr}`;
   return '';
 }
 
@@ -3513,6 +3525,11 @@ function kargoParaDegisti(prefix) {
   const para = document.getElementById(prefix + '-kargo-para')?.value || 'TRY';
   const kurWrap = document.getElementById(prefix + '-kur-wrap');
   if (kurWrap) kurWrap.style.display = para !== 'TRY' ? 'flex' : 'none';
+  const bedavaParaEl = document.getElementById(prefix + '-bedava-para');
+  if (bedavaParaEl) {
+    const simge = para === 'USD' ? '$ USD' : para === 'EUR' ? '€ EUR' : '₺ TRY';
+    bedavaParaEl.textContent = '(' + simge + ')';
+  }
   kargoKarsiligHesapla(prefix);
 }
 
@@ -3552,6 +3569,7 @@ function getKargo(prefix) {
     tip: document.getElementById(prefix + '-kargo-tip')?.value || 'sabit',
     not: document.getElementById(prefix + '-kargo-not')?.value?.trim() || '',
     minKargo: parseFloat(document.getElementById(prefix + '-min-kargo')?.value) || 0,
+    bedavaLimit: parseFloat(document.getElementById(prefix + '-bedava-limit')?.value) || 0,
   };
 }
 
@@ -3579,6 +3597,7 @@ function setKargo(prefix, kargo) {
   setVal(prefix + '-kargo-not', kargo.not);
   setVal(prefix + '-kargo-kur', kargo.kur);
   setVal(prefix + '-min-kargo', kargo.minKargo || '');
+  setVal(prefix + '-bedava-limit', kargo.bedavaLimit || '');
   const paraEl = document.getElementById(prefix + '-kargo-para');
   if (paraEl && kargo.para) { paraEl.value = kargo.para; kargoParaDegisti(prefix); }
   const tipEl = document.getElementById(prefix + '-kargo-tip');
@@ -3586,8 +3605,22 @@ function setKargo(prefix, kargo) {
   kargoKarsiligHesapla(prefix);
 }
 
+// Bir teklifin (tk) bu talepteki sipariş toplamını TL cinsinden verir.
+// Bedava kargo eşiği karşılaştırması için kullanılır (ham fiyat × adet).
+function tedSiparisToplamTL(tk, urunler) {
+  if (!tk || !Array.isArray(urunler) || !urunler.length) return null;
+  let toplam = 0;
+  urunler.forEach((u, i) => {
+    const tlHam = tk.urunFiyatlari?.['fiyat_'+i] || (urunler.length === 1 ? tk.birimFiyat : 0);
+    if (tlHam > 0) toplam += tlHam * (parseFloat(u.adet) || 1);
+  });
+  return toplam;
+}
+
 // Tedarikçi için gerçek birim maliyet: ham fiyat + kargo payı + KK komisyonu
-function gercekMaliyetHesapla(tk, urunSayisi) {
+// siparisToplamTL: bu tedarikçinin bu talepteki toplam sipariş tutarı (TL). Bedava
+// kargo eşiği için gerekli; verilmezse (null) eşik yok sayılır, kargo her zaman yansıtılır.
+function gercekMaliyetHesapla(tk, urunSayisi, siparisToplamTL) {
   if (!tk?.tedarikci) return { kargoPayTL: 0, kkOran: 0 };
 
   // Aynı firma birden fazla satırda olabilir — kargo/ödeme bilgisi olan ilk satırı bul
@@ -3616,6 +3649,16 @@ function gercekMaliyetHesapla(tk, urunSayisi) {
     // Minimum kargo uygula
     if (minKargo > 0 && kargoTL < minKargo) kargoTL = minKargo;
 
+    // Bedava kargo eşiği: sipariş toplamı eşiği geçerse kargo tamamen ücretsiz.
+    // Eşik, kargo tutarıyla aynı para biriminde girilir — TL'ye çevirip karşılaştırırız.
+    const bedavaLimit = parseFloat(kargo.bedavaLimit) || 0;
+    if (bedavaLimit > 0 && siparisToplamTL != null) {
+      let bedavaLimitTL = bedavaLimit;
+      if (kargo.para === 'USD') bedavaLimitTL = bedavaLimit * (parseFloat(dovizKurlari.usdSatis) || 1);
+      else if (kargo.para === 'EUR') bedavaLimitTL = bedavaLimit * (parseFloat(dovizKurlari.eurSatis) || 1);
+      if (siparisToplamTL >= bedavaLimitTL) kargoTL = 0;
+    }
+
     // Her ürün kalemine eşit pay — sipariş her zaman ayrı kalem başı paylaştırılır
     kargoPayTL = kargoTL / urunAdet;
   }
@@ -3630,8 +3673,8 @@ function gercekMaliyetHesapla(tk, urunSayisi) {
 }
 
 // Belirli bir teklif + ürün için toplam TL maliyet (ham + kargo payı + KK)
-function toplamBirimMaliyetTL(tk, tlFiyat, urunSayisi) {
-  const { kargoPayTL, kkOran } = gercekMaliyetHesapla(tk, urunSayisi);
+function toplamBirimMaliyetTL(tk, tlFiyat, urunSayisi, siparisToplamTL) {
+  const { kargoPayTL, kkOran } = gercekMaliyetHesapla(tk, urunSayisi, siparisToplamTL);
   const kkTutar = tlFiyat * kkOran / 100;
   return tlFiyat + kargoPayTL + kkTutar;
 }
@@ -3822,7 +3865,7 @@ function tedarikciEkle() {
 
   TEDARIKCILER.unshift(yeniSatir);
   // Formu sıfırla
-  ['nt-firma','nt-urun','nt-kisi','nt-tel','nt-mail','nt-not','nt-komisyon','nt-vade-gun','nt-kargo-tutar','nt-kargo-not'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['nt-firma','nt-urun','nt-kisi','nt-tel','nt-mail','nt-not','nt-komisyon','nt-vade-gun','nt-kargo-tutar','nt-kargo-not','nt-min-kargo','nt-bedava-limit'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   tedEkKisileriDoldur('nt', []);
   document.getElementById('nt-kategori').value = '';
   ['nt-odeme-havale','nt-odeme-kk-kom','nt-odeme-vadeli','nt-odeme-kk-komlu'].forEach(id => { const el=document.getElementById(id); if(el) el.checked=false; });
@@ -7509,7 +7552,7 @@ function teklifleriKarsilastir() {
     const ham = getTLHam(tk, uIdx);
     if (!ham) return null;
     const urunSayisi = urunler.filter((u, i) => getTLHam(tk, i) !== null).length || 1;
-    return toplamBirimMaliyetTL(tk, ham, urunSayisi);
+    return toplamBirimMaliyetTL(tk, ham, urunSayisi, tedSiparisToplamTL(tk, urunler));
   }
 
   // Gösterim metni (orijinal para + TL karşılığı + kargo/KK)
@@ -7521,7 +7564,7 @@ function teklifleriKarsilastir() {
     if (!tl) return null;
     const fmt = (n, d=2) => n.toLocaleString('tr-TR',{minimumFractionDigits:d,maximumFractionDigits:d});
     const urunSayisi = urunler.filter((u,i) => getTLHam(tk,i) !== null).length || 1;
-    const { kargoPayTL, kkOran } = gercekMaliyetHesapla(tk, urunSayisi);
+    const { kargoPayTL, kkOran } = gercekMaliyetHesapla(tk, urunSayisi, tedSiparisToplamTL(tk, urunler));
 
     let html = '';
     const usdKurK = parseFloat(dovizKurlari.usdSatis) || 1;
@@ -7866,8 +7909,9 @@ function satisHesaplaTablosu() {
       if (!tlHam || tlHam <= 0) return null;
       // Gerçek maliyet: ham + kargo payı + KK komisyonu
       const urunSayisi = urunler.filter((u, i) => (tk.urunFiyatlari?.['fiyat_'+i] || 0) > 0).length || 1;
-      const tlFiyat = toplamBirimMaliyetTL(tk, tlHam, urunSayisi);
-      const { kargoPayTL, kkOran } = gercekMaliyetHesapla(tk, urunSayisi);
+      const siparisTop = tedSiparisToplamTL(tk, urunler);
+      const tlFiyat = toplamBirimMaliyetTL(tk, tlHam, urunSayisi, siparisTop);
+      const { kargoPayTL, kkOran } = gercekMaliyetHesapla(tk, urunSayisi, siparisTop);
       return { ted: tk.tedarikci, tlFiyat, tlHam, hamFiyat, para, kargoPayTL, kkOran, alt: tk.urunFiyatlari?.['fiyat_'+uIdx+'_alt'] || '', altkod: tk.urunFiyatlari?.['fiyat_'+uIdx+'_altkod'] || '' };
     }).filter(Boolean).sort((a,b) => a.tlFiyat - b.tlFiyat);
   }
@@ -10107,7 +10151,7 @@ function _objDiff(eski, yeni, labels) {
 
 // Alan etiketleri (tedarikçi ödeme/kargo, müşteri ödeme)
 const TED_ODEME_LABELS = { havale:'Havale', kkKomisyonsuz:'KK Komisyonsuz', kkKomisyonlu:'KK Komisyonlu', komisyon:'Komisyon %', vadeli:'Vadeli', vadeGun:'Vade (gün)' };
-const TED_KARGO_LABELS = { durum:'Kargo durumu', tutar:'Kargo tutarı', para:'Kargo para birimi', tip:'Kargo tipi', minKargo:'Min. kargo', not:'Kargo notu' };
+const TED_KARGO_LABELS = { durum:'Kargo durumu', tutar:'Kargo tutarı', para:'Kargo para birimi', tip:'Kargo tipi', minKargo:'Min. kargo', bedavaLimit:'Bedava kargo eşiği', not:'Kargo notu' };
 const MUS_ODEME_LABELS = { havale:'Havale', kk:'Kredi Kartı', kkkom:'KK Komisyonlu', kkkomOran:'KK Komisyon %', vadeli:'Vadeli', vadeGun:'Vade (gün)' };
 
 // Müşteri ödeme şartları özeti (onay kartı için)
