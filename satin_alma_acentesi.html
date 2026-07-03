@@ -910,6 +910,14 @@
           <tr><td style="color:var(--text3);padding:5px 0;">Miktar</td><td id="td-miktar"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Termin</td><td id="td-termin"></td></tr>
           <tr>
+            <td style="color:var(--text3);padding:5px 0;vertical-align:middle;">🚚 Teslim Süresi</td>
+            <td>
+              <input type="text" id="td-teslim-suresi" placeholder="2-3 iş günü (varsayılan)" onchange="teslimSuresiKaydet()"
+                style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text);width:100%;max-width:280px;">
+              <div style="font-size:11px;color:var(--text3);margin-top:3px;">Teklif PDF'indeki "Teslimat Süresi" satırına yazılır. Fiyat onayına göndermeden önce girin — boşsa varsayılan <b>2-3 iş günü</b> kullanılır.</div>
+            </td>
+          </tr>
+          <tr>
             <td style="color:var(--text3);padding:5px 0;vertical-align:middle;">⏰ Son Teklif Zamanı</td>
             <td id="td-son-teklif-zamani">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -6297,6 +6305,15 @@ function stzKaydet() {
   showToast('✅ Son teklif zamani kaydedildi!');
 }
 
+// Teslim süresi — talebe kaydet (teklif PDF'indeki "Teslimat Süresi" satırına yansır)
+function teslimSuresiKaydet() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  t.teslimSuresi = (document.getElementById('td-teslim-suresi')?.value || '').trim();
+  veriKaydet();
+  showToast(t.teslimSuresi ? '✅ Teslim süresi kaydedildi.' : 'Teslim süresi temizlendi — PDF\'te varsayılan "2-3 iş günü" kullanılacak.');
+}
+
 
 function talepDetayAc(idx) {
   aktifTalepIdx = idx;
@@ -6333,6 +6350,7 @@ function talepDetayAc(idx) {
   }
   document.getElementById('td-miktar').textContent = t.miktar||'—';
   document.getElementById('td-termin').textContent = t.termin ? tarihFmt(new Date(t.termin)) : '—';
+  { const tsEl = document.getElementById('td-teslim-suresi'); if (tsEl) tsEl.value = t.teslimSuresi || ''; }
 
   // Son teklif zamanı — input alanlarını doldur
   const stzTarihEl = document.getElementById('td-stz-tarih');
@@ -10821,6 +10839,19 @@ async function fiyatOnayTalep() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
 
+  // Teslim süresi fiyat onayına gönderilmeden önce girilmiş olmalı (PDF'e yansır).
+  // Ekranda yazılı değeri al; boşsa varsayılanı kullan ya da iptal edip elle gir.
+  const _tsEl = document.getElementById('td-teslim-suresi');
+  if (_tsEl) t.teslimSuresi = (_tsEl.value || '').trim();
+  if (!t.teslimSuresi) {
+    if (!confirm('Teslim süresi girilmedi.\n\nPDF\'te varsayılan "2-3 iş günü" kullanılacak.\n\nTamam = varsayılanla devam et\nİptal = önce elle gir')) {
+      _tsEl?.focus();
+      return;
+    }
+    t.teslimSuresi = '2-3 iş günü';
+    if (_tsEl) _tsEl.value = t.teslimSuresi;
+  }
+
   const not = prompt('Admin\'e not eklemek ister misiniz? (isteğe bağlı)') || '';
 
   const saticiData = satisTabloDurumuYakala();
@@ -11707,7 +11738,7 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
     ['Teklif Geçerliliği',     gecerlilik],
     ['Döviz Kuru',             musteriKurAciklama(m,toplamPara).cumle],
     ['Ödeme Şartları',         odemeSartiOzeti(m) || 'Yazılı sipariş üzerine belirlenir'],
-    ['Teslimat Süresi',        'Yazılı sipariş takiben 2-5 GÜN içinde teslim.'],
+    ['Teslimat Süresi',        (t.teslimSuresi && t.teslimSuresi.trim()) ? t.teslimSuresi.trim() : '2-3 iş günü'],
     ['Teslimat Şartları',      'ELDEN TESLİM/KARGO Türkiye içindeki her türlü lojistik masraf firmamıza aittir.'],
     ['Notlar',                 ''],
   ];
