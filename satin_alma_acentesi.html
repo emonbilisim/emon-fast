@@ -914,7 +914,7 @@
             <td>
               <input type="text" id="td-teslim-suresi" placeholder="2-3 iş günü (varsayılan)" onchange="teslimSuresiKaydet()"
                 style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--text);width:100%;max-width:280px;">
-              <div style="font-size:11px;color:var(--text3);margin-top:3px;">Teklif PDF'indeki "Teslimat Süresi" satırına yazılır. Fiyat onayına göndermeden önce girin — boşsa varsayılan <b>2-3 iş günü</b> kullanılır.</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:3px;">Teklif PDF'indeki "Teslimat Süresi" satırına yazılır. Standart <b>2-3 iş günü</b> gelir; gerekirse değiştirin.</div>
             </td>
           </tr>
           <tr>
@@ -6350,7 +6350,8 @@ function talepDetayAc(idx) {
   }
   document.getElementById('td-miktar').textContent = t.miktar||'—';
   document.getElementById('td-termin').textContent = t.termin ? tarihFmt(new Date(t.termin)) : '—';
-  { const tsEl = document.getElementById('td-teslim-suresi'); if (tsEl) tsEl.value = t.teslimSuresi || ''; }
+  // Standart "2-3 iş günü" ön-dolu gelsin; kullanıcı metni değiştirebilir.
+  { const tsEl = document.getElementById('td-teslim-suresi'); if (tsEl) tsEl.value = t.teslimSuresi || '2-3 iş günü'; }
 
   // Son teklif zamanı — input alanlarını doldur
   const stzTarihEl = document.getElementById('td-stz-tarih');
