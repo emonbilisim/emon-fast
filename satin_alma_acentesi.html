@@ -3711,7 +3711,12 @@ function filterTedarikciler() {
   const bulkBar = document.getElementById('ted-bulk-bar');
   if (bulkBar) bulkBar.style.display = isAdmin ? 'flex' : 'none';
 
-  TEDARIKCILER.forEach((r, idx) => {
+  // Alfabetik göster (firma adı, TR locale). Orijinal dizi indexi korunur —
+  // düzenle/sil/RFQ/checkbox hep r'nin gerçek konumuna işlesin, sıralama yalnız görüntüde.
+  TEDARIKCILER
+    .map((r, idx) => ({ r, idx }))
+    .sort((a, b) => (a.r[0] || '').localeCompare(b.r[0] || '', 'tr', { sensitivity: 'base' }))
+    .forEach(({ r, idx }) => {
     const kat = kategori(r[1]);
     const ekKisiText = (Array.isArray(r[7]) ? r[7] : []).map(k => (k.ad||'')+' '+(k.mail||'')+' '+(k.tel||'')).join(' ');
     if ((q === '' || aramaKucult(r.slice(0,5).join(' ') + ' ' + ekKisiText).includes(q)) && (cat === '' || kat === cat)) {
