@@ -1160,6 +1160,11 @@
         </table>
       </div>
 
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;margin-bottom:10px;" title="İşaretliyse teklif PDF'inde 'Uygulanan Kur: 1 USD = ... TL' satırı gösterilir. Varsayılan: gizli.">
+        <input type="checkbox" id="pdf-kur-goster-cb" style="accent-color:var(--accent);">
+        💱 Teklif PDF'inde uygulanan kuru göster <span style="opacity:0.7;">(varsayılan gizli)</span>
+      </label>
+
       <div style="display:flex;gap:8px;flex-wrap:wrap;" id="satis-aksiyonlar">
         <!-- Admin butonları -->
         <button class="btn btn-primary" style="flex:1;display:none;" id="btn-admin-gonder" onclick="musteriTeklifMaili()">📧 Müşteriye Teklif Maili Gönder</button>
@@ -5442,6 +5447,12 @@ function musteriKurAciklama(m, para) {
     dinamik:    deger ? cift + ' = ₺' + deger : '',
     dinamikPdf: deger ? cift + ' = ' + deger + ' TL' : '',
   };
+}
+
+// Teklif PDF'inde "Uygulanan Kur: 1 USD = X TL" satırı gösterilsin mi?
+// İsteğe bağlı; varsayılan GİZLİ (checkbox işaretli değilse gösterilmez).
+function pdfKuruGosterMi() {
+  return !!document.getElementById('pdf-kur-goster-cb')?.checked;
 }
 
 function musteriDetay(idx) {
@@ -11664,7 +11675,9 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
     if (_ka.tip === 'tl') {
       kurTxt = 'Fiyatlarımız TL bazlıdır; döviz kuru uygulanmaz.';
     } else {
-      kurTxt = (_ka.dinamikPdf ? 'Uygulanan Kur: ' + _ka.dinamikPdf + '   |   ' : '') + _ka.cumle;
+      // "Uygulanan Kur: 1 USD = X TL" satırı isteğe bağlı — varsayılan gizli (#pdf-kur-goster-cb).
+      // Kur politikası cümlesi (_ka.cumle) her zaman kalır; yalnızca sayısal uygulanan kur gizlenir.
+      kurTxt = (pdfKuruGosterMi() && _ka.dinamikPdf ? 'Uygulanan Kur: ' + _ka.dinamikPdf + '   |   ' : '') + _ka.cumle;
     }
     Y+=2; fr(LM,Y,CW,7,[227,242,253]);
     doc.setDrawColor(...MAVI); doc.setLineWidth(2); doc.line(LM,Y,LM,Y+7);
