@@ -14490,11 +14490,18 @@ async function outlookTumMaillerGoster() {
 
     // Yalnızca ilgili talep numarasını içeren mailleri al (konu veya önizleme).
     // RFQ yanıtlarının konusu "[TALEPNO] ..." biçiminde olduğu için güvenilir eşleşir.
+    // TAM TOKEN eşleşmesi şart: numaranın önü/arkası harf-rakam OLMAMALI. Aksi halde
+    // "TLB-20" gibi kısa bir no, "TLB-200"/"TLB-201" gibi daha uzun numaraların içinde
+    // alt-dize olarak eşleşip eski/başka RFQ maillerine yanlış bağlanır.
     const talepNoNorm = (t.no || '').replace(/\s+/g, '').toUpperCase();
+    const _talepNoEsc = talepNoNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const _talepNoRe  = talepNoNorm ? new RegExp('(?<![0-9A-Z])' + _talepNoEsc + '(?![0-9A-Z])') : null;
     const talepNoEslesir = m => {
-      if (!talepNoNorm) return true;
-      const hay = ((m.subject || '') + ' ' + (m.bodyPreview || '')).replace(/\s+/g, '').toUpperCase();
-      return hay.includes(talepNoNorm);
+      if (!_talepNoRe) return true;
+      // Boşlukları KORU — boşluk doğal sınırdır; kırpmak "no TLB-020" gibi metinlerde
+      // önceki kelimeyi numaraya yapıştırıp yanlış sınır oluşturur (false negatif).
+      const hay = ((m.subject || '') + ' ' + (m.bodyPreview || '')).toUpperCase();
+      return _talepNoRe.test(hay);
     };
 
     window._tumMailler = [];
