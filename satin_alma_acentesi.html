@@ -6781,10 +6781,15 @@ async function rfqMailGonder() {
     : `  ${t.urun} — ${t.miktar||'—'}`;
 
   TALEPLER[aktifTalepIdx].durum = 'RFQ Gönderildi';
-  // "Stok yok" işaretli (geçmişte sorulmuş) tedarikçiler kayıttan düşmesin — birleştir
+  // Bu partide gönderilenler + manuel eklenenler. ÖNCEKİ partilerde RFQ gönderilmiş
+  // tedarikçiler kayıttan DÜŞMESİN: kullanıcı ikinci parti için ilk gönderdiklerinin
+  // tikini kaldırıp yalnız yenileri seçebiliyor. Birleştirmezsek eski tedarikçiler
+  // rfqTedarikciler'den silinir ve cevap taraması (outlookTumMaillerGoster) onların
+  // gelen kutusunu hiç aramaz → yalnızca son gönderilen partinin yanıtları algılanır.
+  // "Stok yok" işaretliler zaten önceki listede olduğundan birleşimle korunur.
   const _yeniFirmalar = [...firmalar, ...rfqManuelTedarikciler.map(m=>m.firma)];
-  const _stokYokKorunan = (TALEPLER[aktifTalepIdx].rfqStokYok || []).filter(f => !_yeniFirmalar.includes(f));
-  TALEPLER[aktifTalepIdx].rfqTedarikciler = [..._yeniFirmalar, ..._stokYokKorunan];
+  const _oncekiler = TALEPLER[aktifTalepIdx].rfqTedarikciler || [];
+  TALEPLER[aktifTalepIdx].rfqTedarikciler = Array.from(new Set([..._oncekiler, ..._yeniFirmalar]));
   renderTalepler();
   renderWorkflow('RFQ Gönderildi');
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('RFQ Gönderildi');
