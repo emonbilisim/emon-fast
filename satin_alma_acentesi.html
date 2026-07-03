@@ -13869,7 +13869,7 @@ function sonTeklifUyarilariGoster() {
 
   const yaklasanlar = TALEPLER
     // Yönetici olmayan kullanıcı yalnızca KENDİNE ATANMIŞ taleplerin STZ uyarısını görür
-    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu))
+    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu) && !crmDonulduMu(t))
     .map(t => {
       const stz  = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
       const fark = stz - simdi;
@@ -13932,7 +13932,7 @@ function sonTeklifUyarilariGoster() {
 
   const yaklasanlar = TALEPLER
     // Yönetici olmayan kullanıcı yalnızca KENDİNE ATANMIŞ taleplerin STZ uyarısını görür
-    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu))
+    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapali.includes(t.durum) && !kapali.includes(t.teklifDurumu) && !crmDonulduMu(t))
     .map(t => {
       const stz  = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
       const fark = stz - simdi;
@@ -14186,6 +14186,7 @@ function _stzKontrolIlkAcilis() {
     if (!talepBenim(t)) return; // yönetici olmayan: yalnız kendine atanmış taleplerin uyarısı
     if (!t.sonTeklifTarih) return;
     if (kapali.includes(t.durum) || kapali.includes(t.teklifDurumu)) return;
+    if (crmDonulduMu(t)) return; // teklif müşteriye verildiyse STZ uyarısı gereksiz
     const stz     = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
     const kalanMs = stz - simdi;
     const kalanDk = kalanMs / 60000;
@@ -14211,6 +14212,7 @@ function _stzKontrol() {
     if (!talepBenim(t)) return; // yönetici olmayan: yalnız kendine atanmış taleplerin uyarısı
     if (!t.sonTeklifTarih) return;
     if (kapali.includes(t.durum) || kapali.includes(t.teklifDurumu)) return;
+    if (crmDonulduMu(t)) return; // teklif müşteriye verildiyse STZ uyarısı gereksiz
     const stz   = new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat||'17:00'));
     const kalanMs = stz - simdi;
     const kalanDk = kalanMs / 60000;
@@ -14230,7 +14232,7 @@ function _stzKontrol() {
   // Panel kartındaki kalan süreleri güncelle
   const kapaliArr = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
   const liste = TALEPLER
-    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapaliArr.includes(t.durum))
+    .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapaliArr.includes(t.durum) && !crmDonulduMu(t))
     .map(t => ({ t, stz: new Date(t.sonTeklifTarih+'T'+(t.sonTeklifSaat||'17:00')) }));
   _stzKalanGuncelle(liste);
 
