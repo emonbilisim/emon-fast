@@ -6403,6 +6403,11 @@ function talepDetayAc(idx) {
   const _iskEl0 = document.getElementById('satis-toplu-iskonto');
   if (_iskEl0) _iskEl0.value = '';   // ✏️ revize iskontosu: yeni talepte sıfırla (kayıtlıysa satisTabloDurumuYukle geri getirir)
   setTimeout(() => {
+    // Bayat-timeout koruması: bu yükleme, açılışta yakalanan talebe (t) aittir. Kullanıcı
+    // bu 150ms içinde başka talebe geçtiyse aktif talep değişir; eski talebin kayıtlı
+    // fiyatlarını yeni talebin tablosuna YÜKLEME — yoksa ilgili RFQ'e ait olmayan
+    // ürün fiyatları görünür (girip çıkınca düzelirdi).
+    if (TALEPLER[aktifTalepIdx]?.no !== t.no) return;
     // 💱 Teklif (manuel) kuru varsayılan KAPALI → her açılışta güncel sistem kuru kullanılsın
     const mkcb = document.getElementById('satis-manuel-kur-cb');
     if (mkcb) mkcb.checked = false;
