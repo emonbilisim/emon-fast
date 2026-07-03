@@ -2,7 +2,63 @@
 
 > Amaç: sunucu kaybında (Hetzner çökmesi vb.) uygulamayı **yeni bir sunucuda** (ör. şirketin
 > sanal sunucusu) en hızlı ve eksiksiz şekilde ayağa kaldırmak.
-> Son güncelleme: 2026-06-29.
+> Son güncelleme: 2026-06-30.
+
+---
+
+## 🚨 ACİL DURUMDA İLK ADIMLAR — BURADAN BAŞLA
+
+**Adım 0 — Panikleme, önce TEŞHİS koy (ilk 5 dk).** Önce şunu belirle: bu küçük bir arıza mı,
+yoksa sunucu tamamen mi gitti? İkisinin yolu farklı.
+
+```
+Site açılmıyor.
+   │
+   ├─ Sunucuya SSH ile girebiliyor musun?  (ssh root@<IP>)
+   │
+   ├─ EVET → büyük ihtimal KÜÇÜK ARIZA → AŞAĞIDA "A" (tam kurulum GEREKMEZ, 5-15 dk)
+   │
+   └─ HAYIR / sunucu yok / Hetzner panelinde sunucu silinmiş
+        → TAM FELAKET → AŞAĞIDA "B" (yeni sunucuya sıfırdan kurulum)
+```
+
+### A) Sunucu ayakta — önce bunları dene (çoğu olay burada biter)
+
+```bash
+ssh root@<SUNUCU_IP>
+pm2 status                 # emonfast 'online' mı? değilse:
+pm2 restart emonfast
+pm2 logs emonfast --lines 40   # hata ne? (DB? port? kod?)
+systemctl status nginx && nginx -t && systemctl reload nginx
+systemctl status postgresql    # DB ayakta mı?
+df -h                          # disk %100 dolu mu? (sık sebep)
+```
+- `pm2`/`nginx` yeniden başlatınca düzeliyorsa → **bitti**, B'ye gerek yok.
+- DB hatası → `systemctl restart postgresql`.
+- Disk doluysa → eski log/yedekleri temizle, sonra restart.
+
+### B) Sunucu kayıp — sıfırdan kurulum (sırayla)
+
+1. **ÖNCE yedeği DOĞRULA** (hiçbir şey kurmadan!) — en güncel yedek dizinini bul ve:
+   ```bash
+   bash tools/yedek-dogrula.sh /yedek/dizini
+   ```
+   - Hepsi ✔ ise devam et.
+   - Kırmızı **x** varsa → o dosyayı (özellikle **server.js / .env / DB dump**) bulmadan kuruluma
+     BAŞLAMA; eksikse OneDrive yedeği / eski sunucu snapshot'ı / başka kopya ara.
+2. **Yeni sunucu hazırla** → Adım 2 (Node/PostgreSQL/nginx/pm2).
+3. **DB'yi geri yükle** → Adım 3.
+4. **server.js + .env + index.html + npm install** → Adım 4, sonra **pm2** → Adım 5.
+5. **nginx + SSL** → Adım 6.
+6. **DNS'i yeni IP'ye çevir + GitHub Secrets güncelle + `main`'e push** → Adım 7.
+7. **Smoke test** (giriş, veri, yazma) → Adım 8.
+8. **Günlük yedek + doğrulama cron'unu** yeniden kur → Adım 9.
+
+**Sıra mantığı:** veri (DB) → kod (server.js) → çalıştır (pm2) → yayınla (nginx/SSL) →
+yönlendir (DNS) → doğrula. Her adımın detayı aşağıda.
+
+> ⏱️ Beklenen süre: yedek tamsa **~30-60 dk**. En çok DNS yayılması + SSL bekletir.
+> Bu sırada kullanıcıları bilgilendir ("sistem bakımda, X dk içinde").
 
 ---
 
