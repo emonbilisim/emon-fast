@@ -10681,6 +10681,20 @@ function satisBolumunuGuncelle() {
         + '<button class="btn btn-primary btn-sm" onclick="adminFiyatOnayla()">✅ Onayla</button>'
         + '<button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="adminFiyatReddet()">❌ Reddet</button>'
         + '</div>';
+    } else if (onayDurumu === 'onaylandi' && bandi) {
+      // Onaylı — admin tabloyu düzenleyebilir; değişikliği kayıtlı fiyata (adminSatisData)
+      // yazmak için açık bir "Güncelle" butonu. Onay durumu KORUNUR.
+      bandi.style.display = 'block';
+      bandi.style.background = 'rgba(62,207,142,0.1)';
+      bandi.style.border = '1px solid rgba(62,207,142,0.3)';
+      const revize = !!t.fiyatOnayTalep?.adminDegisiklik;
+      bandi.innerHTML = '✅ <strong>Fiyat onaylandı</strong> — satıcı müşteriye gönderebilir.'
+        + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti.</span>' : '')
+        + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Not: ' + t.fiyatOnayTalep.adminNot + '</span>' : '')
+        + '<div style="margin-top:8px;border-top:1px solid rgba(62,207,142,0.25);padding-top:8px;">'
+        + '<span style="font-size:12px;color:var(--text2);">Tablodaki marj %, birim satış, KDV veya nakliyeyi değiştirdiysen kaydet — yoksa yenilemede eski onaylı değerler geri gelir:</span><br>'
+        + '<button class="btn btn-sm btn-primary" style="margin-top:6px;" onclick="adminOnayliFiyatiGuncelle()" title="Onaylı fiyat tablosunu güncelle (onay durumu korunur)">💾 Onaylı fiyatı güncelle</button>'
+        + '</div>';
     } else if (bandi) {
       bandi.style.display = 'none';
     }
@@ -11062,6 +11076,36 @@ function satisDurumFarkliMi(a, b) {
     if ((a.baz?.[k]||'secilen') !== (b.baz?.[k]||'secilen')) return true;
   }
   return false;
+}
+
+// Admin: ZATEN onaylı bir talebin fiyat tablosunu güncelle (marj/KDV/nakliye/toplam).
+// Onay durumu 'onaylandi' KALIR — yalnızca kayıtlı fiyat (adminSatisData) tazelenir.
+// Bu buton olmadan admin'in onay-sonrası düzenlemesi sadece bellekte/DOM'da kalıyor,
+// hiçbir yere yazılmıyordu → yenilemede satisTabloDurumuYukle eski onaylı veriyi geri
+// yüklüyor, admin'in değişikliği "kayboluyordu". Taze fiyatOnaySira damgası ŞART:
+// yoksa _mergeKaydet bayat bir oturumun eski fiyatOnayTalep'ini üzerine geri yazabilir.
+async function adminOnayliFiyatiGuncelle() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t || t.fiyatOnayDurumu !== 'onaylandi') return;
+  const yeni = satisTabloDurumuYakala();
+  const eski = t.fiyatOnayTalep?.adminSatisData;
+  if (eski && !satisDurumFarkliMi(eski, yeni)) {
+    showToast('Tabloda değişiklik yok — güncellenecek bir şey bulunamadı.');
+    return;
+  }
+  if (!confirm('Onaylı fiyat tablosu güncellensin mi?\n\nYeni toplam: ' + yeni.toplamStr + '\n\nOnay durumu korunur; satıcı güncel fiyatı görür.')) return;
+  const not = prompt('Güncelleme notu (isteğe bağlı):') || '';
+  if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
+  t.fiyatOnayTalep.adminSatisData  = yeni;
+  t.fiyatOnayTalep.adminDegisiklik = true;
+  t.fiyatOnayTalep.adminTarih      = new Date().toISOString();
+  if (not) t.fiyatOnayTalep.adminNot = not;
+  t.fiyatOnaySira = Date.now();   // monotonik karar damgası — bayat oturum geri alamaz
+  fiyatOnayYinelenleriEsitle(t);  // (varsa) aynı no'lu yinelenen kayıt da izlensin
+  await kaliciVeriKaydet('Onaylı fiyat güncelleme'); // HEMEN ortak sunucuya yaz
+  satisBolumunuGuncelle();
+  onayBekleyenBadgeGuncelle();
+  showToast('💾 Onaylı fiyat güncellendi — satıcı yeni fiyatı görecek.');
 }
 
 // Admin: reddet
