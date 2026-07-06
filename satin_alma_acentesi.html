@@ -6271,6 +6271,22 @@ function aktiviteTalepSil(idx) {
 // TALEP DETAY + RFQ ALTYAPISI
 // ═══════════════════════════════════════════
 let aktifTalepIdx = -1;
+// Açık talep detayının KARARLI kimliği (talep no). aktifTalepIdx pozisyoneldir ve
+// sunucudanTazele TALEPLER'i sunucu sırasıyla yeniden dizince KAYAR → TALEPLER[aktifTalepIdx]
+// başka bir talebe denk gelir. Bu, RFQ'nun yanlış talebin (içerik+no) tedarikçiye gitmesine
+// yol açtı (TLP-00039 açıkken TLP-00012 gönderildi). Kritik okuma/yazımlar aktifTalep() ile
+// no'dan çözülmeli; tazelemede aktifTalepIdx yeniden senkronlanır.
+let aktifTalepNo = null;
+// Açık talebi KARARLI no'dan çöz; indeks kaymışsa düzelt. Talep bulunamazsa null.
+function aktifTalep() {
+  if (aktifTalepIdx >= 0 && TALEPLER[aktifTalepIdx] && TALEPLER[aktifTalepIdx].no === aktifTalepNo) {
+    return TALEPLER[aktifTalepIdx];
+  }
+  if (aktifTalepNo == null) return TALEPLER[aktifTalepIdx] || null;
+  const i = TALEPLER.findIndex(t => t.no === aktifTalepNo);
+  if (i >= 0) { aktifTalepIdx = i; return TALEPLER[i]; }
+  return null;
+}
 let rfqSeciliTedarikciler = new Set();
 let talepTeklifleri = {}; // { talepNo: [{tedarikci,birimFiyat,toplam,teslimat,gecerlilik,odeme,not,secili}] }
 
@@ -6318,6 +6334,7 @@ function teslimSuresiKaydet() {
 function talepDetayAc(idx) {
   aktifTalepIdx = idx;
   const t = TALEPLER[idx];
+  aktifTalepNo = t?.no ?? null;   // kararlı kimlik — tazelemede indeks kaysa da doğru talep
   if (!talepTeklifleri[t.no]) talepTeklifleri[t.no] = [];
 
   // Başlık (geçici no'da temiz numara + GEÇİCİ rozeti gösterilir)
@@ -6805,14 +6822,18 @@ function rfqMailGonderOnaylandi() {
 async function rfqMailGonder() {
   const toplamSecili = rfqSeciliTedarikciler.size + (rfqManuelTedarikciler?.length || 0);
   if (toplamSecili === 0) { showToast('Lütfen en az bir tedarikçi seçin.'); return; }
-  const t = TALEPLER[aktifTalepIdx];
-  if (!t) return;
+  // KARARLI kimlikle çöz — tazeleme aktifTalepIdx'i kaydırmış olabilir; yanlış talebin
+  // içeriği/no'su tedarikçiye GİTMESİN. Bu satır TLP-00039 açıkken TLP-00012'nin
+  // gönderilmesi hatasının kesin önlemidir.
+  const t = aktifTalep();
+  if (!t) { showToast('⛔ Açık talep bulunamadı — sayfayı yenileyip talebi tekrar açın (RFQ gönderilmedi).'); return; }
   // ÇAKIŞMA ÖNLEMİ: tedarikçiye gidecek talep numarası sunucuca KESİN/benzersiz olmalı.
   // Çevrimdışı üretilmiş geçici numara başka satıcıyla aynı olabilir → gönderme.
   if (!(await talepNoKesinlestir(t))) {
     showToast('⛔ Talep numarası sunucudan kesinleşmedi (çevrimdışı). Aynı numaranın iki talebe gitmemesi için RFQ gönderilmedi — bağlantı sağlanınca tekrar deneyin.');
     return;
   }
+  aktifTalepNo = t.no; // kesinleştirme geçici no'yu değiştirmiş olabilir → kararlı kimliği güncelle
   const firmalar = Array.from(rfqSeciliTedarikciler);
   const firmaMap = rfqFirmaMap();
 
@@ -6820,7 +6841,7 @@ async function rfqMailGonder() {
     ? t.urunler.map((u,i)=>`  ${i+1}. ${u.aciklama}${u.kod?' ('+u.kod+')':''} — ${u.adet} ${u.birim}`).join('\n')
     : `  ${t.urun} — ${t.miktar||'—'}`;
 
-  TALEPLER[aktifTalepIdx].durum = 'RFQ Gönderildi';
+  t.durum = 'RFQ Gönderildi';
   // Bu partide gönderilenler + manuel eklenenler. ÖNCEKİ partilerde RFQ gönderilmiş
   // tedarikçiler kayıttan DÜŞMESİN: kullanıcı ikinci parti için ilk gönderdiklerinin
   // tikini kaldırıp yalnız yenileri seçebiliyor. Birleştirmezsek eski tedarikçiler
@@ -6828,8 +6849,8 @@ async function rfqMailGonder() {
   // gelen kutusunu hiç aramaz → yalnızca son gönderilen partinin yanıtları algılanır.
   // "Stok yok" işaretliler zaten önceki listede olduğundan birleşimle korunur.
   const _yeniFirmalar = [...firmalar, ...rfqManuelTedarikciler.map(m=>m.firma)];
-  const _oncekiler = TALEPLER[aktifTalepIdx].rfqTedarikciler || [];
-  TALEPLER[aktifTalepIdx].rfqTedarikciler = Array.from(new Set([..._oncekiler, ..._yeniFirmalar]));
+  const _oncekiler = t.rfqTedarikciler || [];
+  t.rfqTedarikciler = Array.from(new Set([..._oncekiler, ..._yeniFirmalar]));
   renderTalepler();
   renderWorkflow('RFQ Gönderildi');
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('RFQ Gönderildi');
@@ -7375,8 +7396,8 @@ function renderRfqDurumu() {
 }
 
 async function rfqTekrarGonder(firma) {
-  const t = TALEPLER[aktifTalepIdx];
-  if (!t) return;
+  const t = aktifTalep(); // kararlı kimlik — tazeleme indeksi kaydırmış olabilir (bkz. rfqMailGonder)
+  if (!t) { showToast('⛔ Açık talep bulunamadı — sayfayı yenileyip talebi tekrar açın (RFQ gönderilmedi).'); return; }
   if ((t.rfqStokYok || []).includes(firma)) {
     showToast(firma + ' "stok yok" olarak işaretli — hatırlatma gönderilmedi.');
     return;
@@ -7385,6 +7406,7 @@ async function rfqTekrarGonder(firma) {
     showToast('⛔ Talep numarası sunucudan kesinleşmedi (çevrimdışı). RFQ gönderilmedi — bağlantı sağlanınca tekrar deneyin.');
     return;
   }
+  aktifTalepNo = t.no; // kesinleştirme no'yu değiştirmiş olabilir → kararlı kimliği güncelle
   const firmaMap = rfqFirmaMap();
   const f = firmaMap[firma];
   if (!f || !f.mailler.length) { showToast(firma + ' için mail adresi bulunamadı.'); return; }
@@ -9285,6 +9307,7 @@ function kargoModalAc(idx) {
   if (typeof idx === 'number' && idx >= 0) aktifTalepIdx = idx;
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
+  aktifTalepNo = t.no ?? aktifTalepNo; // kararlı kimliği açık talebe hizala
   // Mevcut kargo/fatura bilgilerini doldur
   const k = t.kargoGonderi;
   const firmaEl  = document.getElementById('kargo-firma');
@@ -17380,6 +17403,13 @@ async function sunucudanTazele(zorla = false) {
   try {
     const basarili = await apiVeriYukle();
     if (basarili) {
+      // apiVeriYukle TALEPLER'i sunucu sırasıyla yeniden dizer → pozisyonel aktifTalepIdx
+      // kayar. Açık talebin KARARLI no'suyla indeksi yeniden çöz ki TALEPLER[aktifTalepIdx]
+      // okuyan/yazan her yer (RFQ, satış, durum...) doğru talebi göstersin.
+      if (aktifTalepNo != null) {
+        const _i = TALEPLER.findIndex(t => t.no === aktifTalepNo);
+        if (_i >= 0) aktifTalepIdx = _i;
+      }
       filterMusteriler(); filterTedarikciler(); renderTalepler();
       renderPanelMetrikler(); onayBadgeGuncelle();
       onayBekleyenBadgeGuncelle(); // fiyat-onay bekleyen sayısı (sidebar) tazelensin
