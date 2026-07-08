@@ -6034,7 +6034,18 @@ let talepSayac = 0; // çevrimdışı fallback başlangıcı; çevrimiçide sunu
 
 // Eski kayıtlardaki 'Onay Bekliyor' statüsünü 'Müşteriye İletildi' olarak güncelle
 function taleplerDurumMigrate() {
-  TALEPLER.forEach(t => { if (t.durum === 'Onay Bekliyor') t.durum = 'Müşteriye İletildi'; });
+  TALEPLER.forEach(t => {
+    if (t.durum === 'Onay Bekliyor') t.durum = 'Müşteriye İletildi';
+    // Geriye dönük: bu düzeltmeden ÖNCE müşteriye gönderilmiş onaylı teklifler
+    // "gönderilmeyi bekliyor" damgası (gonderilenOnaySira) taşımaz → cihazlar-arası saat
+    // farkı bunları panel yeşil kartında takılı bırakıyordu. Gönderim, o anki onay altında
+    // yapılmış sayılır: mevcut fiyatOnaySira damgasını bir kez geriye doldur (idempotent —
+    // damga zaten varsa DOKUNMA ki gerçek revize/tekrar-onay durumu bozulmasın). Sonradan
+    // admin yeniden onaylarsa fiyatOnaySira büyür ve rozet doğru şekilde geri gelir.
+    if (t.gonderilenOnaySira == null && t.musteriTeklifGonderildi && t.fiyatOnayDurumu === 'onaylandi') {
+      t.gonderilenOnaySira = t.fiyatOnaySira || 0;
+    }
+  });
 }
 
 function durumTalepBadge(d) {
@@ -9242,6 +9253,12 @@ async function teklifMailGonderEt() {
         TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
         TALEPLER[aktifTalepIdx].musteriTeklifGonderildi = true;
         TALEPLER[aktifTalepIdx].musteriTeklifTarih = new Date().toISOString();
+        // Bu gönderim, O AN geçerli admin onayının damgası (fiyatOnaySira) altında yapıldı.
+        // "Müşteriye gönderilmeyi bekliyor" rozeti (onayliGonderimBekliyorMu) bunu wall-clock
+        // ile DEĞİL bu monotonik damgayla ölçer: cihazlar-arası saat farkı adminTarih'i
+        // musteriTeklifTarih'ten ileri gösterip teklif gönderildiği halde rozeti takıyordu.
+        // Damga tüm cihazlarda aynı (admin'de üretilir, merge ile birebir taşınır).
+        TALEPLER[aktifTalepIdx].gonderilenOnaySira = TALEPLER[aktifTalepIdx].fiyatOnaySira || 0;
         TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({ birimFiyat: u.birimFiyat, para: u.para, altAd: u.altAd || '', altKod: u.altKod || '' }));
         TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
         TALEPLER[aktifTalepIdx].teklifGonderimSayisi = (TALEPLER[aktifTalepIdx].teklifGonderimSayisi || 0) + 1;
@@ -11163,10 +11180,25 @@ function onayBekleyenBadgeGuncelle() {
 // Revize sonrası tekrar onayda da görünür: onay tarihi son gönderimden yeniyse.
 function onayliGonderimBekliyorMu(t) {
   if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
+  if (!t.musteriTeklifGonderildi) return true;         // hiç gönderilmedi
+  // GÖNDERİLDİ → yalnızca son gönderimden SONRA YENİ bir admin onayı (revize) geldiyse
+  // tekrar "gönderilmeyi bekliyor" göster. Eskiden bu, adminTarih (admin cihazı saati) ile
+  // musteriTeklifTarih (satıcı cihazı saati) WALL-CLOCK karşılaştırmasıyla yapılıyordu;
+  // iki damga FARKLI makinelerde üretildiği için admin'in saati satıcınınkinden ileriyse
+  // (birkaç dk bile) teklif başarıyla gittiği halde onayT>gonderimT çıkıp rozet TAKILI
+  // kalıyordu — ikinci gönderimde satıcı saati damgayı geçince düzeliyordu. Çözüm: monotonik
+  // karar damgası fiyatOnaySira (admin'de üretilir, tüm cihazlara merge ile birebir taşınır →
+  // saat farkından bağımsız). Gönderim anındaki damga gonderilenOnaySira'ya yazılır; yalnız
+  // fiyatOnaySira ondan BÜYÜKSE (admin yeniden onayladı = revize) rozet geri gelir.
+  if (t.gonderilenOnaySira != null) {
+    return (t.fiyatOnaySira || 0) > t.gonderilenOnaySira;
+  }
+  // Damgasız ESKİ gönderim kaydı (bu düzeltmeden önce gönderilmiş): geriye dönük olarak eski
+  // wall-clock karşılaştırmasına düş. Bu kayıt bir kez daha gönderilince gonderilenOnaySira
+  // yazılır ve kalıcı olarak sağlam yola geçer.
   const onayT     = t.fiyatOnayTalep?.adminTarih ? Date.parse(t.fiyatOnayTalep.adminTarih) : 0;
   const gonderimT = t.musteriTeklifTarih ? Date.parse(t.musteriTeklifTarih) : 0;
-  if (!t.musteriTeklifGonderildi) return true;        // hiç gönderilmedi
-  return onayT > 0 && onayT > gonderimT;               // onay, son gönderimden YENİ (revize)
+  return onayT > 0 && onayT > gonderimT;
 }
 // Talep listesi durum hücresine küçük "✅ Gönder" rozeti
 function onayliRozet(t) {
