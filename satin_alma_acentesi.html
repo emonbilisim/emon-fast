@@ -6255,6 +6255,7 @@ function talepDurumDegistir(idx) {
 
 function talepSil(idx) {
   if (confirm(`"${TALEPLER[idx].urun}" talebini silmek istiyor musunuz?`)) {
+    _silinenTalepNolar.add(String(TALEPLER[idx]?.no)); // union merge yalnız açıkça silineni düşürsün
     TALEPLER.splice(idx, 1);
     _taleplerKastenSilindi = true; // kasıtlı silme → boş/azalmış liste sunucuya yazılabilsin
     renderTalepler();
@@ -6268,6 +6269,7 @@ function aktiviteTalepSil(idx) {
   const t = TALEPLER[idx];
   if (!t) return;
   if (!confirm(`"${t.no} — ${t.musteri}" talebi KALICI olarak silinsin mi?\n\nBu işlem geri alınamaz; talep ve ona bağlı teklif/onay verileri silinir.`)) return;
+  _silinenTalepNolar.add(String(t.no)); // union merge yalnız açıkça silineni düşürsün
   TALEPLER.splice(idx, 1);
   _taleplerKastenSilindi = true; // kasıtlı silme → azalmış liste sunucuya yazılabilsin
   veriKaydet();
@@ -12018,6 +12020,7 @@ function arsivTalepSil(idx) {
   const t = TALEPLER[idx];
   if (!t) return;
   if (!confirm(`"${t.no} — ${t.musteri}" talebi arşivden KALICI olarak silinsin mi?\n\nBu işlem geri alınamaz; talep ve ona bağlı tüm teklif/onay verileri silinir.`)) return;
+  _silinenTalepNolar.add(String(t.no)); // union merge yalnız açıkça silineni düşürsün
   TALEPLER.splice(idx, 1);
   _taleplerKastenSilindi = true; // kasıtlı silme → azalmış liste sunucuya yazılabilsin
   veriKaydet();
@@ -17071,6 +17074,13 @@ let _kayitGerekli = false; // sunucuya yazılamamış yerel değişiklik var mı
 // verilir (clobber guard ve backend boş-dizi koruması bu bayrak varken devre dışı).
 // Senkron başarınca sıfırlanır. Kaza/stale boşalmada bayrak false kalır → korunur.
 let _taleplerKastenSilindi = false;
+// Bu OTURUMDA kullanıcının AÇIKÇA sildiği talep no'ları. TALEPLER merge'i artık UNION
+// (yokluk asla silme sayılmaz) → bayat/eksik bir istemci, sunucuda duran (başka
+// kullanıcının yeni oluşturduğu) talebi kendi local'inde bulamayınca merge'de DÜŞÜREMEZ.
+// "Göründü sonra kayboldu" veri kaybının köküydü. Gerçek silme YALNIZ bu kümedeki no'lar
+// için uygulanır. Kalıcı persist gerekmez: silme sunucuya yazılınca kayıt server+baz+local
+// üçünden de düşer, tekrar geri gelmez. Bkz. [[emon-fast-senkron-merge]].
+let _silinenTalepNolar = new Set();
 
 function _mkey(r, keyFn) {
   try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
@@ -17175,7 +17185,14 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   base = base || _sunucuBaz || {};
   const ob = base.ONAY_BEKLEYENLER || {}, ol = local.ONAY_BEKLEYENLER || {}, os = server.ONAY_BEKLEYENLER || {};
   const sonuc = JSON.parse(JSON.stringify(local)); // tüm alanlar yerelden başlasın
-  sonuc.TALEPLER        = _mergeDizi(base.TALEPLER,        local.TALEPLER,        server.TALEPLER,        r => r.no, noDelete);
+  // TALEPLER: YOKLUK-bazlı silme KAPALI (union = noDelete:true). Bayat/eksik bir istemci,
+  // sunucuda duran (başka kullanıcının yeni oluşturduğu) bir talebi kendi local'inde
+  // bulamayınca merge'de DÜŞÜREMESİN — "göründü sonra kayboldu" veri kaybının köküydü.
+  // Gerçek silme YALNIZ bu oturumda AÇIKÇA silinen no'lar (_silinenTalepNolar) için uygulanır.
+  sonuc.TALEPLER        = _mergeDizi(base.TALEPLER,        local.TALEPLER,        server.TALEPLER,        r => r.no, true);
+  if (_silinenTalepNolar && _silinenTalepNolar.size) {
+    sonuc.TALEPLER = sonuc.TALEPLER.filter(t => !_silinenTalepNolar.has(String(t && t.no)));
+  }
   // Fiyat onayı çakışma çözümü: admin'in onayı/reddi, bayat bir satıcı oturumunun
   // 'bekliyor'u tarafından geri alınmasın. Karar damgası (fiyatOnaySira) EN YENİ olan
   // taraf (yerel/sunucu) kazanır — base-diff'ten bağımsız. (Damgasız eski kayıtlar atlanır.)
