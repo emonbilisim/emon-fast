@@ -11713,9 +11713,11 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   sf(GRI,6.5,'normal');  doc.text('Yetkili Kişi', LM+3,  Y+14.5);
   sf(KOYU,6.5,'normal'); doc.text(yetkili?.ad||'', LM+22, Y+14.5);
 
-  // Sag: tarih
-  sf(GRI,6.5,'normal');  doc.text('Tarih',  W-RM-25, Y+10);
-  sf(KOYU,6.5,'bold');   doc.text(bugun,    W-RM,     Y+10, {align:'right'});
+  // Sag: tarih + talep no
+  sf(GRI,6.5,'normal');  doc.text('Tarih',    W-RM-28, Y+10);
+  sf(KOYU,6.5,'bold');   doc.text(bugun,      W-RM,     Y+10,   {align:'right'});
+  sf(GRI,6.5,'normal');  doc.text('Talep No', W-RM-28, Y+14.5);
+  sf(KOYU,6.5,'bold');   doc.text(t.no||'',   W-RM,     Y+14.5, {align:'right'});
 
   Y+=23;
 
