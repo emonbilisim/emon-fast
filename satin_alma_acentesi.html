@@ -19043,18 +19043,52 @@ function moBadgeGuncelle() {
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return false;
     return true;
   }
-  async function surumKontrolEt() {
+  // Sürüm imzasını al. ÖNCE ucuz HEAD: ETag/Last-Modified/Content-Length.
+  // Bazı sunucu/proxy kurulumları HEAD'e ETag ve Last-Modified DÖNDÜRMEZ; eski kod
+  // yalnız o ikisine baktığı için imza boş kalıp kontrol her turda sessizce çöküyordu
+  // ("güncelleme uyarısı artık gelmiyor, sayfa reset olmuyor"). Bu yüzden:
+  //   1) Content-Length'i de imzaya kat (1.2MB dosyada en ufak kod değişiminde değişir),
+  //   2) hiçbir header yoksa GET ile gövde uzunluğu+hash imzası çıkar (header'dan bağımsız).
+  async function _surumImzasiAl() {
     try {
       const r = await fetch('/', { method: 'HEAD', cache: 'no-store' });
-      const imza = r.headers.get('ETag') || r.headers.get('Last-Modified') || '';
+      const h = r.headers.get('ETag') || r.headers.get('Last-Modified') || r.headers.get('Content-Length');
+      if (h) return 'h:' + h;
+    } catch (_) {}
+    try {
+      const r = await fetch('/', { method: 'GET', cache: 'no-store' });
+      const h = r.headers.get('ETag') || r.headers.get('Last-Modified');
+      if (h) return 'h:' + h;
+      const t = await r.text();
+      let hash = 0;
+      for (let i = 0; i < t.length; i++) hash = ((hash << 5) - hash + t.charCodeAt(i)) | 0;
+      return 'g:' + t.length + '.' + (hash >>> 0);
+    } catch (_) {}
+    return '';
+  }
+  function _otoYenileHakkiVar() {
+    // Sonsuz reset döngüsü emniyeti: bir sekmede 5 dakikada en fazla bir OTOMATİK yenileme.
+    // (Beklenmedik bir sebeple imza sürekli değişse bile sayfa durmadan reset olmaz.)
+    try {
+      const son = +(sessionStorage.getItem('_surumSonYenile') || 0);
+      return !son || (Date.now() - son) > 5 * 60 * 1000;
+    } catch (_) { return true; }
+  }
+  async function surumKontrolEt() {
+    try {
+      const imza = await _surumImzasiAl();
       if (!imza) return;
       if (_surumImza === null) { _surumImza = imza; return; } // ilk ölçüm = temel
       if (imza === _surumImza) return;                        // sürüm değişmedi
       // YENİ SÜRÜM VAR. Eski sekmeler eski merge mantığıyla ortak veriyi bozabildiği
       // için (onay geri-enjekte / değişiklik geri-alma), boştaki sekmeyi OTOMATİK
-      // yenile. Kullanıcı bir formla meşgulse bandı göster; sonraki kontrolde (60 sn)
-      // boşaldığında otomatik yenilenir.
-      if (_guncellemeyeUygunMu()) { location.reload(); return; }
+      // yenile. Kullanıcı bir formla meşgulse ya da az önce yenilendiyse bandı göster;
+      // sonraki kontrolde (60 sn) boşaldığında/hak dolduğunda otomatik yenilenir.
+      if (_guncellemeyeUygunMu() && _otoYenileHakkiVar()) {
+        try { sessionStorage.setItem('_surumSonYenile', String(Date.now())); } catch (_) {}
+        location.reload();
+        return;
+      }
       yeniSurumBandiGoster();
     } catch (_) {}
   }
