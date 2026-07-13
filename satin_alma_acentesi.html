@@ -6523,7 +6523,14 @@ function talepDetayAc(idx) {
   const urunler = t.urunler || (t.urun ? [{aciklama:t.urun}] : []);
   rfqOnerileriGoster(urunler);
 
-  // Teklifler
+  // Teklifler — canlı talepTeklifleri boş/eksikse (ayrı senkron kanalı bu cihaza
+  // ulaşmamış olabilir) onay talebine gömülen snapshot'tan geri doldur. Böylece
+  // admin, onaya gelen talepte RFQ birim fiyat/tedarikçi maliyet kırılımını görür.
+  const _teklifSnap = t.fiyatOnayTalep?.saticiTeklifData;
+  if (Array.isArray(_teklifSnap) && _teklifSnap.length
+      && (!Array.isArray(talepTeklifleri[t.no]) || talepTeklifleri[t.no].length === 0)) {
+    talepTeklifleri[t.no] = JSON.parse(JSON.stringify(_teklifSnap));
+  }
   renderTalepTeklifleri();
   renderRfqDurumu();
   renderKargoTakip();
@@ -11032,6 +11039,10 @@ async function fiyatOnayTalep() {
   const not = prompt('Admin\'e not eklemek ister misiniz? (isteğe bağlı)') || '';
 
   const saticiData = satisTabloDurumuYakala();
+  // RFQ teklif detayını (birim fiyat, tedarikçi maliyetleri) onay talebine GÖM.
+  // Satış verisi gibi bu da TALEPLER ile güvenli senkronlanır → admin, ayrı senkronlanan
+  // talepTeklifleri objesi cihazına ulaşmasa/boşalsa bile maliyet kırılımını görebilir.
+  const teklifSnapshot = JSON.parse(JSON.stringify(talepTeklifleri[t.no] || []));
   t.fiyatOnayTalep  = {
     satici: aktifKullanici.ad,
     tarih:  new Date().toISOString(),
@@ -11039,6 +11050,7 @@ async function fiyatOnayTalep() {
     satisTablosu: document.getElementById('satis-urun-tbody')?.innerHTML || '',
     toplamStr: document.getElementById('satis-toplam')?.textContent || '',
     saticiSatisData: saticiData,
+    saticiTeklifData: teklifSnapshot,
     saticiMail: aktifKullanici.email || '',
     saticiUsername: aktifKullanici.username || '',
   };
