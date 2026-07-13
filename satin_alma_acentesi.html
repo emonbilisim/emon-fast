@@ -605,7 +605,7 @@
     <button id="tema-btn" onclick="temaToggle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:8px;padding:7px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);color:var(--text2);cursor:pointer;font-size:12px;font-weight:500;" title="Açık / koyu tema arası geçiş">☀️ Açık Tema</button>
     <div style="font-size:12px;color:var(--text3);"><span class="status-dot"></span>Sistem aktif</div>
     <div style="margin-top:8px;padding:6px 8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg3);border-radius:var(--radius);">
-      <span id="sidebar-versiyon" style="font-size:10px;color:var(--text3);font-weight:500;">EMON FAST v2.5.0</span>
+      <span id="sidebar-versiyon" style="font-size:10px;color:var(--text3);font-weight:500;" title="Son yüklenen sürüm (deploy)">EMON FAST v2.5.0</span>
       <span onclick="hakkindaGoster()" style="font-size:10px;color:var(--accent2);cursor:pointer;">ℹ Hakkında</span>
     </div>
   </div>
@@ -2278,6 +2278,7 @@
         <div style="display:grid;grid-template-columns:120px 1fr;gap:7px;font-size:12px;">
           <div style="color:var(--text3);">Versiyon</div><div id="hakkinda-versiyon" style="font-weight:600;color:var(--accent2);">v2.5.0</div>
           <div style="color:var(--text3);">Yayın Tarihi</div><div id="hakkinda-tarih" style="font-weight:600;color:var(--text);">Mayıs 2026</div>
+          <div style="color:var(--text3);">Son Yükleme</div><div id="hakkinda-dagitim" style="font-weight:600;color:var(--accent2);" title="Dağıtılan sürümün sunucudaki son değişiklik zamanı">—</div>
           <div style="color:var(--text3);">Platform</div><div style="font-weight:600;color:var(--text);">Web (HTML5 · SPA)</div>
           <div style="color:var(--text3);">Sunucu</div><div style="font-weight:600;color:var(--text);">Hetzner Cloud · fast.emon.com.tr</div>
           <div style="color:var(--text3);">Veritabanı</div><div style="font-weight:600;color:var(--text);">PostgreSQL 16</div>
@@ -3437,6 +3438,26 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
 // ── UYGULAMA VERSİYONU ──────────────────────
 const APP_VERSIYON = '2.5.0';
 const APP_TARIH    = '2026-05-16';
+// Dağıtılan HTML'in sunucudaki son değişiklik zamanı = deploy anı. document.lastModified
+// OTOMATİK — elle sürüm/build damgası bakımı gerektirmez, her zaman gerçek yayın tarih+saatini
+// verir (APP_BUILD gibi elle bayat kalmaz). Geçersiz/eksik başlıkta '' döner.
+function dagitimZamaniMetni(saatli = true) {
+  try {
+    const d = new Date(document.lastModified);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2020) return '';
+    const p = n => String(n).padStart(2, '0');
+    const tarih = `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`;
+    return saatli ? `${tarih} ${p(d.getHours())}:${p(d.getMinutes())}` : tarih;
+  } catch { return ''; }
+}
+function surumEtiketi() {
+  const dz = dagitimZamaniMetni();
+  return 'EMON FAST v' + APP_VERSIYON + (dz ? ' · ' + dz : '');
+}
+function sidebarSurumGuncelle() {
+  const sb = document.getElementById('sidebar-versiyon');
+  if (sb) { sb.textContent = surumEtiketi(); sb.title = 'Son yüklenen sürüm (deploy): ' + (dagitimZamaniMetni() || '—'); }
+}
 
 // ── GENEL YARDIMCI FONKSİYONLAR ──
 // Tarih formatlama: GG/AA/YYYY
@@ -10630,9 +10651,11 @@ function hakkindaGoster() {
   const tEl = document.getElementById('hakkinda-tarih');
   if (vEl) vEl.textContent = 'v' + APP_VERSIYON;
   if (tEl) tEl.textContent = new Date(APP_TARIH).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'});
+  // Son yükleme (deploy) tarih+saati — otomatik, document.lastModified'tan
+  const dEl = document.getElementById('hakkinda-dagitim');
+  if (dEl) dEl.textContent = dagitimZamaniMetni() || '—';
   // Sidebar etiketini de güncelle
-  const sb = document.getElementById('sidebar-versiyon');
-  if (sb) sb.textContent = 'EMON FAST v' + APP_VERSIYON;
+  sidebarSurumGuncelle();
   openModal('hakkinda');
 }
 
@@ -18077,8 +18100,7 @@ msalBaslat();
   document.getElementById('login-screen').style.display = 'flex';
   setTimeout(stzUyariBaslat, 3000);
   // Versiyon etiketini güncelle
-  const sbv = document.getElementById('sidebar-versiyon');
-  if (sbv) sbv.textContent = 'EMON FAST v' + APP_VERSIYON; // 3 saniye sonra başlat
+  sidebarSurumGuncelle(); // v + gerçek deploy tarih/saati (document.lastModified)
   // Microsoft redirect sonrası token kontrolü
   setTimeout(async () => { try { await msalHazirla(); } catch {} }, 500);
 })();
