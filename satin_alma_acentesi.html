@@ -5199,7 +5199,7 @@ function saticiMigrasyonu() {
   }
 }
 
-function musteriKaydet() {
+async function musteriKaydet() {
   const firma = document.getElementById('mf-firma').value.trim();
   const hata = document.getElementById('mf-hata');
   if (!firma) { hata.textContent='Firma adı zorunludur.'; hata.style.display='block'; return; }
@@ -5295,12 +5295,23 @@ function musteriKaydet() {
       if (bazMarjEl) { bazMarjEl.style.borderColor = 'var(--red)'; bazMarjEl.focus(); bazMarjEl.scrollIntoView({behavior:'smooth',block:'center'}); }
       return;
     }
-    // Onay listesinden çıkart
+    // VERİ KAYBI ÖNLEMİ (onaylandı ama kayboldu): müşteriyi önce sunucuya YAZ, ancak
+    // yazma BAŞARILIYSA bekleyen onay kaydını tüket. Eskiden sıra tersti — bare veriKaydet()
+    // (debounce) sonrası _onayMusteriKaydetSonra bekleyen kaydı hemen tombstone'layıp
+    // siliyordu; o anki push (yenileme / eski-sürüm 409 / canlı tazeleme ile) başarısız
+    // olduysa HEM müşteri HEM bekleyen kayıt gidiyordu. Başarısızlıkta local'e eklediğimizi
+    // geri alır, onay kaydını KORURUZ → mükerrersiz tekrar denenebilir.
     MUSTERILER.unshift(kayit);
-    veriKaydet();
     filterMusteriler();
     closeModal('musteriForm');
-    _onayMusteriKaydetSonra(parseInt(onayIdx));
+    const _flushOk = await kaliciVeriKaydet('Müşteri onayı — "' + firma + '"');
+    if (_flushOk) {
+      _onayMusteriKaydetSonra(parseInt(onayIdx));  // pending'i ancak sunucuya yazıldıysa tüket
+    } else {
+      MUSTERILER.shift();                            // eklemeyi geri al — pending korunur, retry mükerrer üretmez
+      filterMusteriler();
+      showToast('⛔ "' + firma + '" sunucuya YAZILAMADI (bağlantı?). Onay kaydı korundu; bağlantı gelince tekrar onaylayın.');
+    }
     delete document.getElementById('mf-index').dataset.onayIdx;
     return;
   }
