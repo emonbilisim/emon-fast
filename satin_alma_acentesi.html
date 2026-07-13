@@ -3450,9 +3450,20 @@ function dagitimZamaniMetni(saatli = true) {
     return saatli ? `${tarih} ${p(d.getHours())}:${p(d.getMinutes())}` : tarih;
   } catch { return ''; }
 }
+// Sürüm NUMARASI = deploy zamanından türetilen CalVer (YYYY.AA.GG.SSDD). Her deploy'da
+// OTOMATİK değişir, elle bakım yok. document.lastModified geçersizse APP_VERSIYON'a düşer.
+function surumNo() {
+  try {
+    const d = new Date(document.lastModified);
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 2020) {
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}.${p(d.getHours())}${p(d.getMinutes())}`;
+    }
+  } catch {}
+  return APP_VERSIYON;
+}
 function surumEtiketi() {
-  const dz = dagitimZamaniMetni();
-  return 'EMON FAST v' + APP_VERSIYON + (dz ? ' · ' + dz : '');
+  return 'EMON FAST v' + surumNo();
 }
 function sidebarSurumGuncelle() {
   const sb = document.getElementById('sidebar-versiyon');
@@ -10649,7 +10660,7 @@ function hakkindaGoster() {
   // Versiyon bilgilerini dinamik doldur
   const vEl = document.getElementById('hakkinda-versiyon');
   const tEl = document.getElementById('hakkinda-tarih');
-  if (vEl) vEl.textContent = 'v' + APP_VERSIYON;
+  if (vEl) vEl.textContent = 'v' + surumNo(); // CalVer — deploy zamanından otomatik
   if (tEl) tEl.textContent = new Date(APP_TARIH).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'});
   // Son yükleme (deploy) tarih+saati — otomatik, document.lastModified'tan
   const dEl = document.getElementById('hakkinda-dagitim');
