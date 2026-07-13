@@ -8837,7 +8837,7 @@ function teklifPdfIndir() {
   if (!t) return;
 
   const m       = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkili = m?.yetkililer?.[0];
+  const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const iz      = AYARLAR.imza || {};
 
   const urunler = t.urunler && t.urunler.length > 0
@@ -9096,6 +9096,30 @@ window.onload = function() {
   showToast('📄 PDF önizlemesi açıldı — tarayıcıdan "PDF olarak kaydet" seçin.');
 }
 
+// Teklif hitap yetkilisi: teklifi kim istediyse ona hitaben. Öncelik:
+// (1) talebi GÖNDEREN kişi (gelen mailden: gonderenMail/gonderenAd) — mail müşteri
+//     kartındaki bir yetkiliyle eşleşiyorsa o yetkilinin adı, değilse gelen mailin adı;
+// (2) gönderen bilgisi yoksa/geçersizse müşteri kartındaki İLK yetkili.
+// Eskiden PDF/mail her yerde yetkililer[0] alıyordu → talep farklı yetkiliden gelse de
+// teklif hep ilk yetkiliye hitaben çıkıyordu.
+function teklifYetkiliBul(t) {
+  const m = MUSTERILER.find(x => x.firma === (t?.musteri || ''));
+  const yetkililer = m?.yetkililer || [];
+  const epRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const istek = (t?.gonderenMail || '').toLowerCase().trim();
+  if (istek && epRe.test(istek)) {
+    const eslesen = yetkililer.find(y => (y.mail || '').toLowerCase() === istek);
+    return {
+      ad:   eslesen?.ad || t.gonderenAd || yetkililer[0]?.ad || 'İlgili',
+      mail: istek,
+    };
+  }
+  return {
+    ad:   yetkililer[0]?.ad   || 'İlgili',
+    mail: yetkililer[0]?.mail || '',
+  };
+}
+
 async function musteriTeklifMaili() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -9108,22 +9132,8 @@ async function musteriTeklifMaili() {
     return;
   }
 
-  const m         = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkililer = m?.yetkililer || [];
-  // To önceliği: (1) talebi GÖNDEREN kişi (gelen mailden) → (2) gönderene eşleşen müşteri
-  // yetkilisi → (3) müşteri kartındaki ilk yetkili. Eskiden HER ZAMAN ilk yetkili alınıyordu;
-  // bu yüzden talep aylin.keskin'den gelse de teklif kartın ilk yetkilisine (ör. sadik) gidiyordu.
-  const epRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const istek = (t.gonderenMail || '').toLowerCase().trim();
-  let mail = '', ad = '';
-  if (istek && epRe.test(istek)) {
-    mail = istek;
-    const eslesen = yetkililer.find(y => (y.mail || '').toLowerCase() === istek);
-    ad = eslesen?.ad || t.gonderenAd || yetkililer[0]?.ad || 'İlgili';
-  } else {
-    mail = yetkililer[0]?.mail || '';
-    ad   = yetkililer[0]?.ad || 'İlgili';
-  }
+  // To önceliği: talebi gönderen kişi → eşleşen yetkili → ilk yetkili (teklifYetkiliBul).
+  const { ad, mail } = teklifYetkiliBul(t);
   if (!mail) { showToast('Müşteri e-posta adresi bulunamadı!'); return; }
   const yetkili = { ad, mail };
 
@@ -9209,7 +9219,7 @@ async function teklifMailGonderEt() {
   if (gecersiz.length) { showToast('⚠ Geçersiz e-posta: ' + gecersiz.join(', ')); return; }
 
   const m       = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkili = m?.yetkililer?.[0];
+  const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const adSoyad = yetkili?.ad || 'İlgili';
 
   // Çift-gönderim koruması: PDF üretimi/Graph gönderimi sürerken Gönder butonu kilitlenir.
@@ -9490,7 +9500,7 @@ async function kargoKaydetVeTamamla() {
 async function kargoTesekkurMailiGonder(t) {
   if (!t) return false;
   const m       = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkili = m?.yetkililer?.[0];
+  const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const mail    = (yetkili?.mail || '').trim();
   if (!mail) return 'no-mail';
   const k = t.kargoGonderi || {};
@@ -11763,7 +11773,7 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   const W=210, H=297, LM=14, RM=14, CW=W-LM-RM;
 
   const m       = MUSTERILER.find(x => x.firma===t.musteri);
-  const yetkili = m?.yetkililer?.[0];
+  const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const iz      = AYARLAR.imza || {};
   const adres   = 'Perpa Ticaret Merkezi B Blok Kat:11 No:1691 Okmeydani - Sisli / ISTANBUL';
   const tel     = '0212 222 33 08 / 0212 222 31 69';
@@ -12444,7 +12454,7 @@ function renderMusteriTeklifleri() {
   liste.innerHTML = filtrelenmis.map(t => {
     const idx = TALEPLER.indexOf(t);
     const m = MUSTERILER.find(x => x.firma === t.musteri);
-    const yetkili = m?.yetkililer?.[0];
+    const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
     const talepTarih  = t.tarih ? new Date(t.tarih) : null;
     const teklifTarih = t.musteriTeklifTarih ? new Date(t.musteriTeklifTarih) : null;
     const tekliftenBuYanaMs   = teklifTarih ? (simdi - teklifTarih) : 0;
@@ -12581,7 +12591,7 @@ async function teklifHatirlatGonder(idx) {
   const t = TALEPLER[idx];
   if (!t) return;
   const m = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkili = m?.yetkililer?.[0];
+  const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const mail = yetkili?.mail || '';
   if (!mail) { showToast('Musteri e-posta adresi bulunamadi!'); return; }
   const adSoyad = yetkili?.ad || 'Ilgili';
@@ -12625,7 +12635,7 @@ async function teklifHatirlatGonderEt() {
   if (gecersiz.length) { showToast('⚠ Geçersiz e-posta: ' + gecersiz.join(', ')); return; }
 
   const m = MUSTERILER.find(x => x.firma === t.musteri);
-  const yetkili = m?.yetkililer?.[0];
+  const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const adSoyad = yetkili?.ad || 'Ilgili';
 
   const _gonderBtn = document.querySelector('#modal-teklifMailOnay .btn-primary');
