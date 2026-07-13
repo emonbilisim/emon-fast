@@ -15891,7 +15891,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     await msTokenYenile(aktifKullanici.msAccount).catch(() => {});
 
     let mesajlar = [];
-    const resp = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$top=40&$orderby=receivedDateTime%20desc&$select=id,subject,from,ccRecipients,receivedDateTime,bodyPreview,hasAttachments',
+    const resp = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$top=100&$orderby=receivedDateTime%20desc&$select=id,subject,from,ccRecipients,receivedDateTime,bodyPreview,hasAttachments',
       { headers: { Authorization: 'Bearer ' + msGraphToken } });
     if (!resp.ok) { if (!sessiz) showToast('⚠ Gelen kutusu okunamadı: ' + resp.status); return; }
     mesajlar = (await resp.json()).value || [];
