@@ -2258,7 +2258,7 @@
       </div>
       <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--text2);cursor:pointer;">
         <input type="checkbox" id="ayar-cikis-hardreset" onchange="cikisHardResetToggle(this)" style="width:15px;height:15px;cursor:pointer;flex-shrink:0;">
-        Her çıkışta önbelleği temizle (çıkışta otomatik hard reset — her girişte en güncel sürüm)
+        <span><b>Tüm kullanıcılar</b> için: her çıkışta önbelleği temizle (satıcılar dahil çıkışta otomatik hard reset — herkes her girişte en güncel sürüm). Bu ayar admin tarafından belirlenir ve senkronize olur.</span>
       </label>
     </div>
 
@@ -3487,9 +3487,18 @@ function sidebarSurumGuncelle() {
 // YEREL VERİ SİLİNMEZ — yalnız tarayıcının uygulama-dosyası önbelleği (HTTP/CacheStorage/SW).
 // "Eski sürüm takılı kaldı" durumları için. Bu app'te service worker yok ama ileride
 // eklenirse diye SW kaydı da defensive olarak kaldırılır.
-const HARD_RESET_LS = 'emonfast_cikis_hardreset';
-function cikisHardResetAl() { return localStorage.getItem(HARD_RESET_LS) === '1'; }
-function cikisHardResetToggle(cb) { localStorage.setItem(HARD_RESET_LS, cb.checked ? '1' : '0'); }
+// GLOBAL admin politikası: bayrak senkron AYARLAR'da tutulur (admin-sahipli → tüm
+// kullanıcılara yayılır). Admin bir kez açar; her kullanıcının (satıcı/operasyon dahil)
+// çıkışı hard reset yapar → herkes her girişte en güncel sürümde olur. Eskiden cihaz-başına
+// localStorage'daydı ve yalnız admin'in tarayıcısını etkiliyordu.
+const HARD_RESET_LS = 'emonfast_cikis_hardreset'; // eski cihaz-başına anahtar (yalnız temizlik için)
+function cikisHardResetAl() { return !!(typeof AYARLAR !== 'undefined' && AYARLAR && AYARLAR.cikisHardReset); }
+function cikisHardResetToggle(cb) {
+  AYARLAR.cikisHardReset = !!cb.checked;
+  try { localStorage.removeItem(HARD_RESET_LS); } catch (_) {} // eski yerel bayrağı bırakma
+  if (typeof kaliciVeriKaydet === 'function') kaliciVeriKaydet('Çıkışta hard reset ayarı');
+  else if (typeof veriKaydet === 'function') veriKaydet();
+}
 
 async function _onbellekTemizle() {
   try {
