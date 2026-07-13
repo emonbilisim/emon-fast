@@ -15796,12 +15796,45 @@ function musteriMailSet() {
   return s;
 }
 
-// Bir mail adresine sahip müşterinin firma adını bul
+// Genel/ücretsiz e-posta sağlayıcıları — DOMAIN eşleşmesi bunlarda YAPILMAZ (aksi halde
+// gmail'den gelen alakasız her mail bir müşteriye bağlanırdı). Bu domainlerde yalnız TAM adres eşleşir.
+const _GENEL_MAIL_DOMAINLERI = new Set([
+  'gmail.com','googlemail.com','hotmail.com','hotmail.com.tr','outlook.com','outlook.com.tr',
+  'live.com','msn.com','windowslive.com','yahoo.com','yahoo.com.tr','icloud.com','me.com',
+  'yandex.com','yandex.com.tr','aol.com','protonmail.com','proton.me','gmx.com','mail.com',
+]);
+
+function _mailDomain(mail) {
+  const adr = (mail || '').trim().toLowerCase();
+  const i = adr.lastIndexOf('@');
+  return i >= 0 ? adr.slice(i + 1) : '';
+}
+
+// Kayıtlı müşterilerin yetkili maillerinden çıkarılan KURUMSAL domainler → firma (genel sağlayıcılar hariç).
+// Amaç: yeni bir yetkili (ör. firmanın 4. kişisi) henüz kayıtlı/senkron değilse bile, aynı kurumsal
+// domainden gelen mail müşteriye bağlanabilsin. yetkililer merge'de ATOMİK olduğundan (bkz. _kayitBirlestir),
+// yeni eklenen yetkili bir cihaza gecikmeli düşebiliyor; domain eşleşmesi bu boşluğu kapatır.
+function musteriDomainMap() {
+  const map = new Map(); // domain -> firma (ilk eşleşen)
+  MUSTERILER.forEach(m => (m.yetkililer || []).forEach(y => {
+    const d = _mailDomain(y.mail);
+    if (d && !_GENEL_MAIL_DOMAINLERI.has(d) && !map.has(d)) map.set(d, m.firma);
+  }));
+  return map;
+}
+
+// Bir mail adresine sahip müşterinin firma adını bul. Önce tam adres, sonra (genel olmayan) domain.
 function musteriBulByMail(mail) {
   const adr = (mail || '').trim().toLowerCase();
   if (!adr) return '';
   const m = MUSTERILER.find(x => (x.yetkililer || []).some(y => (y.mail || '').trim().toLowerCase() === adr));
-  return m ? m.firma : '';
+  if (m) return m.firma;
+  const d = _mailDomain(adr);
+  if (d && !_GENEL_MAIL_DOMAINLERI.has(d)) {
+    const dm = MUSTERILER.find(x => (x.yetkililer || []).some(y => _mailDomain(y.mail) === d));
+    if (dm) return dm.firma;
+  }
+  return '';
 }
 
 // Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
@@ -15869,10 +15902,14 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       ...cfg.taslaklar.map(x => x.mailId).filter(Boolean),
       ...TALEPLER.map(x => x.mailId).filter(Boolean),
     ]);
+    // Kurumsal domain haritası — tam adres kayıtlı değilse (ör. henüz senkron olmamış yeni yetkili)
+    // aynı kurumsal domainden gelen mail de müşteri sayılır. Genel sağlayıcılar (gmail vb.) hariç.
+    const domainMap = musteriDomainMap();
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
-      // AI'ya gitmeden önce: kayıtlı müşteri + işlenmemiş + ucuz heuristik (oto-reply/sistem mailleri ele)
-      return from && mailSet.has(from) && !haricMailIdler.has(m.id) && maildenAdayMi(m);
+      // AI'ya gitmeden önce: kayıtlı müşteri (tam adres VEYA kurumsal domain) + işlenmemiş + ucuz heuristik
+      const musteriMi = from && (mailSet.has(from) || domainMap.has(_mailDomain(from)));
+      return musteriMi && !haricMailIdler.has(m.id) && maildenAdayMi(m);
     }).slice(0, 10); // çağrı başına en fazla 10 mail (maliyet/limit koruması)
 
     if (adaylar.length === 0) {
