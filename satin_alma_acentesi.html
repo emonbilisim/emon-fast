@@ -6755,9 +6755,16 @@ function mailSecimAc(firma) {
   const urunler = t?.urunler && t.urunler.length > 0 ? t.urunler : (t?.urun ? [{aciklama:t.urun,adet:t.miktar||1,birim:'Adet',kod:''}] : []);
 
   const kisilerVeMailler = [];
-  TEDARIKCILER.filter(r=>r[0]===firma && r[4] && r[4]!=='—').forEach(r => {
-    if (!kisilerVeMailler.find(x=>x.mail===r[4]))
-      kisilerVeMailler.push({ kisi: r[2]!=='—'?r[2]:'', unvan: r[1]||'', mail: r[4] });
+  const _kmEkle = (kisi, unvan, mail) => {
+    const m = (mail || '').trim();
+    if (m && m !== '—' && !kisilerVeMailler.find(x => x.mail === m))
+      kisilerVeMailler.push({ kisi: kisi || '', unvan: unvan || '', mail: m });
+  };
+  // Firmanın TÜM satırları: birincil yetkili (r[4]) + ek kişiler (r[7]). rfqFirmaMap ile tutarlı —
+  // aksi halde modal yalnız birincil maili gösterir, seçim rfqSeciliMailler'i tek adrese kilitler.
+  TEDARIKCILER.filter(r => r[0] === firma).forEach(r => {
+    _kmEkle(r[2] !== '—' ? r[2] : '', r[1] || '', r[4]);
+    (Array.isArray(r[7]) ? r[7] : []).forEach(k => _kmEkle(k.ad, r[1] || '', k.mail));
   });
   const mevcutSecimMail   = rfqSeciliMailler[firma] || kisilerVeMailler.map(x=>x.mail);
   const mevcutSecimUrun   = rfqSeciliUrunler[firma]  || urunler.map((_,i)=>i); // varsayılan: hepsi
