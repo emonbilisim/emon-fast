@@ -636,3 +636,33 @@ jobs:
             mv /var/www/emonfast/public/satin_alma_acentesi.html /var/www/emonfast/public/index.html
             cd /var/www/emonfast
             pm2 restart emonfast
+
+      # Perf: nginx gzip sıkıştırma seviyesini yükselt (varsayılan ~1 → 5).
+      # index.html ~399 KB → ~345 KB. Idempotent + nginx -t korumalı + otomatik geri-alma.
+      # nginx -t başarısızsa yedeği geri yükler; siteyi asla bozmaz.
+      - name: Nginx gzip seviyesi (perf)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            f=/etc/nginx/nginx.conf
+            ts=$(date +%s); cp "$f" "$f.bak.$ts"
+            if grep -qE '^[[:space:]]*gzip_comp_level' "$f"; then
+              sed -i -E 's/^[[:space:]]*gzip_comp_level.*/    gzip_comp_level 5;/' "$f"
+              echo "gzip_comp_level -> 5 (mevcut satir guncellendi)"
+            elif grep -qE '^[[:space:]]*gzip on;' "$f"; then
+              sed -i -E '0,/^[[:space:]]*gzip on;/s//    gzip on;\n    gzip_comp_level 5;\n    gzip_vary on;\n    gzip_min_length 1024;/' "$f"
+              echo "gzip_comp_level 5 + gzip_vary + gzip_min_length eklendi (gzip on; sonrasi)"
+            else
+              sed -i -E '0,/^[[:space:]]*http[[:space:]]*\{/s//http {\n    gzip_comp_level 5;\n    gzip_vary on;\n    gzip_min_length 1024;/' "$f"
+              echo "gzip direktifleri http blogu basina eklendi"
+            fi
+            if nginx -t 2>&1; then
+              systemctl reload nginx && echo "OK: nginx reload edildi (gzip level 5)"
+            else
+              echo "HATA: nginx -t basarisiz — yedek geri yukleniyor"
+              cp "$f.bak.$ts" "$f"; nginx -t && systemctl reload nginx
+              echo "GERI ALINDI: onceki nginx.conf yuklendi"
+            fi
