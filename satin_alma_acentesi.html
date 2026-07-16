@@ -13786,18 +13786,19 @@ async function moKaseYukle(input) {
   if (!/^image\/(png|jpe?g)$/.test(file.type)) { showToast('Yalnız PNG veya JPG.'); input.value = ''; return; }
   if (file.size > 2 * 1024 * 1024) { showToast('Görsel 2 MB üzeri — daha küçük bir kaşe yükleyin.'); input.value = ''; return; }
   const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
-  AYARLAR.mailorderKase = dataUrl;
-  veriKaydet();
+  AYARLAR.mailorderKase = dataUrl;   // bellek-içi (anlık render); sunucu asıl kaynak
   moKaseDurumGuncelle();
-  showToast('🖋️ Kaşe/imza görseli kaydedildi.');
+  // Ana /api/veri blobuna DEĞİL, ayrı mailorder deposuna yaz (persist güvenilir).
+  const ok = await apiMoKaseKaydet(dataUrl);
+  showToast(ok ? '🖋️ Kaşe/imza görseli kaydedildi.' : '⚠ Kaşe sunucuya kaydedilemedi — bağlantıyı kontrol edip tekrar deneyin.');
 }
-function moKaseKaldir() {
+async function moKaseKaldir() {
   if (!confirm('Kaşe/imza görseli kaldırılsın mı?')) return;
   AYARLAR.mailorderKase = '';
-  veriKaydet();
   const inp = document.getElementById('ayar-mailorder-kase'); if (inp) inp.value = '';
   moKaseDurumGuncelle();
-  showToast('Kaşe/imza görseli kaldırıldı.');
+  const ok = await apiMoKaseSil();
+  showToast(ok ? 'Kaşe/imza görseli kaldırıldı.' : '⚠ Sunucudan kaldırılamadı — bağlantıyı kontrol edin.');
 }
 function moKaseDurumGuncelle() {
   const img = document.getElementById('mailorder-kase-onizleme');
@@ -17541,7 +17542,9 @@ function veriKaydet() {
       FP_KURALLAR: JSON.parse(JSON.stringify(FP_KURALLAR)),
       dovizKurlari: { ...dovizKurlari, guncelleme: dovizKurlari.guncelleme?.toISOString?.() || dovizKurlari.guncelleme },
       KULLANICILAR: KULLANICILAR.map(k => { const { msAccount, ...rest } = k; return rest; }),
-      AYARLAR,
+      // Kaşe/imza görseli ayrı mailorder deposunda tutulur → ana bloktan çıkar
+      // (büyük base64 blobu şişirmesin; persist güvenilir olsun).
+      AYARLAR: (() => { const { mailorderKase, ...a } = AYARLAR; return a; })(),
       ONAY_BEKLEYENLER,
       CRM_AKTIVITELER: JSON.parse(JSON.stringify(CRM_AKTIVITELER)),
       crmSayac,
@@ -18467,10 +18470,49 @@ async function apiMoFormSil(id) {
     return r.ok;
   } catch (e) { return false; }
 }
+// ── KAŞE/İMZA GÖRSELİ (ayrı sunucu deposu) ──────────────────
+// Büyük base64 görsel ana /api/veri blobunu ŞİŞİRMESİN + persist güvenilir olsun
+// diye AYRI mailorder_ayar tablosunda tutulur. AYARLAR.mailorderKase yalnız
+// bellek-içi (render için); sunucu yetkili kaynak, ana bloktan çıkarıldı.
+async function apiMoKaseYukle() {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/kase', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return false; }
+    const v = await r.json();
+    const sunucuKase = (v && typeof v.kase === 'string') ? v.kase : '';
+    if (!sunucuKase && (AYARLAR.mailorderKase || '')) {
+      // Migrasyon: eski ana-blok kaşesi sunucuda yok → yeni depoya TAŞI (kaybolmasın).
+      await apiMoKaseKaydet(AYARLAR.mailorderKase);
+    } else {
+      AYARLAR.mailorderKase = sunucuKase;   // sunucu yetkili
+    }
+    if (typeof moKaseDurumGuncelle === 'function') moKaseDurumGuncelle();
+    return true;
+  } catch (e) { return false; }
+}
+async function apiMoKaseKaydet(kase) {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/kase', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ kase: kase || '' }) });
+    if (r.status === 401) oturumSuresiDoldu();
+    if (r.status === 413) showToast('⚠ Kaşe görseli çok büyük — sunucu reddetti. Daha küçük bir görsel yükleyin.');
+    return r.ok;
+  } catch (e) { return false; }
+}
+async function apiMoKaseSil() {
+  const token = apiTokenAl(); if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/mailorder/kase', { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
 // Sunucudan çek + (sayfa açıksa) yeniden çiz
 async function moYenile() {
   const ok = await apiMoYukle();
   await apiMoTaleplerYukle();
+  await apiMoKaseYukle();
   moBadgeGuncelle();
   if (document.getElementById('page-mailorder')?.classList.contains('active')) renderMailOrder();
   return ok;
@@ -18583,7 +18625,10 @@ function moFormListeRender() {
   el.innerHTML = MO.formlar.map(f => {
     const tipEt = f.tip === 'portal' ? '<span class="badge" style="background:var(--bg3);">Portal</span>' : `<span class="badge badge-blue">${(f.alanlar || []).length} alan</span>`;
     const fmt = f.tip === 'portal' ? '—' : (f.format === 'pdf' ? 'PDF' : 'Görsel');
-    const epostaEt = f.eposta ? `<span style="font-size:11px;color:var(--text2);">✉️ ${moEsc(f.eposta)}</span>` : `<span style="font-size:11px;color:var(--amber);">✉️ e-posta yok</span>`;
+    const _adr = moEpostaListe(f.eposta);
+    const epostaEt = _adr.length
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:11px;color:var(--text2);">✉️ ${_adr.map(a => `<span class="badge" style="background:var(--bg3);font-weight:500;">${moEsc(a)}</span>`).join(' ')}${_adr.length > 1 ? ` <span style="color:var(--text3);">(${_adr.length} adres)</span>` : ''}</span>`
+      : `<span style="font-size:11px;color:var(--amber);">✉️ e-posta yok</span>`;
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="min-width:180px;font-weight:600;font-size:13px;">${moEsc(f.tedarikci)}</div>
       <div style="font-size:12px;color:var(--text3);">${fmt}</div>
@@ -19341,6 +19386,7 @@ async function moOnayIptal(id) {
 async function moBadgeYenile() {
   if (!mailorderGorunur()) return;
   await apiMoTaleplerYukle();
+  await apiMoKaseYukle();   // kaşeyi sunucu deposundan çek (Ayarlar önizlemesi + damgalama için)
   moBadgeGuncelle();
 }
 function moBadgeGuncelle() {

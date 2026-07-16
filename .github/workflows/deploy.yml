@@ -402,6 +402,13 @@ jobs:
               guncelleme TIMESTAMPTZ DEFAULT NOW()
             );
             CREATE SEQUENCE IF NOT EXISTS mailorder_no_seq;
+            -- MO genel ayar (anahtar/deger). Su an tek kayit: kase/imza gorseli (data URL).
+            -- Buyuk base64 gorsel ANA /api/veri blobunu sismesin diye AYRI tabloda tutulur.
+            CREATE TABLE IF NOT EXISTS mailorder_ayar (
+              anahtar TEXT PRIMARY KEY,
+              data JSONB NOT NULL,
+              guncelleme TIMESTAMPTZ DEFAULT NOW()
+            );
             SQL
             # 7b) Route enjeksiyonu (idempotent, ADMIN-ONLY): GET /api/mailorder +
             #     PUT/DELETE /api/mailorder/kart + PUT/DELETE /api/mailorder/form
@@ -499,6 +506,40 @@ jobs:
               console.log('mailorder-onay route eklendi');
             } else {
               console.log('UYARI: /api/saglik bulunamadi, mailorder-onay eklenemedi');
+            }
+            // ── MO kase/imza gorseli: ana /api/veri blobundan AYRI depo (mailorder_ayar) ──
+            //    GET yetki (mailorder erisimi olan damgalayabilsin); PUT/DELETE ADMIN-ONLY.
+            const adminSadece = "    if (!req.kullanici || req.kullanici.rol !== 'admin') return res.status(403).json({ ok: false, hata: 'yalniz admin' });\n";
+            const moKaseRoute =
+              "app.get('/api/mailorder/kase', authMiddleware, async (req, res) => { // mailorder-kase v1\n" +
+              "  try {\n" + yetki +
+              "    const r = await pool.query(\"SELECT data FROM mailorder_ayar WHERE anahtar='kase'\");\n" +
+              "    const kase = (r.rows[0] && r.rows[0].data && r.rows[0].data.kase) || '';\n" +
+              "    res.json({ ok: true, kase });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.put('/api/mailorder/kase', authMiddleware, async (req, res) => { // mailorder-kase v1\n" +
+              "  try {\n" + adminSadece +
+              "    const kase = (req.body && typeof req.body.kase === 'string') ? req.body.kase : '';\n" +
+              "    await pool.query(\"INSERT INTO mailorder_ayar (anahtar, data, guncelleme) VALUES ('kase',$1,NOW()) ON CONFLICT (anahtar) DO UPDATE SET data=$1, guncelleme=NOW()\", [JSON.stringify({ kase })]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.delete('/api/mailorder/kase', authMiddleware, async (req, res) => { // mailorder-kase v1\n" +
+              "  try {\n" + adminSadece +
+              "    await pool.query(\"DELETE FROM mailorder_ayar WHERE anahtar='kase'\");\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n";
+            if (s.includes('// mailorder-kase v1')) {
+              console.log('mailorder-kase route zaten var');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", moKaseRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('mailorder-kase route eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, mailorder-kase eklenemedi');
             }
             if (degisti) fs.writeFileSync(f, s); else console.log('server.js (mailorder) zaten guncel');
             PATCH
