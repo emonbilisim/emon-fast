@@ -3370,6 +3370,22 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
       <label class="form-label">Kart Sahibi *</label>
       <input type="text" id="mo-kart-sahip" placeholder="Kart üzerindeki isim" autocomplete="off">
     </div>
+    <div class="grid2">
+      <div class="form-group">
+        <label class="form-label">Banka</label>
+        <input type="text" id="mo-kart-banka" placeholder="Örn: Garanti BBVA" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Kart Tipi</label>
+        <input type="text" id="mo-kart-tipi" list="mo-kart-tipi-liste" placeholder="Örn: Visa" autocomplete="off">
+        <datalist id="mo-kart-tipi-liste">
+          <option value="Visa"></option>
+          <option value="Mastercard"></option>
+          <option value="American Express"></option>
+          <option value="Troy"></option>
+        </datalist>
+      </div>
+    </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">CVV bu cihazda saklanır (sanal/limitli kartlar için bilerek tercih edildi). Kasaya yalnız admin erişebilir.</div>
     <div id="mo-kart-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin-bottom:10px;"></div>
     <div class="modal-footer">
@@ -18268,6 +18284,8 @@ const MO_ALANLAR = [
   { key: 'sonKulAy', etiket: 'Son Kul. AA' },
   { key: 'sonKulYil',etiket: 'Son Kul. YY' },
   { key: 'sahip',    etiket: 'Kart Sahibi' },
+  { key: 'banka',    etiket: 'Banka' },
+  { key: 'kartTipi', etiket: 'Kart Tipi' },
   { key: 'cvv',      etiket: 'CVV' },
   { key: 'tarih',    etiket: 'Tarih' },
   { key: 'aciklama', etiket: 'Açıklama' },
@@ -18449,7 +18467,7 @@ function moKartListeRender() {
     return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="min-width:160px;">
         <div style="font-weight:600;font-size:13px;">${moEsc(k.etiket)}</div>
-        <div style="font-size:11px;color:var(--text3);">${moEsc(k.sahip)}</div>
+        <div style="font-size:11px;color:var(--text3);">${moEsc(k.sahip)}${(k.banka || k.kartTipi) ? ' · ' + moEsc([k.banka, k.kartTipi].filter(Boolean).join(' ')) : ''}</div>
       </div>
       <div style="font-family:monospace;font-size:14px;letter-spacing:1px;">${moEsc(no)}</div>
       <div style="font-size:12px;color:var(--text2);">SK: ${moEsc(k.sonKul || '—')}</div>
@@ -18472,6 +18490,8 @@ function moKartModalAc(id) {
   document.getElementById('mo-kart-sonkul').value = k ? (k.sonKul || '') : '';
   document.getElementById('mo-kart-cvv').value = k ? (k.cvv || '') : '';
   document.getElementById('mo-kart-sahip').value = k ? (k.sahip || '') : '';
+  document.getElementById('mo-kart-banka').value = k ? (k.banka || '') : '';
+  document.getElementById('mo-kart-tipi').value = k ? (k.kartTipi || '') : '';
   const h = document.getElementById('mo-kart-hata'); h.style.display = 'none';
   openModal('moKart');
 }
@@ -18481,15 +18501,17 @@ async function moKartKaydet() {
   const sonKul = document.getElementById('mo-kart-sonkul').value.trim();
   const cvv = document.getElementById('mo-kart-cvv').value.trim();
   const sahip = document.getElementById('mo-kart-sahip').value.trim();
+  const banka = document.getElementById('mo-kart-banka').value.trim();
+  const kartTipi = document.getElementById('mo-kart-tipi').value.trim();
   const h = document.getElementById('mo-kart-hata');
   if (!etiket || !no || !sonKul || !sahip) { h.textContent = 'Etiket, kart no, son kullanım ve sahip zorunlu.'; h.style.display = 'block'; return; }
   if (!/^\d{12,19}$/.test(no)) { h.textContent = 'Kart numarası 12–19 hane olmalı.'; h.style.display = 'block'; return; }
   let k;
   if (_moKartDuzenleId) {
     k = MO.kartlar.find(x => x.id === _moKartDuzenleId);
-    if (k) Object.assign(k, { etiket, no, sonKul, cvv, sahip });
+    if (k) Object.assign(k, { etiket, no, sonKul, cvv, sahip, banka, kartTipi });
   } else {
-    k = { id: moUid(), etiket, no, sonKul, cvv, sahip };
+    k = { id: moUid(), etiket, no, sonKul, cvv, sahip, banka, kartTipi };
     MO.kartlar.push(k);
   }
   moKaydet(); closeModal('moKart'); moKartListeRender(); moUretSecimDoldur();
@@ -18787,6 +18809,8 @@ function moUretDeger(key, ctx) {
     case 'sonKulAy': return moSonKulParcala(ctx.kart.sonKul).ay;
     case 'sonKulYil': return moSonKulParcala(ctx.kart.sonKul).yil;
     case 'sahip': return ctx.kart.sahip || '';
+    case 'banka': return ctx.kart.banka || '';
+    case 'kartTipi': return ctx.kart.kartTipi || '';
     case 'cvv': return ctx.kart.cvv || '';
     case 'tarih': return ctx.tarih;
     case 'aciklama': return ctx.aciklama;
