@@ -18401,14 +18401,17 @@ function moSayiYaziyla(n) {
   }
   return parcalar.join(' ').trim();
 }
-// Tutarı "Beş bin Türk Lirası, elli Kuruş" biçiminde yazıya çevir.
+// Tutarı yazıya çevir — çek/mail order konvansiyonu: başında ve sonunda '#',
+// arada BOŞLUK YOK (bitişik) → sonradan araya ekleme/müdahale engellenir.
+// Örn: "#BeşbinTürkLirasıelliKuruş#"
 function moTutarYaziyla(v) {
   const p = moTutarParcala(v);
   if (!p) return '';
   const liraY = moSayiYaziyla(p.lira);
   const kurusY = moSayiYaziyla(p.kurus);
-  const s = liraY + ' Türk Lirası, ' + kurusY + ' Kuruş';
-  return s.charAt(0).toLocaleUpperCase('tr-TR') + s.slice(1);
+  let s = liraY + ' Türk Lirası ' + kurusY + ' Kuruş';
+  s = s.charAt(0).toLocaleUpperCase('tr-TR') + s.slice(1);
+  return '#' + s.replace(/\s+/g, '') + '#';   // boşlukları kaldır, baş/sona '#'
 }
 function moNoMaskele(no) { const t = String(no || '').replace(/\s+/g, ''); const son = t.slice(-4); return '•••• •••• •••• ' + (son || '????'); }
 function moNoBicim(no) { return String(no || '').replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim(); }
