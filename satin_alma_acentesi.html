@@ -5431,6 +5431,7 @@ async function musteriKaydet() {
     // siliyordu; o anki push (yenileme / eski-sürüm 409 / canlı tazeleme ile) başarısız
     // olduysa HEM müşteri HEM bekleyen kayıt gidiyordu. Başarısızlıkta local'e eklediğimizi
     // geri alır, onay kaydını KORURUZ → mükerrersiz tekrar denenebilir.
+    _silinenMusteriFirmalar.delete(String(firma)); // aynı adla silinip yeniden onaylanırsa filtre onu düşürmesin
     MUSTERILER.unshift(kayit);
     filterMusteriler();
     closeModal('musteriForm');
@@ -5474,7 +5475,7 @@ async function musteriKaydet() {
     return;
   }
 
-  if(idx===-1){MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); kaliciVeriKaydet('Müşteri');}
+  if(idx===-1){_silinenMusteriFirmalar.delete(String(firma));MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); kaliciVeriKaydet('Müşteri');}
   else{
     const eskiFirma = MUSTERILER[idx].firma;
     kayit.tarih = MUSTERILER[idx].tarih;
@@ -5483,6 +5484,7 @@ async function musteriKaydet() {
     // (yoksa eski talepler eski adda kalır, müşteri özeti 0 görünür)
     let tasinan = 0;
     if (eskiFirma && eskiFirma !== kayit.firma) {
+      _silinenMusteriFirmalar.add(String(eskiFirma)); // union merge'te eski ad orphan kalmasın
       TALEPLER.forEach(t => { if (t.musteri === eskiFirma) { t.musteri = kayit.firma; tasinan++; } });
       if (Array.isArray(CRM_AKTIVITELER)) CRM_AKTIVITELER.forEach(a => { if (a.musteri === eskiFirma) a.musteri = kayit.firma; });
     }
@@ -5495,7 +5497,7 @@ async function musteriKaydet() {
 
 function musteriSil(idx) {
   if (aktifKullanici?.rol === 'satici') { showToast('Müşteri silme yetkiniz yok. Değişiklik için ✏️ ile talep oluşturun.'); return; }
-  if(confirm(`"${MUSTERILER[idx].firma}" silinsin mi?`)){MUSTERILER.splice(idx,1);filterMusteriler();showToast('Müşteri silindi.'); kaliciVeriKaydet('Müşteri silme');}
+  if(confirm(`"${MUSTERILER[idx].firma}" silinsin mi?`)){_silinenMusteriFirmalar.add(String(MUSTERILER[idx].firma));MUSTERILER.splice(idx,1);filterMusteriler();showToast('Müşteri silindi.'); kaliciVeriKaydet('Müşteri silme');}
 }
 
 function filterMusteriler() {
@@ -10225,6 +10227,7 @@ async function talepKaydet() {
       onayBekleyenleriKaydet();
       showToast(`📋 "${ymFirma}" müşterisi admin onayına gönderildi.`);
     } else {
+      _silinenMusteriFirmalar.delete(String(ymFirma));
       MUSTERILER.unshift(yeniM);
       filterMusteriler();
       showToast(`"${ymFirma}" müşteri listesine eklendi!`);
@@ -10543,6 +10546,8 @@ async function onayMusteriKabul(i) {
     // Ticari alanları (marj/fiyat grubu) satıcı değiştiremez — mevcut değeri koru
     if (MUSTERILER[hedef].fpKurallari && !musteriVeri.fpKurallari) musteriVeri.fpKurallari = MUSTERILER[hedef].fpKurallari;
     if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
+    const _eskiAd = MUSTERILER[hedef].firma;
+    if (_eskiAd && _eskiAd !== musteriVeri.firma) _silinenMusteriFirmalar.add(String(_eskiAd)); // union'da eski ad orphan kalmasın
     MUSTERILER[hedef] = musteriVeri;
     onayTombstoneEkle(kayit);
     ONAY_BEKLEYENLER.musteriler.splice(i, 1);
@@ -17363,6 +17368,14 @@ let _taleplerKastenSilindi = false;
 // üçünden de düşer, tekrar geri gelmez. Bkz. [[emon-fast-senkron-merge]].
 let _silinenTalepNolar = new Set();
 
+// Bu OTURUMDA açıkça KALDIRILAN müşteri firma adları (silme + yeniden-adlandırmada eski ad).
+// MUSTERILER merge'i de artık UNION (yokluk asla silme sayılmaz) → bayat/eksik bir istemci,
+// başka kullanıcının yeni eklediği/onayladığı müşteriyi kendi local'inde bulamayınca merge'de
+// DÜŞÜREMEZ. Semptom: "satıcının eklediği, admin'in onayladığı müşteri, listeden kayboluyor"
+// (base _sunucuBaz'a girer ama in-memory'ye backfill edilmez → sonraki push'ta absence-delete
+// clobber). Gerçek silme YALNIZ bu kümedeki firmalar için uygulanır. Bkz. [[emon-fast-senkron-merge]].
+let _silinenMusteriFirmalar = new Set();
+
 function _mkey(r, keyFn) {
   try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
   catch { return JSON.stringify(r); }
@@ -17492,7 +17505,14 @@ function _mergeKaydet(local, server, base, noDelete = false) {
       }
     });
   } catch (_) {}
-  sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma, noDelete);
+  // MUSTERILER: DAİMA UNION (noDelete:true). TALEPLER ile aynı gerekçe — yokluk asla
+  // silme sayılmaz, aksi halde _sunucuBaz'ı in-memory'den ileri kalmış bir istemci
+  // (push _sunucuBaz'ı günceller ama MUSTERILER'e backfill etmez) başkasının müşterisini
+  // absence-delete ile ezer. Gerçek silme yalnız bu oturumda açıkça kaldırılan firmalar için.
+  sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma, true);
+  if (_silinenMusteriFirmalar && _silinenMusteriFirmalar.size) {
+    sonuc.MUSTERILER = sonuc.MUSTERILER.filter(m => !_silinenMusteriFirmalar.has(String(m && m.firma)));
+  }
   sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
   sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
   // Tombstone (onaylanan/reddedilen kayıt anahtarları) — base/local/server birleşimi,
