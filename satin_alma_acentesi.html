@@ -18275,6 +18275,7 @@ let _moKartGoster = {};   // id → açık mı (maskeli liste için)
 // Doldurmada kullanılan alan tipleri
 const MO_ALANLAR = [
   { key: 'tutar',    etiket: 'Tutar' },
+  { key: 'tutarYazi',etiket: 'Tutar (yazı ile)' },
   { key: 'kartNo',   etiket: 'Kart No (tam)' },
   { key: 'kartNo1',  etiket: 'Kart No 1-4' },
   { key: 'kartNo2',  etiket: 'Kart No 5-8' },
@@ -18336,6 +18337,54 @@ function moTutarOnizle() {
   const el = document.getElementById('mo-uret-tutar-onizleme'); if (!el) return;
   const t = moUretTutarOku();
   el.textContent = t ? '→ ' + t : '';
+}
+// ── Tutarı yazıyla (Türkçe) ─────────────────────────────────
+// Saklı/biçimli tutar metnini ("5.000,00 TL") lira + kuruş'a ayır.
+function moTutarParcala(v) {
+  const s = moTutarGoster(v);                 // "5.000,00 TL" veya "—"
+  if (!s || s === '—') return null;
+  const m = s.replace(/\s*tl\s*$/i, '').trim();
+  const [liraStr, kurusStr = '0'] = m.split(',');
+  const lira = parseInt(String(liraStr).replace(/\./g, ''), 10) || 0;
+  let kurus = parseInt(String(kurusStr).slice(0, 2).padEnd(2, '0'), 10) || 0;
+  if (kurus > 99) kurus = 99;
+  return { lira, kurus };
+}
+const _MO_BIRLER = ['', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz'];
+const _MO_ONLAR  = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan'];
+// 0..999 → Türkçe yazı ("yüz", "iki yüz elli" …)
+function _moUcluYazi(n) {
+  let s = '';
+  const y = Math.floor(n / 100), o = Math.floor((n % 100) / 10), b = n % 10;
+  if (y > 0) s += (y === 1 ? 'yüz' : _MO_BIRLER[y] + ' yüz');
+  if (o > 0) s += (s ? ' ' : '') + _MO_ONLAR[o];
+  if (b > 0) s += (s ? ' ' : '') + _MO_BIRLER[b];
+  return s;
+}
+// Tam sayıyı Türkçe yazıya çevir (0 … trilyon). "bir bin" değil "bin" kuralı.
+function moSayiYaziyla(n) {
+  n = Math.floor(Math.abs(Number(n) || 0));
+  if (n === 0) return 'sıfır';
+  const olcek = ['', 'bin', 'milyon', 'milyar', 'trilyon'];
+  const parcalar = []; let i = 0, x = n;
+  while (x > 0 && i < olcek.length) {
+    const g = x % 1000;
+    if (g > 0) {
+      const gy = (i === 1 && g === 1) ? 'bin' : (_moUcluYazi(g) + (olcek[i] ? ' ' + olcek[i] : ''));
+      parcalar.unshift(gy);
+    }
+    x = Math.floor(x / 1000); i++;
+  }
+  return parcalar.join(' ').trim();
+}
+// Tutarı "Beş bin Türk Lirası, elli Kuruş" biçiminde yazıya çevir.
+function moTutarYaziyla(v) {
+  const p = moTutarParcala(v);
+  if (!p) return '';
+  const liraY = moSayiYaziyla(p.lira);
+  const kurusY = moSayiYaziyla(p.kurus);
+  const s = liraY + ' Türk Lirası, ' + kurusY + ' Kuruş';
+  return s.charAt(0).toLocaleUpperCase('tr-TR') + s.slice(1);
 }
 function moNoMaskele(no) { const t = String(no || '').replace(/\s+/g, ''); const son = t.slice(-4); return '•••• •••• •••• ' + (son || '????'); }
 function moNoBicim(no) { return String(no || '').replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim(); }
@@ -18800,6 +18849,7 @@ function moKopyalaKart(id, alan) { const k = MO.kartlar.find(x => x.id === id); 
 function moUretDeger(key, ctx) {
   switch (key) {
     case 'tutar': return ctx.tutar;
+    case 'tutarYazi': return moTutarYaziyla(ctx.tutar);
     case 'kartNo': return moNoBicim(ctx.kart.no);
     case 'kartNo1': return moKartHaneleri(ctx.kart.no).slice(0, 4);
     case 'kartNo2': return moKartHaneleri(ctx.kart.no).slice(4, 8);
