@@ -17411,6 +17411,14 @@ function _kayitBirlestir(base, local, server) {
   const sonuc = diziMi ? [] : {};
   const anahtarlar = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(server)]);
   for (const k of anahtarlar) {
+    // ALAN-SEVİYESİ YOKLUK-SİLME KORUMASI: alan yerelde YOKSA (bayat/eksik istemci onu
+    // hiç görmedi) bunu "local sildi" sanıp DÜŞÜRME → sunucudakini koru. Yoksa base'de
+    // olup local'de olmayan bir alan (ör. başka kullanıcının eklediği kargoGonderi /
+    // durum / faturaNo) merge'de silinip "hiç girilmemiş" görünüyordu — record-seviyesi
+    // union'ın (TALEPLER/MUSTERILER) alan-seviyesindeki eşdeğeri. Gerçek temizleme '' /
+    // null ile yapılır (o değer local'de MEVCUT + base'den farklı → local kazanır).
+    const localVar = Object.prototype.hasOwnProperty.call(local, k) && local[k] !== undefined;
+    if (!localVar) { sonuc[k] = server[k]; continue; }
     sonuc[k] = (_canon(local[k]) !== _canon(base[k])) ? local[k] : server[k];
   }
   return sonuc;
