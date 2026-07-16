@@ -583,7 +583,7 @@
     </div>
     <div class="nav-item" onclick="goPage('mailorder',this)" id="nav-mailorder" style="display:none;">
       <span class="icon">💳</span> Mail Order
-      <span class="nav-badge" id="badge-mailorder" title="Onayını bekleyen MO" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
+      <span class="nav-badge" id="badge-mailorder" title="İşlem bekleyen Mail Order (onay veya tedarikçiye gönderim)" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
     </div>
     <div class="nav-label" style="margin-top:8px;">Ayarlar</div>
     <div class="nav-item" onclick="goPage('kullanicilar',this)" id="nav-kullanicilar">
@@ -4493,7 +4493,7 @@ function goPage(id, el) {
   if (id === 'teklifler') { renderMusteriTeklifleri(); teklifTaramaBaslat(); }
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
-  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); otoHatirlatDurumGuncelle(); hpListeDurumGuncelle(); sistemDurumYukle(); }
+  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); otoHatirlatDurumGuncelle(); hpListeDurumGuncelle(); sistemDurumYukle(); if (typeof apiMoKaseYukle === 'function') apiMoKaseYukle().catch(() => {}); }
   if (id === 'crm') renderCRM();
   if (id === 'gorevler') { renderGorevler(); gorevlerYenile(); }
   if (id === 'mailorder') { renderMailOrder(); moYenile(); }
@@ -17761,6 +17761,7 @@ window.addEventListener('focus', () => sunucudanTazele());
 // değişiklik varsa önce onu göndermeyi tekrar dene (pull'dan önce push).
 _tazelemeTimer = setInterval(() => {
   if (typeof window.surumKontrolEt === 'function') window.surumKontrolEt(); // yeni deploy bandı için sürüm kontrolü
+  if (typeof moBadgeYenile === 'function') moBadgeYenile().catch(() => {}); // MO rozeti (onay/gönderim bekleyen) tazele
   if (_kayitGerekli && apiTokenAl() && !_apiKaydetBekliyor) { veriKaydet(); return; }
   sunucudanTazele();
 }, 45000);
@@ -19456,15 +19457,18 @@ async function moOnayIptal(id) {
 // Sayfayı açmadan rozeti tazele (yalnız erişimi olan kullanıcı sunucuya sorar)
 async function moBadgeYenile() {
   if (!mailorderGorunur()) return;
-  await apiMoTaleplerYukle();
-  await apiMoKaseYukle();   // kaşeyi sunucu deposundan çek (Ayarlar önizlemesi + damgalama için)
+  await apiMoTaleplerYukle();   // hafif — periyodik (45s) tazelemede çağrılır; kaşe burada ÇEKİLMEZ
   moBadgeGuncelle();
 }
 function moBadgeGuncelle() {
   const el = document.getElementById('badge-mailorder');
   if (!el) return;
   const ben = _benEmail();
-  const n = moOnayciBenMiyim() ? MO_TALEPLER.filter(t => (t.yetkiliEmail || '').toLowerCase() === ben && t.durum === 'onayda').length : 0;
+  let n = 0;
+  // İmzalama yetkilisi: onayımı bekleyen MO'lar
+  if (moOnayciBenMiyim()) n += MO_TALEPLER.filter(t => (t.yetkiliEmail || '').toLowerCase() === ben && t.durum === 'onayda').length;
+  // Talep eden (satıcı): onaylanmış ama henüz tedarikçiye gönderilmemiş → aksiyon bekliyor
+  n += MO_TALEPLER.filter(t => (t.talepEdenEmail || '').toLowerCase() === ben && t.durum === 'onaylandi' && !t.tedarikciyeGonderildi).length;
   el.textContent = n;
   el.style.display = n > 0 ? 'inline-flex' : 'none';
 }
