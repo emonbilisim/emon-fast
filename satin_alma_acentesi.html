@@ -18233,7 +18233,24 @@ if (!Array.isArray(MO.kartlar)) MO.kartlar = [];
 if (!Array.isArray(MO.formlar)) MO.formlar = [];
 // Legacy: eski yerel kayıtlar sayısal id'liyse string'e çevir (onclick'ler tırnaklı id bekler).
 (() => { let d = false; MO.kartlar.forEach(k => { if (typeof k.id !== 'string') { k.id = String(k.id); d = true; } }); MO.formlar.forEach(f => { if (typeof f.id !== 'string') { f.id = String(f.id); d = true; } }); if (d) { try { localStorage.setItem(MO_KEY, JSON.stringify(MO)); } catch (_) {} } })();
-function moKaydet() { try { localStorage.setItem(MO_KEY, JSON.stringify(MO)); } catch (e) { showToast('⚠ Mail Order kaydedilemedi (depo dolu olabilir): ' + e.message); } }
+// Yerel önbellek (A): büyük form base64'lerini localStorage'a YAZMA — sunucu
+// yetkili kaynak, formlar her sayfa açılışında sunucudan (b64 ile) çekilir.
+// Yerelde yalnız kartlar + form metadata (id/tedarikçi/tip/alanlar…) tutulur;
+// böylece tarayıcı kotası (~5-10 MB) form base64'leriyle dolup taşmaz.
+function moKaydet() {
+  try {
+    const yerel = {
+      kartlar: MO.kartlar,
+      formlar: (MO.formlar || []).map(f => { const { b64, ...meta } = f; return meta; }),
+      sayac: MO.sayac
+    };
+    localStorage.setItem(MO_KEY, JSON.stringify(yerel));
+  } catch (e) { showToast('⚠ Mail Order yerel önbelleğe yazılamadı: ' + e.message); }
+}
+// Not: eski (b64 şişkin) önbelleği burada proaktif temizlemiyoruz — sunucuya
+// hiç senkronlanmamış yerel form varsa b64'ü erken silmek veri kaybı olurdu.
+// Kota, Mail Order açılıp apiMoYukle sunucudan formları çekince (moKaydet ince
+// biçimde yazar) doğal ve güvenli şekilde serbest kalır.
 // Çoklu kullanıcı/cihaz: id çakışmasın diye yerel sayaç DEĞİL, benzersiz string üret
 // (bkz. talep-no yerel-sayaç çakışması). Sunucuda satır PK'sı bu id.
 function moUid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -18338,7 +18355,9 @@ async function apiMoYukle() {
     if (sunucuBos && yerelVar) {
       // İlk geçiş: cihaz-yerel pilot veriyi sunucuya TAŞI, yereli koru (ezme).
       for (const k of MO.kartlar) await apiMoKartKaydet(k);
-      for (const f of MO.formlar) await apiMoFormKaydet(f);
+      // Yerelde artık b64 tutulmuyor (A); yalnız dosyası mevcut formları taşı —
+      // metadata-only kalıntılar sunucuya b64'süz yazılmasın.
+      for (const f of MO.formlar) { if (f.tip === 'portal' || f.b64) await apiMoFormKaydet(f); }
       showToast('Mail Order verisi sunucuya taşındı (paylaşıma açıldı).');
       return true;
     }
@@ -18582,6 +18601,7 @@ async function moEditAc(id) {
   const idx = MO.formlar.findIndex(x => x.id === id);
   if (idx < 0) return;
   const f = MO.formlar[idx];
+  if (!f.b64) { showToast('Form içeriği bu cihazda yüklü değil — bağlantı gelince “Mail Order”ı yeniden açın (sunucudan çekilir).'); return; }
   _moEdit = { idx, sayfa: 0, sayfaSayisi: 1, format: f.format, pdfDoc: null, imgEl: null, canvasW: 0, canvasH: 0, fontPx: 11, kaseW: 0.22, seciliKey: null, alanlar: JSON.parse(JSON.stringify(f.alanlar || [])) };
   document.getElementById('mo-edit-title').textContent = '🎯 Alan Eşleme — ' + f.tedarikci;
   document.getElementById('mo-edit-font').value = 11;
@@ -18783,6 +18803,9 @@ function moKaseParcala() {
 // opts.kaseEkle=true → onaylanan MO: formdaki Kaşe/İmza alanlarına AYARLAR.mailorderKase basılır.
 async function moFormBlobUret(f, ctx, opts) {
   opts = opts || {};
+  // Yerelde artık form base64'ü tutulmuyor (A); içerik sunucudan gelir.
+  // Henüz çekilmediyse (offline / “Mail Order” bu oturumda açılmadı) net uyar.
+  if (f.tip !== 'portal' && !f.b64) throw new Error('form içeriği bu cihazda yüklü değil — “Mail Order”ı açıp bağlantıyı bekleyin (sunucudan çekilecek)');
   const adGuvenli = (f.tedarikci || 'tedarikci').replace(/[^\wığüşöçİĞÜŞÖÇ.-]+/g, '_');
   const adEk = ctx.no ? ('_' + String(ctx.no).replace(/[^\w-]+/g, '')) : '';
   const kaseAlanlar = (f.alanlar || []).filter(a => a.key === MO_KASE_KEY);
