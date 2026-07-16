@@ -19171,43 +19171,15 @@ async function moGraphEkliMail(toList, subject, html, ekAdi, ekB64) {
     return resp.ok || resp.status === 202;
   } catch (e) { console.error('moGraphEkliMail:', e); return false; }
 }
-// Onaylanan, kaşeli MO PDF'ini talep eden satıcıya ekli mail olarak gönder
-async function moSaticiyaGonder(id) {
-  const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
-  if (!moOnayciBenMiyim() && aktifKullanici?.rol !== 'admin') { showToast('Yalnızca imzalama yetkilisi veya admin gönderebilir.'); return; }
-  if (t.durum !== 'onaylandi') { showToast('Önce onaylayın.'); return; }
-  const alici = (t.talepEdenEmail || '').toLowerCase();
-  if (!alici) { showToast('Talep edenin e-postası bulunamadı.'); return; }
-  showToast('Damgalı PDF hazırlanıyor…');
-  let res; try { res = await moTalepPdfUret(t); } catch (e) { showToast('PDF üretilemedi: ' + e.message); return; }
-  if (!res) { showToast('Form veya kart bulunamadı (silinmiş olabilir).'); return; }
-  const b64 = await moBlobB64(res.blob);
-  const html = `
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
-      <h2 style="margin:0 0 4px;">✅ Mail Order Onaylandı</h2>
-      <p style="color:#666;margin:0 0 16px;">${moEsc(t.no)} numaralı mail order imzalandı/kaşelendi. Onaylı form ektedir; tedarikçiye iletebilirsiniz.</p>
-      <table style="font-size:13px;border-collapse:collapse;">
-        <tr><td style="padding:2px 12px 2px 0;color:#666;">MO No</td><td><strong>${moEsc(t.no)}</strong></td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tedarikçi</td><td>${moEsc(t.tedarikci)}</td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#666;">Tutar</td><td style="font-weight:700;">${moEsc(moTutarGoster(t.tutar))}</td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylayan</td><td>${moEsc(t.yetkiliAd || t.yetkiliEmail)}</td></tr>
-      </table>
-    </div>`;
-  const ok = await moGraphEkliMail([alici], '[Mail Order Onaylandı] ' + t.no + ' — ' + t.tedarikci, html, res.ad, b64);
-  if (ok) {
-    t.gonderildi = new Date().toISOString();
-    moSunucuUyar(await apiMoTalepKaydet(t), 'Gönderim kaydı');
-    moOnayListeRender(); moArsivRender();
-    showToast('📧 ' + t.no + ' satıcıya (' + alici + ') gönderildi.');
-  } else {
-    showToast('⚠ Gönderilemedi — Outlook (M365) bağlı değil olabilir. “İndir” ile alıp elle iletebilirsiniz.');
-  }
-}
+// (moSaticiyaGonder kaldırıldı — tek gönderim "Tedarikçiye Gönder"; talep eden
+//  satıcı onaylı MO'yu zaten kendi listesinden "İndir" ile alabiliyor.)
 
 // Onaylanan, kaşeli MO PDF'ini TEDARİKÇİ e-posta(larına) ekli mail olarak gönder
 async function moTedarikciyeGonder(id) {
   const t = MO_TALEPLER.find(x => x.id === id); if (!t) return;
-  if (!moOnayciBenMiyim() && aktifKullanici?.rol !== 'admin') { showToast('Yalnızca imzalama yetkilisi veya admin gönderebilir.'); return; }
+  // İmzalama yetkilisi, admin VEYA talep eden (satıcı) gönderebilir.
+  const benimTalep = (t.talepEdenEmail || '').toLowerCase() === _benEmail();
+  if (!moOnayciBenMiyim() && aktifKullanici?.rol !== 'admin' && !benimTalep) { showToast('Bu MO\'yu yalnızca imzalama yetkilisi, admin veya talep eden gönderebilir.'); return; }
   if (t.durum !== 'onaylandi') { showToast('Önce onaylayın.'); return; }
   const f = MO.formlar.find(x => x.id === t.formId);
   const alicilar = moEpostaListe(f && f.eposta);
@@ -19258,13 +19230,17 @@ function moTalepSatirHtml(t, yetkiliGorunum) {
       <button class="btn btn-sm" onclick="moOnayKarar('${t.id}','reddedildi')">❌ Reddet</button>`;
   } else if (yetkiliGorunum && t.durum === 'onaylandi') {
     butonlar = `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>
-      <button class="btn btn-sm btn-primary" onclick="moTedarikciyeGonder('${t.id}')">📧 Tedarikçiye Gönder</button>
-      <button class="btn btn-sm" onclick="moSaticiyaGonder('${t.id}')">📧 Satıcıya Gönder</button>`
-      + (t.tedarikciyeGonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ tedarikçiye</span>` : '')
-      + (t.gonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ satıcıya</span>` : '');
+      <button class="btn btn-sm btn-primary" onclick="moTedarikciyeGonder('${t.id}')">📧 Tedarikçiye Gönder</button>`
+      + (t.tedarikciyeGonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ tedarikçiye gönderildi</span>` : '');
   } else if (!yetkiliGorunum) {
-    butonlar = (t.durum === 'onaylandi') ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : '';
-    if (t.durum === 'onayda') butonlar += `<button class="btn btn-sm" onclick="moOnayIptal('${t.id}')">🗑 İptal</button>`;
+    if (t.durum === 'onaylandi') {
+      // Talep eden (satıcı) da onaylı MO'yu tedarikçiye gönderebilir.
+      butonlar = `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>
+        <button class="btn btn-sm btn-primary" onclick="moTedarikciyeGonder('${t.id}')">📧 Tedarikçiye Gönder</button>`
+        + (t.tedarikciyeGonderildi ? `<span style="font-size:11px;color:var(--green);align-self:center;">✓ tedarikçiye gönderildi</span>` : '');
+    } else if (t.durum === 'onayda') {
+      butonlar = `<button class="btn btn-sm" onclick="moOnayIptal('${t.id}')">🗑 İptal</button>`;
+    }
   }
   return `<div data-mo-no="${moEsc(t.no)}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="flex:1;min-width:200px;">${ust}${alt}</div>
@@ -19285,7 +19261,7 @@ function moOnayListeRender() {
     }
   }
   // Onayladıklarım — imzalama yetkilisinin onayladığı, henüz tedarikçiye
-  // gönderilmemiş MO'lar burada "Tedarikçiye/Satıcıya Gönder" butonlarıyla durur.
+  // gönderilmemiş MO'lar burada "Tedarikçiye Gönder" butonuyla durur.
   const onayladimBolum = document.getElementById('mo-onay-onayladim-bolum');
   const onayladimListe = document.getElementById('mo-onay-onayladim-liste');
   if (onayladimBolum && onayladimListe) {
@@ -19319,7 +19295,7 @@ function moArsivRender() {
   liste.innerHTML = kayitlar.map(t => {
     const tarihKb = (t.karar && t.karar.tarih) || t.olusturma || '';
     const tarih = tarihKb ? new Date(tarihKb).toLocaleDateString('tr-TR') : '—';
-    const damga = (t.tedarikciyeGonderildi ? ' · 📧 tedarikçiye' : '') + (t.gonderildi ? ' · 📧 satıcıya' : '');
+    const damga = (t.tedarikciyeGonderildi ? ' · 📧 tedarikçiye gönderildi' : '');
     const onayli = t.durum === 'onaylandi';
     return `<div data-mo-no="${moEsc(t.no)}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="flex:1;min-width:200px;">
@@ -19334,7 +19310,6 @@ function moArsivRender() {
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${onayli ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : ''}
         ${onayli && gonderebilir ? `<button class="btn btn-sm btn-primary" onclick="moTedarikciyeGonder('${t.id}')">📧 Tedarikçiye Gönder</button>` : ''}
-        ${onayli && gonderebilir ? `<button class="btn btn-sm" onclick="moSaticiyaGonder('${t.id}')">📧 Satıcıya Gönder</button>` : ''}
         ${admin ? `<button class="btn btn-sm" onclick="moArsivSil('${t.id}')">🗑 Sil</button>` : ''}
       </div>
     </div>`;
