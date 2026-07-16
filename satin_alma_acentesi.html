@@ -13572,6 +13572,21 @@ function derinLinkIsle() {
     setTimeout(() => gorevKartVurgula(gid), 250);
     return;
   }
+  // Mail Order linki: #mo=NO → Mail Order sayfasını aç + kaydı vurgula.
+  // Veri sayfa açılınca async yüklendiğinden burada MO_TALEPLER'i beklemeyiz;
+  // goPage tetikler, moTalepVurgula render sonrası satırı retry ile bulur.
+  const mmo = h.match(/(?:^|[&])mo=([^&]+)/i);
+  if (mmo) {
+    _derinLinkIslendi = true;
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(_) { location.hash = ''; }
+    if (typeof mailorderGorunur === 'function' && mailorderGorunur()) {
+      goPage('mailorder', document.getElementById('nav-mailorder'));
+      moTalepVurgula(mmo[1].trim());
+    } else {
+      showToast('Bu mail order kaydına erişim yetkiniz yok.');
+    }
+    return;
+  }
   const m = h.match(/(?:^|[&])talep=([^&]+)/i);
   if (!m) return;                         // link yok
   if (typeof TALEPLER === 'undefined' || !TALEPLER.length) return; // veri henüz gelmedi
@@ -18949,6 +18964,7 @@ async function moOnayBildirimGonder(t) {
           ${t.aciklama ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Açıklama</td><td>${moEsc(t.aciklama)}</td></tr>` : ''}
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep Eden</td><td>${moEsc(t.talepEdenAd)}</td></tr>
         </table>
+        ${moLinkButonuHtml(t.no, "🔗 MO'yu Aç ve Onayla")}
       </div>`;
     const ok = await graphMailHtmlGonder([t.yetkiliEmail], '[Mail Order Onayı] ' + t.no + ' — ' + t.tedarikci + ' onay bekliyor', html);
     if (!ok) showToast('⚠ Yetkiliye bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir. Uygulama içi onay listesinde görünür.');
@@ -19078,7 +19094,7 @@ function moTalepSatirHtml(t, yetkiliGorunum) {
     butonlar = (t.durum === 'onaylandi') ? `<button class="btn btn-sm" onclick="moOnayIndir('${t.id}')">📄 İndir</button>` : '';
     if (t.durum === 'onayda') butonlar += `<button class="btn btn-sm" onclick="moOnayIptal('${t.id}')">🗑 İptal</button>`;
   }
-  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
+  return `<div data-mo-no="${moEsc(t.no)}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="flex:1;min-width:200px;">${ust}${alt}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">${butonlar}</div>
     </div>`;
@@ -19121,7 +19137,7 @@ function moArsivRender() {
     const tarih = tarihKb ? new Date(tarihKb).toLocaleDateString('tr-TR') : '—';
     const damga = (t.tedarikciyeGonderildi ? ' · 📧 tedarikçiye' : '') + (t.gonderildi ? ' · 📧 satıcıya' : '');
     const onayli = t.durum === 'onaylandi';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
+    return `<div data-mo-no="${moEsc(t.no)}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;flex-wrap:wrap;">
       <div style="flex:1;min-width:200px;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-family:monospace;font-weight:700;">${moEsc(t.no)}</span>
@@ -19139,6 +19155,41 @@ function moArsivRender() {
       </div>
     </div>`;
   }).join('');
+}
+
+// Belirli bir MO'yu (no'ya göre) sayfada bul, kaydır ve vurgula.
+// goPage('mailorder') sonrası liste async yüklendiği için satır henüz DOM'da
+// olmayabilir → kısa aralıklarla birkaç kez dener (retry).
+function moTalepVurgula(no, kalan) {
+  no = (no == null ? '' : String(no)).trim();
+  if (!no) return;
+  kalan = (kalan == null) ? 25 : kalan;   // ~25 × 200ms ≈ 5sn dene (veri+render bekle)
+  const hedef = no.toLowerCase();
+  const el = Array.from(document.querySelectorAll('[data-mo-no]'))
+    .find(x => (x.getAttribute('data-mo-no') || '').trim().toLowerCase() === hedef);
+  if (!el) { if (kalan > 0) setTimeout(() => moTalepVurgula(no, kalan - 1), 200); return; }
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+  const eski = el.style.boxShadow;
+  el.style.transition = 'box-shadow 0.3s';
+  el.style.boxShadow = '0 0 0 3px var(--accent)';
+  setTimeout(() => { el.style.boxShadow = eski || ''; }, 2200);
+}
+
+// MO derin-link URL'i (bildirim mailine gömülür). MO NO'suna göre — cihazlar arası
+// kararlı. Tıklayan girince derinLinkIsle() #mo=NO'yu ele alır.
+function moDerinLink(no) {
+  no = (no == null ? '' : String(no)).trim();
+  if (!no) return location.origin + '/';
+  return location.origin + '/#mo=' + encodeURIComponent(no);
+}
+// Mail gövdesine yerleştirilecek "MO'yu Aç" butonu (HTML)
+function moLinkButonuHtml(no, etiket) {
+  const url = moDerinLink(no);
+  return '<div style="margin-top:18px;">'
+    + '<a href="' + url + '" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;'
+    + 'padding:10px 18px;border-radius:6px;font-weight:600;font-size:14px;">' + (etiket || "🔗 MO'yu Aç") + '</a>'
+    + '<div style="font-size:11px;color:#999;margin-top:6px;word-break:break-all;">' + url + '</div>'
+    + '</div>';
 }
 async function moArsivSil(id) {
   if (aktifKullanici?.rol !== 'admin') { showToast('Arşivden silme yetkisi yalnızca admin.'); return; }
