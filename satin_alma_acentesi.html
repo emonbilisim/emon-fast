@@ -17453,6 +17453,34 @@ function _mergeDizi(base, local, server, keyFn, noDelete = false) {
   return Array.from(sonuc.values());
 }
 
+// MÜŞTERİYE ÖZEL merge — firma BENZERSİZ kimlik anahtarı (positional #n YOK).
+// Neden ayrı: _mergeDizi tekrar-eden anahtarlara #0/#1 ekler (aynı ilk-5-alanlı MEŞRU
+// tedarikçi satırları içindi). Müşteride aynı firma İKİ kez = HER ZAMAN hata; uygulama
+// zaten firma'yı benzersiz sayar (talep.musteri===firma, findIndex(m=>m.firma)). Positional
+// anahtar, çoklu-istemci senkron churn'ünde aynı müşteriyi katlayıp DB'yi şişirmişti
+// (Aksa 56×, çoğu 16× — bkz olay 2026-07-16). Bu merge firma'ya göre DEDUP eder → mevcut
+// mükerrerler bir sonraki senkronda 1'e iner + gelecekte üremez. UNION (absence-delete YOK,
+// clobber-fix korunur); gerçek silme yalnız _silinenMusteriFirmalar. Bkz [[emon-fast-senkron-merge]].
+function _mergeMusteriler(base, local, server, silinen) {
+  base   = Array.isArray(base)   ? base   : [];
+  local  = Array.isArray(local)  ? local  : [];
+  server = Array.isArray(server) ? server : [];
+  const key = r => String(r && r.firma);
+  const byKey = arr => { const m = new Map(); for (const r of arr) if (!m.has(key(r))) m.set(key(r), r); return m; }; // ilk-gelen kazanır → collapse
+  const baseM = byKey(base), localM = byKey(local);
+  const sonuc = byKey(server);                          // union server'dan başlar (dedup'lı)
+  for (const [k, r] of localM) {
+    const b = baseM.get(k);
+    if (b === undefined) { sonuc.set(k, r); continue; }        // yerelde yeni müşteri
+    if (_canon(b) === _canon(r)) continue;                      // yerelde değişmemiş → sunucudaki kalsın
+    const s = sonuc.get(k);
+    sonuc.set(k, s === undefined ? r : _kayitBirlestir(b, r, s)); // alan-bazlı birleştir
+  }
+  let out = Array.from(sonuc.values());                        // absence-delete YOK (union)
+  if (silinen && silinen.size) out = out.filter(m => !silinen.has(key(m)));
+  return out;
+}
+
 // Anahtarlı obje birleştirme (örn. talepTeklifleri: talepNo → teklifler)
 function _mergeObje(base, local, server) {
   base = base || {}; local = local || {}; server = server || {};
@@ -17505,14 +17533,9 @@ function _mergeKaydet(local, server, base, noDelete = false) {
       }
     });
   } catch (_) {}
-  // MUSTERILER: DAİMA UNION (noDelete:true). TALEPLER ile aynı gerekçe — yokluk asla
-  // silme sayılmaz, aksi halde _sunucuBaz'ı in-memory'den ileri kalmış bir istemci
-  // (push _sunucuBaz'ı günceller ama MUSTERILER'e backfill etmez) başkasının müşterisini
-  // absence-delete ile ezer. Gerçek silme yalnız bu oturumda açıkça kaldırılan firmalar için.
-  sonuc.MUSTERILER      = _mergeDizi(base.MUSTERILER,      local.MUSTERILER,      server.MUSTERILER,      r => r.firma, true);
-  if (_silinenMusteriFirmalar && _silinenMusteriFirmalar.size) {
-    sonuc.MUSTERILER = sonuc.MUSTERILER.filter(m => !_silinenMusteriFirmalar.has(String(m && m.firma)));
-  }
+  // MUSTERILER: firma-anahtarlı DEDUP + UNION (positional #n yok → mükerrerleri collapse eder,
+  // clobber'ı önler). Gerçek silme yalnız bu oturumda açıkça kaldırılan firmalar (_silinenMusteriFirmalar).
+  sonuc.MUSTERILER      = _mergeMusteriler(base.MUSTERILER, local.MUSTERILER, server.MUSTERILER, _silinenMusteriFirmalar);
   sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
   sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
   // Tombstone (onaylanan/reddedilen kayıt anahtarları) — base/local/server birleşimi,
