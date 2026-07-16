@@ -4099,6 +4099,7 @@ function tedarikciSil(idx) {
   }
   const firma = TEDARIKCILER[idx][0];
   if (confirm(`"${firma}" tedarikçisini listeden silmek istediğinize emin misiniz?`)) {
+    _silinenTedarikciKeyler.add(_canon(TEDARIKCILER[idx])); // union merge yalnız açıkça silineni düşürsün
     TEDARIKCILER.splice(idx, 1);
     filterTedarikciler();
     showToast(`"${firma}" silindi.`); kaliciVeriKaydet('Tedarikçi silme');
@@ -5810,6 +5811,7 @@ function crmAktiviteSil(id) {
     showToast('Sadece kendi eklediğiniz kaydı silebilirsiniz.'); return;
   }
   if (!confirm('Bu etkileşim kaydı silinsin mi?')) return;
+  _silinenCrmIdler.add(String(id)); // union merge yalnız açıkça silineni düşürsün
   CRM_AKTIVITELER.splice(i, 1);
   veriKaydet(); crmRender(); renderPanelTakip();
   showToast('Kayıt silindi.');
@@ -7696,6 +7698,7 @@ function yeniTeklifSatirEkle() {
   const rfqFirmalar = Array.from(rfqSeciliTedarikciler);
   const eklenecek = rfqFirmalar.find(f => !mevcutlar.includes(f)) || '';
   const manuelMod = !eklenecek; // RFQ'dan tedarikçi kalmadıysa manuel mod
+  if (eklenecek) _silinenTeklifSatir.delete(String(t.no) + '|' + eklenecek); // sil→yeniden ekle: silme seti düşürmesin
   talepTeklifleri[t.no].push({
     tedarikci: eklenecek,
     _manuelMod: manuelMod,
@@ -7750,6 +7753,8 @@ function talepTeklifGuncelle(i, alan, deger) {
 
 function talepTeklifSil(i) {
   const t = TALEPLER[aktifTalepIdx];
+  const _sil = talepTeklifleri[t.no]?.[i]?.tedarikci; // union merge yalnız açıkça silinen satırı düşürsün
+  if (_sil != null) _silinenTeklifSatir.add(String(t.no) + '|' + _sil);
   talepTeklifleri[t.no].splice(i, 1);
   renderTalepTeklifleri();
   veriKaydet(); // teklif satırı silme ortak sunucuya yazılsın (merge'de geri gelmesin)
@@ -17376,6 +17381,16 @@ let _silinenTalepNolar = new Set();
 // clobber). Gerçek silme YALNIZ bu kümedeki firmalar için uygulanır. Bkz. [[emon-fast-senkron-merge]].
 let _silinenMusteriFirmalar = new Set();
 
+// Bu OTURUMDA açıkça silinen KRİTİK koleksiyon kayıtları. TEDARIKCILER/CRM_AKTIVITELER/
+// talepTeklifleri artık DAİMA UNION (yokluk asla silme sayılmaz) → bayat/eksik bir istemci,
+// başka kullanıcının eklediği/doldurduğu kaydı kendi local'inde bulamayınca merge'de
+// DÜŞÜREMEZ ("RFQ maliyet detayı / tedarikçi / CRM kaydı bir süre sonra kayboluyor").
+// Gerçek silme YALNIZ bu setlerdeki kayıtlar için uygulanır. Push başarısında temizlenir
+// (kimlik canon/kompozit → aynı içerikle yeniden-ekleme filtrelenmesin). Bkz [[emon-fast-senkron-merge]].
+let _silinenTedarikciKeyler = new Set(); // tam-satır _canon
+let _silinenCrmIdler        = new Set(); // CRM_AKTIVITELER id
+let _silinenTeklifSatir     = new Set(); // talepTeklifleri satırı: 'talepNo|tedarikci'
+
 function _mkey(r, keyFn) {
   try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
   catch { return JSON.stringify(r); }
@@ -17489,15 +17504,33 @@ function _mergeMusteriler(base, local, server, silinen) {
   return out;
 }
 
-// Anahtarlı obje birleştirme (örn. talepTeklifleri: talepNo → teklifler)
-function _mergeObje(base, local, server) {
+// Anahtarlı obje birleştirme (talepTeklifleri: talepNo → teklif satırları [RFQ maliyet]).
+// UNION + SATIR-BAZLI: (1) key yerelde yoksa YOKLUK-SİLME YAPMA → sunucudakini koru (bayat
+// istemci başkasının RFQ detayını düşürmesin); (2) aynı talebin teklif satırlarını
+// tedarikçi-anahtarlı SATIR+ALAN bazlı birleştir → iki kullanıcı aynı talebin FARKLI
+// tedarikçi satırlarını doldurursa biri diğerini WHOLE-ARRAY ile ezmesin. Gerçek silme
+// yalnız açıkça silinen talep no'ları (silinenAnahtar=_silinenTalepNolar) ve teklif
+// satırları (silinenSatir=_silinenTeklifSatir, 'talepNo|tedarikci') için.
+function _mergeObje(base, local, server, silinenAnahtar, silinenSatir) {
   base = base || {}; local = local || {}; server = server || {};
-  const sonuc = { ...server };
-  for (const k of Object.keys(local)) {
-    if (_canon(local[k]) !== _canon(base[k])) sonuc[k] = local[k];
+  const sonuc = { ...server };                         // UNION: sunucudan başla
+  const anahtarlar = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(server)]);
+  for (const k of anahtarlar) {
+    if (!Object.prototype.hasOwnProperty.call(local, k)) continue; // yerelde yok → sunucudaki kalsın
+    const lv = local[k], bv = base[k], sv = server[k];
+    if (Array.isArray(lv) && Array.isArray(sv)) {
+      // teklif satırları: tedarikçi-anahtarlı union + alan-bazlı (bkz _kayitBirlestir)
+      let birlesik = _mergeDizi(bv || [], lv, sv, r => r && r.tedarikci, true);
+      if (silinenSatir && silinenSatir.size) {
+        birlesik = birlesik.filter(r => !silinenSatir.has(String(k) + '|' + (r && r.tedarikci)));
+      }
+      sonuc[k] = birlesik;
+    } else if (_canon(lv) !== _canon(bv)) {
+      sonuc[k] = lv;                                    // dizi değil / yerelde değişti
+    }                                                   // else: sunucudaki korunur
   }
-  for (const k of Object.keys(base)) {
-    if (!(k in local)) delete sonuc[k];
+  if (silinenAnahtar && silinenAnahtar.size) {          // gerçek talep silme → bağlı teklifleri de düş
+    for (const k of Object.keys(sonuc)) if (silinenAnahtar.has(String(k))) delete sonuc[k];
   }
   return sonuc;
 }
@@ -17544,8 +17577,12 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   // MUSTERILER: firma-anahtarlı DEDUP + UNION (positional #n yok → mükerrerleri collapse eder,
   // clobber'ı önler). Gerçek silme yalnız bu oturumda açıkça kaldırılan firmalar (_silinenMusteriFirmalar).
   sonuc.MUSTERILER      = _mergeMusteriler(base.MUSTERILER, local.MUSTERILER, server.MUSTERILER, _silinenMusteriFirmalar);
-  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), noDelete);
-  sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, noDelete);
+  // TEDARIKCILER/CRM: DAİMA UNION (yokluk asla silme sayılmaz — absence-delete clobber'ı önle);
+  // gerçek silme yalnız bu oturumda açıkça silinen kayıtlar (tam-satır canon / id) için.
+  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), true);
+  if (_silinenTedarikciKeyler.size) sonuc.TEDARIKCILER = sonuc.TEDARIKCILER.filter(r => !_silinenTedarikciKeyler.has(_canon(r)));
+  sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, true);
+  if (_silinenCrmIdler.size) sonuc.CRM_AKTIVITELER = sonuc.CRM_AKTIVITELER.filter(r => !_silinenCrmIdler.has(String(r && r.id)));
   // Tombstone (onaylanan/reddedilen kayıt anahtarları) — base/local/server birleşimi,
   // en yeni zaman damgası; 21 günden eski kayıtlar budanır. Merge sonucu bu anahtarlara
   // sahip bekleyen kayıtlar HER YERDEN filtrelenir → onaylanan talep geri enjekte olamaz.
@@ -17556,12 +17593,14 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   const _tombKesim = Date.now() - 21 * 24 * 3600 * 1000;
   for (const k in _tomb) if (_tomb[k] < _tombKesim) delete _tomb[k];
   const _tombFiltre = arr => (arr || []).filter(r => !(_onayKey(r) in _tomb));
+  // ONAY_BEKLEYENLER: UNION (yokluk silme değil) → bayat istemci başkasının yeni onay
+  // talebini düşürmesin; gerçek "işlendi" silmesi tombstone ile (_tombFiltre onaylanan/reddeddileni düşürür).
   sonuc.ONAY_BEKLEYENLER = {
-    musteriler:   _tombFiltre(_mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   _onayKey, noDelete)),
-    tedarikciler: _tombFiltre(_mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, _onayKey, noDelete)),
+    musteriler:   _tombFiltre(_mergeDizi(ob.musteriler,   ol.musteriler,   os.musteriler,   _onayKey, true)),
+    tedarikciler: _tombFiltre(_mergeDizi(ob.tedarikciler, ol.tedarikciler, os.tedarikciler, _onayKey, true)),
     _tombstone:   _tomb,
   };
-  sonuc.talepTeklifleri = _mergeObje(base.talepTeklifleri, local.talepTeklifleri, server.talepTeklifleri);
+  sonuc.talepTeklifleri = _mergeObje(base.talepTeklifleri, local.talepTeklifleri, server.talepTeklifleri, _silinenTalepNolar, _silinenTeklifSatir);
   sonuc.KULLANICILAR    = _adminSahipli(local.KULLANICILAR, server.KULLANICILAR);
   sonuc.AYARLAR         = _adminSahipli(local.AYARLAR,      server.AYARLAR);
   sonuc.FP_KURALLAR     = _adminSahipli(local.FP_KURALLAR,  server.FP_KURALLAR);
@@ -17622,6 +17661,9 @@ async function _veriPush(veri) {
       delete yeniBaz.taleplerKasten; // meta bayrak; sunucu verisinin parçası değil
       _sunucuBaz = yeniBaz;
       _kayitGerekli = false; _taleplerKastenSilindi = false;
+      // Silme sunucuya yazıldı (gonderilecek filtreliydi, _sunucuBaz de öyle) → canon/kompozit
+      // silme setlerini temizle ki aynı içerikle YENİDEN-EKLEME sonraki merge'de filtrelenmesin.
+      _silinenTedarikciKeyler.clear(); _silinenCrmIdler.clear(); _silinenTeklifSatir.clear();
     } else {
       // POST başarısız (sunucu çekilebildi ama yazılamadı): retry bayrağını kur.
       // Aksi halde değişiklik yalnız bellekte/localStorage'da kalır ve 45 sn sonra
