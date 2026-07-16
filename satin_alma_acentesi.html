@@ -1872,6 +1872,17 @@
       </div>
     </div>
 
+    <!-- Sunucu Deposu / Sistem Durumu -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+        <div class="card-title" style="margin:0;">🖥 Sunucu Deposu</div>
+        <span style="font-size:11px;color:var(--text3);">uzak sunucu (Hetzner) disk + veritabanı kullanımı</span>
+        <div style="flex:1;"></div>
+        <button class="btn btn-sm" onclick="sistemDurumYukle()">↻ Yenile</button>
+      </div>
+      <div id="sistem-durum-icerik" style="font-size:13px;color:var(--text3);">Ayarlar açıldığında yüklenir…</div>
+    </div>
+
     <!-- Mail İmzası -->
     <div class="card" style="margin-top:16px;">
       <div class="card-title" style="margin-bottom:4px;">✉️ Mail İmzası</div>
@@ -4482,7 +4493,7 @@ function goPage(id, el) {
   if (id === 'teklifler') { renderMusteriTeklifleri(); teklifTaramaBaslat(); }
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
-  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); otoHatirlatDurumGuncelle(); hpListeDurumGuncelle(); }
+  if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); otoHatirlatDurumGuncelle(); hpListeDurumGuncelle(); sistemDurumYukle(); }
   if (id === 'crm') renderCRM();
   if (id === 'gorevler') { renderGorevler(); gorevlerYenile(); }
   if (id === 'mailorder') { renderMailOrder(); moYenile(); }
@@ -13837,6 +13848,46 @@ function moOnayciAd() {
   return k ? k.ad : email;
 }
 
+// ── SUNUCU DEPOSU / SİSTEM DURUMU (uzak sunucu disk + DB, admin) ──────
+function _sysBoyut(b) {
+  b = Number(b) || 0;
+  if (b >= 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
+  if (b >= 1048576) return (b / 1048576).toFixed(0) + ' MB';
+  if (b >= 1024) return (b / 1024).toFixed(0) + ' KB';
+  return b + ' B';
+}
+async function apiSistemDurum() {
+  const token = apiTokenAl(); if (!token) return null;
+  try {
+    const r = await fetch(API_URL + '/api/sistem/durum', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return { hata: 'HTTP ' + r.status }; }
+    return await r.json();
+  } catch (e) { return { hata: e.message }; }
+}
+async function sistemDurumYukle() {
+  const el = document.getElementById('sistem-durum-icerik');
+  if (!el) return;
+  if (aktifKullanici?.rol !== 'admin') { el.textContent = 'Yalnızca admin görebilir.'; return; }
+  el.textContent = 'Yükleniyor…';
+  const d = await apiSistemDurum();
+  if (!d || d.hata || !d.ok) {
+    el.innerHTML = '<span style="color:var(--amber);">⚠ Sunucu durumu alınamadı' + (d && d.hata ? ' (' + moEsc(d.hata) + ')' : '') + '. (Endpoint deploy ile eklenir — yeni deploy sonrası tekrar deneyin.)</span>';
+    return;
+  }
+  let html = '';
+  if (d.disk && !d.disk.hata) {
+    const y = d.disk.yuzde || 0;
+    const renk = y >= 90 ? 'var(--red)' : y >= 70 ? 'var(--amber)' : 'var(--green)';
+    html += `<div style="margin-bottom:4px;"><b>Disk (/):</b> ${_sysBoyut(d.disk.kullanilan)} / ${_sysBoyut(d.disk.toplam)} kullanıldı · <span style="color:${renk};font-weight:700;">%${y}</span> · boş ${_sysBoyut(d.disk.bos)}</div>`;
+    html += `<div style="height:10px;background:var(--bg3);border-radius:6px;overflow:hidden;margin:4px 0 12px;"><div style="height:100%;width:${Math.min(100, y)}%;background:${renk};"></div></div>`;
+  } else {
+    html += `<div style="color:var(--amber);margin-bottom:8px;">Disk bilgisi alınamadı${d.disk && d.disk.hata ? ' (' + moEsc(d.disk.hata) + ')' : ''}.</div>`;
+  }
+  if (d.db && !d.db.hata) html += `<div><b>Veritabanı boyutu:</b> ${_sysBoyut(d.db.boyut)}</div>`;
+  if (d.zaman) html += `<div style="font-size:11px;color:var(--text3);margin-top:8px;">Ölçüm: ${new Date(d.zaman).toLocaleString('tr-TR')}</div>`;
+  el.innerHTML = html;
+}
+
 function crmAktifDurumGuncelle() {
   const cb = document.getElementById('ayar-crm-aktif');
   if (cb) cb.checked = !!AYARLAR.crmAktif;
@@ -18926,7 +18977,7 @@ function moKopyalaKart(id, alan) { const k = MO.kartlar.find(x => x.id === id); 
 
 function moUretDeger(key, ctx) {
   switch (key) {
-    case 'tutar': return ctx.tutar;
+    case 'tutar': return ctx.tutar ? '#' + ctx.tutar + '#' : '';   // baş/sona '#' (araya rakam eklenmesin)
     case 'tutarYazi': return moTutarYaziyla(ctx.tutar);
     case 'kartNo': return moNoBicim(ctx.kart.no);
     case 'kartNo1': return moKartHaneleri(ctx.kart.no).slice(0, 4);

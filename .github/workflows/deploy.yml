@@ -545,6 +545,42 @@ jobs:
             PATCH
             node /tmp/emon-patch-mo.js
 
+      - name: Patch backend (sistem-durum — disk/DB kapasitesi, admin-only)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cat > /tmp/emon-patch-sistem.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            if (s.includes('// sistem-durum v1')) { console.log('sistem-durum zaten var'); process.exit(0); }
+            const route =
+              "app.get('/api/sistem/durum', authMiddleware, async (req, res) => { // sistem-durum v1\n" +
+              "  try {\n" +
+              "    if (!req.kullanici || req.kullanici.rol !== 'admin') return res.status(403).json({ ok: false, hata: 'yalniz admin' });\n" +
+              "    let disk = null;\n" +
+              "    try {\n" +
+              "      const out = require('child_process').execSync('df -kP /', { encoding: 'utf8' }).trim().split('\\n');\n" +
+              "      const c = out[out.length - 1].split(/\\s+/);\n" +
+              "      const toplam = Number(c[1]) * 1024, kullanilan = Number(c[2]) * 1024, bos = Number(c[3]) * 1024;\n" +
+              "      disk = { toplam, kullanilan, bos, yuzde: toplam ? Math.round(kullanilan / toplam * 100) : 0 };\n" +
+              "    } catch (e) { disk = { hata: e.message }; }\n" +
+              "    let db = null;\n" +
+              "    try { const r = await pool.query('SELECT pg_database_size(current_database()) AS b'); db = { boyut: Number(r.rows[0].b) }; } catch (e) { db = { hata: e.message }; }\n" +
+              "    res.json({ ok: true, disk, db, zaman: new Date().toISOString() });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n";
+            if (!s.includes("app.get('/api/saglik'")) { console.log('UYARI: /api/saglik bulunamadi, sistem-durum eklenemedi'); process.exit(0); }
+            fs.writeFileSync(f + '.bak.sistem', s);
+            s = s.replace("app.get('/api/saglik'", route + "\napp.get('/api/saglik'");
+            fs.writeFileSync(f, s);
+            console.log('sistem-durum route eklendi');
+            PATCH
+            node /tmp/emon-patch-sistem.js
+
       - name: Patch backend (veri-guard — katastrofik tablo kaybi korumasi)
         uses: appleboy/ssh-action@master
         with:
