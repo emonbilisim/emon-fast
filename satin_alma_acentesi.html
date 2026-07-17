@@ -5261,7 +5261,13 @@ async function kaliciVeriKaydet(etiket) {
   if (typeof veriKaydet === 'function') veriKaydet();          // güncel snapshot'ı hazırla
   let ok = false;
   try { if (typeof veriKaydetFlush === 'function') ok = await veriKaydetFlush(); } catch (_) {}
-  if (!ok) showToast('⚠ ' + (etiket || 'Değişiklik') + ' yerel olarak kaydedildi ama sunucuya hemen yazılamadı — bağlantı sağlanınca otomatik gönderilecek.');
+  if (!ok) {
+    // Token varsa bağlantı sorunu (oto-retry); token yoksa oturum geçersiz → yeniden giriş şart.
+    const tokenVar = (typeof apiTokenAl === 'function') && apiTokenAl();
+    showToast('⚠ ' + (etiket || 'Değişiklik') + ' yerel olarak kaydedildi ama sunucuya yazılamadı — '
+      + (tokenVar ? 'bağlantı sağlanınca otomatik gönderilecek.' : 'oturumunuz geçersiz, YENİDEN GİRİŞ yapın (aksi halde kaybolur).'));
+    try { _senkronBandDegerlendir(); } catch (_) {}
+  }
   return ok;
 }
 function onayBadgeGuncelle() {
@@ -10801,6 +10807,7 @@ async function cikisYap() {
   // Aksi halde değişiklik yalnız localStorage'da kalır; yeniden girişte apiVeriYukle
   // belleği sunucudaki eski veriyle ezer ve düzenleme kaybolur.
   try { await veriKaydetFlush(); } catch (_) {}
+  try { _senkronBandGuncelle('ok'); } catch (_) {} // çıkışta senkron uyarı bandını kaldır
   aktifKullanici = null;
   msGraphToken = null;
   if (_msTokenRefreshTimer) { clearInterval(_msTokenRefreshTimer); _msTokenRefreshTimer = null; }
@@ -17617,7 +17624,13 @@ let _sonKayitVeri = null;
 // zamanlayıcısı hem de veriKaydetFlush (çıkış öncesi) bu tek yoldan geçer →
 // kayıt mantığı tek yerde, çıkışta da await edilebilir.
 async function _veriPush(veri) {
-  if (!veri || !apiTokenAl()) { _apiKaydetBekliyor = false; return false; }
+  if (!veri || !apiTokenAl()) {
+    _apiKaydetBekliyor = false;
+    // Token yok → düzenleme sunucuya gidemez. localStorage'da duruyor ama sessiz kalma:
+    // görünür uyarı çıkar (aktif kullanıcı varsa; giriş ekranındaysa band gösterme).
+    if (veri && aktifKullanici) { _kayitGerekli = true; _senkronBandGuncelle('token'); }
+    return false;
+  }
   try {
     // Kayıt-bazlı birleştirme: sunucunun güncel halini çek, kendi
     // değişikliklerimi onun üstüne uygula → başka kullanıcıların kayıtları ezilmez
@@ -17628,6 +17641,7 @@ async function _veriPush(veri) {
       // full-replace ile ezer. localStorage'da duruyor; bayrağı kur, periyodik
       // tazeleme tekrar denesin.
       _kayitGerekli = true;
+      _senkronBandGuncelle('baglanti'); // görünür uyarı: sunucuya ulaşılamadı, oto-retry
       return false;
     }
     // GÜVENLİK: Bu oturumda henüz sunucu temeli kurulmadıysa (açılışta apiVeriYukle
@@ -17661,6 +17675,7 @@ async function _veriPush(veri) {
       delete yeniBaz.taleplerKasten; // meta bayrak; sunucu verisinin parçası değil
       _sunucuBaz = yeniBaz;
       _kayitGerekli = false; _taleplerKastenSilindi = false;
+      _senkronBandGuncelle('ok'); // sunucuya başarıyla yazıldı → uyarı bandı kalksın
       // Silme sunucuya yazıldı (gonderilecek filtreliydi, _sunucuBaz de öyle) → canon/kompozit
       // silme setlerini temizle ki aynı içerikle YENİDEN-EKLEME sonraki merge'de filtrelenmesin.
       _silinenTedarikciKeyler.clear(); _silinenCrmIdler.clear(); _silinenTeklifSatir.clear();
@@ -17671,6 +17686,7 @@ async function _veriPush(veri) {
       // Bayrak: periyodik timer pull'dan ÖNCE push'u tekrar dener + sunucudanTazele
       // bayrak varken pull yapmaz (kaydedilmemiş değişikliği koru).
       _kayitGerekli = true;
+      _senkronBandGuncelle('baglanti'); // görünür uyarı: yazılamadı, oto-retry
     }
     return ok;
   } catch (_) {
@@ -17687,6 +17703,42 @@ async function veriKaydetFlush() {
   if (_apiKaydetTimer) { clearTimeout(_apiKaydetTimer); _apiKaydetTimer = null; }
   if (_sonKayitVeri && apiTokenAl()) return await _veriPush(_sonKayitVeri);
   return false;
+}
+
+// SENKRON UYARI BANDI — değişiklik sunucuya YAZILAMADIĞINDA görünür, kalıcı uyarı.
+// Sessiz veri-kaybının (çevrimdışı/token'sız giriş → düzenleme cihazdan çıkmaz, ama
+// müşteri maili Graph ile client-side yine gider → "girdim, kayboldu") kök çözümü.
+// durum: 'ok' (bandı kaldır) | 'token' (kırmızı, yeniden giriş şart) | 'baglanti' (amber, oto-retry).
+let _senkronBandDurum = 'ok';
+function _senkronBandGuncelle(durum) {
+  if (durum === _senkronBandDurum) return;                  // gereksiz DOM churn'ü önle
+  _senkronBandDurum = durum;
+  const mevcut = document.getElementById('senkron-uyari-bandi');
+  if (durum === 'ok') { if (mevcut) mevcut.remove(); return; }
+  const bant = mevcut || document.createElement('div');
+  bant.id = 'senkron-uyari-bandi';
+  const kirmizi = (durum === 'token');
+  bant.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99998;display:flex;'
+    + 'align-items:center;justify-content:center;gap:14px;padding:10px 16px;flex-wrap:wrap;'
+    + 'color:#fff;font-size:13px;font-weight:600;box-shadow:0 -2px 12px rgba(0,0,0,0.28);'
+    + 'background:' + (kirmizi ? 'linear-gradient(90deg,#b91c1c,#dc2626)' : 'linear-gradient(90deg,#b45309,#d97706)') + ';';
+  bant.innerHTML = kirmizi
+    ? '<span>⛔ Değişiklikleriniz sunucuya KAYDEDİLMİYOR — oturumunuz geçersiz veya çevrimdışısınız. '
+      + 'Veri kaybını önlemek için yeniden giriş yapın.</span>'
+      + '<button id="senkron-giris-btn" style="background:#fff;color:#b91c1c;border:0;border-radius:6px;'
+      + 'padding:5px 14px;font-weight:700;cursor:pointer;font-size:13px;">Yeniden Giriş</button>'
+    : '<span>⚠ Sunucuya bağlanılamıyor — değişiklikleriniz yerelde bekliyor, bağlantı gelince otomatik gönderilecek.</span>';
+  if (!mevcut) document.body.appendChild(bant);
+  if (kirmizi) {
+    const b = document.getElementById('senkron-giris-btn');
+    if (b) b.onclick = () => { try { oturumSuresiDoldu(); } catch (_) {} };
+  }
+}
+// _kayitGerekli / token durumuna göre bandı yeniden değerlendir (periyodik + olay-bazlı).
+function _senkronBandDegerlendir() {
+  if (!aktifKullanici) { _senkronBandGuncelle('ok'); return; } // giriş ekranı → band yok
+  if (!_kayitGerekli)  { _senkronBandGuncelle('ok'); return; } // sunucuya yazılamamış değişiklik yok
+  _senkronBandGuncelle(apiTokenAl() ? 'baglanti' : 'token');
 }
 
 function veriKaydet() {
@@ -17724,7 +17776,9 @@ function veriKaydet() {
     // otomatik kayıt) PUSH PLANLAMA — yakalanan bayat snapshot 1 sn sonra sunucuya
     // yazılıp taze veriyi ezer (load-time clobber). Temel kurulunca periyodik tazeleme
     // _kayitGerekli ile güncel veriyi gönderir.
-    if (!_sunucuBaz) { _kayitGerekli = true; return; }
+    // Token varken base henüz kurulmadıysa (online açılış) bekle — bu geçici, band GÖSTERME.
+    // Token YOKSA (çevrimdışı/geçersiz oturum) düzenleme sunucuya ASLA gitmez → HEMEN uyar.
+    if (!_sunucuBaz) { _kayitGerekli = true; if (!apiTokenAl()) _senkronBandDegerlendir(); return; }
 
     // Sonra API'ye gönder (debounce — 1 saniyede bir) — HER ZAMAN MERGE
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
@@ -17855,6 +17909,7 @@ window.addEventListener('focus', () => sunucudanTazele());
 _tazelemeTimer = setInterval(() => {
   if (typeof window.surumKontrolEt === 'function') window.surumKontrolEt(); // yeni deploy bandı için sürüm kontrolü
   if (typeof moBadgeYenile === 'function') moBadgeYenile().catch(() => {}); // MO rozeti (onay/gönderim bekleyen) tazele
+  _senkronBandDegerlendir(); // sunucuya yazılamamış değişiklik + token durumuna göre uyarı bandı
   if (_kayitGerekli && apiTokenAl() && !_apiKaydetBekliyor) { veriKaydet(); return; }
   sunucudanTazele();
 }, 45000);
