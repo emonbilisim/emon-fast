@@ -931,6 +931,17 @@
             </td>
           </tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Not</td><td id="td-not" style="color:var(--text2);"></td></tr>
+          <tr>
+            <td style="color:var(--text3);padding:5px 0;vertical-align:top;">🖼 Görseller</td>
+            <td>
+              <div id="td-gorsel-liste" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
+                <input type="file" id="td-gorsel-dosya" accept="image/*" multiple onchange="tdGorselEkle(this)" style="font-size:11px;color:var(--text2);max-width:220px;">
+                <span id="td-gorsel-info" style="font-size:11px;color:var(--text3);"></span>
+              </div>
+              <div style="font-size:11px;color:var(--text3);margin-top:3px;">RFQ mailinde tedarikçilere referans olarak iliştirilir.</div>
+            </td>
+          </tr>
         </table>
       </div>
 
@@ -2485,6 +2496,19 @@
       <input type="text" id="talep-musteri-no" placeholder="Müşterinin size ilettiği talep / sipariş numarası...">
     </div>
     <div class="form-group"><label class="form-label">Not</label><textarea id="talep-not" placeholder="Ek notlar..." style="min-height:50px;"></textarea></div>
+
+    <div class="form-group">
+      <label class="form-label" style="display:flex;align-items:center;gap:6px;">
+        🖼 Örnek Ürün Görselleri
+        <span style="font-size:11px;color:var(--text3);font-weight:400;">(opsiyonel)</span>
+      </label>
+      <div style="background:var(--bg3);border:1px dashed var(--border2);border-radius:var(--radius);padding:10px 12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <input type="file" id="talep-gorsel-dosya" accept="image/*" multiple onchange="talepGorselSec(this)" style="font-size:12px;color:var(--text2);">
+        <div id="talep-gorsel-info" style="font-size:11px;color:var(--text3);"></div>
+      </div>
+      <div id="talep-gorsel-onizleme" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Müşterinin gönderdiği örnek görseller. RFQ mailinde tedarikçilere referans olarak iliştirilir.</div>
+    </div>
 
     <div id="talep-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:12px;"></div>
     <div class="modal-footer">
@@ -4548,6 +4572,293 @@ function showToast(msg) {
 }
 
 /* ──────────────────────────────────────────────────────────────
+   TALEP GÖRSELLERİ — müşterinin gönderdiği örnek ürün görselleri;
+   RFQ mailinde tedarikçiye referans olarak iliştirilir.
+   Base64 görsel ana /api/veri blobuna GİRMEZ (kaşe/formlarla aynı gerekçe:
+   blob şişer + her küçük değişiklikte tüm görseller yeniden upload olur).
+   Ayrı /api/talep-gorsel deposu; TALEPLER'de yalnız hafif meta durur
+   (t.gorseller = [{id, ad, tip, boyut}]), b64 asla yazılmaz.
+   ────────────────────────────────────────────────────────────── */
+const TALEP_GORSEL_CACHE = {};   // id → {id, ad, tip, b64} (bellek-içi; sunucu yetkili)
+const GORSEL_MAX_PX = 1600;      // uzun kenar — mail eki için fazlası gereksiz
+const GORSEL_KALITE  = 0.82;
+
+// Dosyayı canvas ile küçültüp JPEG data URL'e çevirir (PNG şeffaflığı beyaza düşer —
+// ürün fotoğrafı için sorun değil, boyut kazancı büyük). moKaseYukle deseni.
+function gorselKucult(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('Dosya okunamadı'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Görsel çözümlenemedi'));
+      img.onload = () => {
+        const olcek = Math.min(1, GORSEL_MAX_PX / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width  = Math.max(1, Math.round(img.width  * olcek));
+        c.height = Math.max(1, Math.round(img.height * olcek));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', GORSEL_KALITE));
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+function gorselYeniId() {
+  return 'tg-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+// data:image/jpeg;base64,XXX → {tip:'image/jpeg', b64:'XXX'}
+function gorselB64Ayir(dataUrl) {
+  const m = String(dataUrl || '').match(/^data:([^;]+);base64,(.*)$/);
+  return m ? { tip: m[1], b64: m[2] } : null;
+}
+
+async function apiTalepGorselKaydet(g) {
+  const token = apiTokenAl();
+  if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/talep-gorsel', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(g)
+    });
+    if (r.status === 401) oturumSuresiDoldu();
+    if (r.status === 413) showToast('⚠ Görsel çok büyük — sunucu reddetti. Daha küçük bir görsel deneyin.');
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+async function apiTalepGorselSil(id) {
+  const token = apiTokenAl();
+  if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/talep-gorsel/' + encodeURIComponent(id), {
+      method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+
+// Talebin görsellerini (b64 dahil) sunucudan çeker + önbelleğe alır.
+// Dönüş: dizi (başarı, boş olabilir) | null (HATA — "hiç görsel yok" ile
+// karıştırılmamalı; çağıran null'da meta'yı ASLA temizlememeli).
+async function talepGorselleriGetir(talepNo) {
+  const token = apiTokenAl();
+  if (!token || !talepNo) return null;
+  try {
+    const r = await fetch(API_URL + '/api/talep-gorseller/' + encodeURIComponent(talepNo), {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
+    const v = await r.json();
+    const liste = Array.isArray(v.gorseller) ? v.gorseller : [];
+    liste.forEach(g => { if (g && g.id) TALEP_GORSEL_CACHE[g.id] = g; });
+    return liste;
+  } catch (e) { return null; }
+}
+
+// Sunucu listesinden meta'ya EKLEME yapar — asla silmez (union).
+// Gerekçe: t.gorseller ana blob'la senkronlanır; aynı talebe iki kişi aynı anda
+// görsel eklerse alan-seviyesi merge'de bir tarafın meta'sı kaybolur (görsel
+// tabloda durur ama görünmez) → buradan geri kazanılır. Ağır b64 zaten çekildiği
+// için bedavaya gelir.
+// YOKLUK = SİLME DEĞİLDİR (bkz. _mergeObje alan-seviyesi koruması): listede
+// olmayan meta DÜŞÜRÜLMEZ. Sunucu listesi talep_no ile sorgulanır ve talep no'su
+// sonradan değişebilir (talepNoKesinlestir: geçici → kesin), yani boş liste çoğu
+// zaman "silinmiş" değil "başka no altında" demektir. Boş listeye güvenip meta'yı
+// temizlemek kullanıcının görsellerini sessizce yok eder.
+// Gerçek silme iki yoldan olur: tdGorselSil (yerelde açıkça düşürür) veya
+// gorselYokOldugunuDogrula (sunucu 404 → kesin yok).
+function talepGorselMetaBirlestir(t, liste) {
+  if (!t || !Array.isArray(liste) || !liste.length) return false;
+  const mevcut = new Set((t.gorseller || []).map(g => g.id));
+  const eklenecek = liste.filter(g => g && g.id && !mevcut.has(g.id))
+                         .map(g => ({ id: g.id, ad: g.ad, tip: g.tip, boyut: g.boyut }));
+  if (!eklenecek.length) return false;
+  t.gorseller = [...(t.gorseller || []), ...eklenecek];
+  return true;
+}
+
+// Bir görselin sunucuda GERÇEKTEN olmadığını 404 ile doğrular (bağlantı hatası
+// ile karıştırmaz) — yalnız o zaman meta'dan düşülebilir. Talep no'su değişmiş
+// görseller id ile hâlâ bulunur, dolayısıyla no-değişimi yanlışlıkla silmeye yol açmaz.
+// Dönüş: true = kesin yok (meta'dan düşülebilir) | false = var ya da bilinmiyor.
+async function gorselYokOnayla(id) {
+  const token = apiTokenAl();
+  if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/talep-gorsel/' + encodeURIComponent(id), {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (r.status === 404) return true;
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return false; }
+    const v = await r.json();
+    if (v && v.gorsel && v.gorsel.id) TALEP_GORSEL_CACHE[v.gorsel.id] = v.gorsel;  // id ile kurtarıldı
+    return false;
+  } catch (e) { return false; }
+}
+
+/* ── RFQ maili için görselleri hazırla ─────────────────────────
+   Graph sendMail tek istekte ~4MB'ı aşamaz (basit ek sınırı); toplam
+   bunu geçerse son görseller ATLANIR ve kullanıcı açıkça uyarılır —
+   sessizce düşürmek "gönderdim sandım" hatasına yol açar. */
+const RFQ_EK_TAVAN_BAYT = 3 * 1024 * 1024;
+
+async function rfqGorselleriHazirla(talepNo) {
+  // Talep, await'ler boyunca no'dan yeniden çözülür — periyodik senkron pull
+  // TALEPLER nesnelerini tazeleriyle değiştirebilir (bkz. aktifTalep yorumu).
+  const _t = () => TALEPLER.find(x => x.no === talepNo) || null;
+  if (!(_t()?.gorseller || []).length) return [];
+
+  // Gönderim anı — sunucudan TAZE çek: başka cihazda eklenen görsel atlanmasın.
+  const liste = await talepGorselleriGetir(talepNo);
+  if (talepGorselMetaBirlestir(_t(), liste)) veriKaydet();
+
+  const secilen = [];
+  let toplam = 0, atlanan = 0, eksik = 0;
+  for (const m of [...(_t()?.gorseller || [])]) {
+    let tam = TALEP_GORSEL_CACHE[m.id];
+    if (!tam || !tam.b64) {
+      // Listede yoktu: ya no değişmiş (talepNoKesinlestir) ya da silinmiş.
+      // id ile son bir deneme — 404 KESİN yok demektir, ancak o zaman meta'dan düş.
+      const yok = await gorselYokOnayla(m.id);
+      if (yok) {
+        const t2 = _t();
+        if (t2) { t2.gorseller = (t2.gorseller || []).filter(x => x.id !== m.id); veriKaydet(); }
+        continue;   // sunucuda gerçekten yok — sessizce temizlendi
+      }
+      tam = TALEP_GORSEL_CACHE[m.id];
+      if (!tam || !tam.b64) { eksik++; continue; }   // bağlantı sorunu — meta KORUNUR
+    }
+    const bayt = tam.b64.length * 3 / 4;
+    if (toplam + bayt > RFQ_EK_TAVAN_BAYT) { atlanan++; continue; }
+    toplam += bayt;
+    secilen.push(tam);
+  }
+  if (eksik)   showToast(`⚠ ${eksik} görsel sunucudan alınamadı — mailde yer almayacak.`);
+  if (atlanan) showToast(`⚠ Boyut sınırı (3 MB) nedeniyle ${atlanan} görsel maile eklenmedi.`);
+  return secilen;
+}
+
+/* ── Talep detayı: görsel galerisi ─────────────────────────────
+   Meta TALEPLER'den gelir (anında); b64 önbellekte yoksa yer tutucu
+   gösterilir ve talepGorselleriGetir dönünce yeniden render edilir. */
+function tdGorselRender(t) {
+  const kap = document.getElementById('td-gorsel-liste');
+  if (!kap) return;
+  const liste = t.gorseller || [];
+  if (!liste.length) { kap.innerHTML = '<span style="font-size:12px;color:var(--text3);">—</span>'; return; }
+  kap.innerHTML = liste.map(g => {
+    const tam = TALEP_GORSEL_CACHE[g.id];
+    const ic = tam
+      ? `<img src="data:${tam.tip};base64,${tam.b64}" onclick="gorselBuyut('${g.id}')" style="width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in;">`
+      : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text3);">🖼</div>`;
+    return `<div style="position:relative;width:76px;height:76px;border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;background:var(--bg3);" title="${_gorevEsc(g.ad)}">
+      ${ic}
+      <button onclick="tdGorselSil('${g.id}')" title="Sil"
+        style="position:absolute;top:2px;right:2px;width:18px;height:18px;line-height:1;border:none;border-radius:50%;background:rgba(0,0,0,0.65);color:#fff;font-size:11px;cursor:pointer;padding:0;">×</button>
+    </div>`;
+  }).join('');
+}
+
+function gorselBuyut(id) {
+  const g = TALEP_GORSEL_CACHE[id];
+  if (!g) return;
+  const kat = document.createElement('div');
+  kat.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:24px;';
+  kat.onclick = () => kat.remove();
+  kat.innerHTML = `<img src="data:${g.tip};base64,${g.b64}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;">`;
+  document.body.appendChild(kat);
+}
+
+async function tdGorselEkle(input) {
+  const talepNo = aktifTalep()?.no;
+  if (!talepNo) return;
+  const dosyalar = Array.from(input.files || []);
+  input.value = '';
+  if (!dosyalar.length) return;
+  const info = document.getElementById('td-gorsel-info');
+  if (info) info.textContent = 'Yükleniyor...';
+  const hazir = [];
+  for (const f of dosyalar) {
+    if (!/^image\//.test(f.type)) { showToast(`⚠ "${f.name}" görsel değil — atlandı.`); continue; }
+    try {
+      const ayri = gorselB64Ayir(await gorselKucult(f));
+      if (!ayri) continue;
+      hazir.push({ id: gorselYeniId(), ad: f.name.replace(/\.[^.]+$/, '') + '.jpg', tip: ayri.tip, b64: ayri.b64, boyut: Math.round(ayri.b64.length * 3 / 4) });
+    } catch (e) { showToast(`⚠ "${f.name}" okunamadı — atlandı.`); }
+  }
+  const meta = await talepGorselleriSunucuyaYaz(talepNo, hazir);
+  if (info) info.textContent = '';
+  // Talebi await'ten SONRA no'dan yeniden çöz — araya giren senkron pull
+  // TALEPLER nesnelerini değiştirmiş olabilir (kopmuş referansa yazma = kayıp).
+  const t = TALEPLER.find(x => x.no === talepNo);
+  if (!t) return;
+  if (meta.length) {
+    t.gorseller = [...(t.gorseller || []), ...meta];
+    tdGorselRender(t);
+    await kaliciVeriKaydet('Talep görseli');
+    showToast(`${meta.length} görsel eklendi.`);
+  }
+}
+
+async function tdGorselSil(id) {
+  const talepNo = aktifTalep()?.no;
+  if (!talepNo) return;
+  const g = (aktifTalep()?.gorseller || []).find(x => x.id === id);
+  if (!confirm(`"${g?.ad || 'Görsel'}" silinsin mi?`)) return;
+  const ok = await apiTalepGorselSil(id);
+  if (!ok) { showToast('⚠ Görsel silinemedi — sunucuya ulaşılamadı.'); return; }
+  const t = TALEPLER.find(x => x.no === talepNo);   // await sonrası tazeden çöz
+  if (!t) return;
+  t.gorseller = (t.gorseller || []).filter(x => x.id !== id);
+  delete TALEP_GORSEL_CACHE[id];
+  tdGorselRender(t);
+  await kaliciVeriKaydet('Talep görseli');
+}
+
+// Görselleri ayrı depoya yükler; dönüş = BAŞARIYLA yüklenenlerin meta'sı.
+// Talep NESNESİ değil no'su alınır ve meta'yı çağıran bağlar: upload await'leri
+// sırasında periyodik senkron pull TALEPLER'i tazeleriyle değiştirebilir
+// (TALEPLER.length=0; push(...)) → burada tutulan referans kopar ve yazdığımız
+// meta sessizce kaybolurdu.
+// Yükleme başarısızsa meta ÜRETİLMEZ — yoksa RFQ'da olmayan görsele referans kalır.
+async function talepGorselleriSunucuyaYaz(talepNo, gorseller) {
+  if (!talepNo || !gorseller?.length) return [];
+  const meta = [];
+  let basarisiz = 0;
+  for (const g of gorseller) {
+    const kayit = { id: g.id, talepNo, ad: g.ad, tip: g.tip, b64: g.b64, boyut: g.boyut };
+    if (await apiTalepGorselKaydet(kayit)) {
+      TALEP_GORSEL_CACHE[g.id] = kayit;
+      meta.push({ id: g.id, ad: g.ad, tip: g.tip, boyut: g.boyut });
+    } else { basarisiz++; }
+  }
+  if (basarisiz) showToast(`⚠ ${basarisiz} görsel sunucuya yüklenemedi — talebi açıp tekrar ekleyin.`);
+  return meta;
+}
+
+// Talep no'su değişince (geçici → kesin) görselleri yeni no'ya taşır.
+// talepTeklifleri yeniden anahtarlamasının görsel karşılığı (bkz. talepNoKesinlestir).
+async function talepGorselleriYenidenAnahtarla(eskiNo, yeniNo) {
+  const liste = await talepGorselleriGetir(eskiNo);
+  if (!liste?.length) return 0;
+  let n = 0;
+  for (const g of liste) {
+    if (await apiTalepGorselKaydet({ ...g, talepNo: yeniNo })) n++;
+  }
+  if (n < liste.length) showToast('⚠ Bazı görseller yeni talep numarasına taşınamadı — RFQ öncesi kontrol edin.');
+  return n;
+}
+
+/* ──────────────────────────────────────────────────────────────
    GÖREVLER — ekip içi görev/talep atama. Ayrı /api/gorevler endpoint'i
    ile senkronlanır (satır-başına upsert). Durum akışı:
    acik → (atanan: Bitirdim) beklemede → (atayan: Onayla) kapandi.
@@ -6574,6 +6885,17 @@ function talepDetayAc(idx) {
     }
   }
   document.getElementById('td-not').textContent = t.not||'—';
+  tdGorselRender(t);
+  // b64 ağır; meta zaten TALEPLER'de — küçük resimler gelince listeyi tazele.
+  if ((t.gorseller || []).length) {
+    const _no = t.no;
+    talepGorselleriGetir(_no).then(liste => {
+      const t2 = TALEPLER.find(x => x.no === _no);   // fetch sonrası tazeden çöz
+      if (!t2) return;
+      if (talepGorselMetaBirlestir(t2, liste)) veriKaydet();
+      if (aktifTalepNo === _no) tdGorselRender(t2);
+    });
+  }
 
   // Workflow
   renderWorkflow(t.durum);
@@ -7053,6 +7375,13 @@ async function rfqMailGonder() {
   let basarili = 0;
   let basarisiz = 0;
 
+  // Referans görselleri (b64) bir kez çek — her tedarikçi mailine iliştirilecek.
+  const _rfqGorseller = (msGirisYapildi && (t.gorseller || []).length) ? await rfqGorselleriHazirla(t.no) : [];
+  // mailto fallback ek gönderemez — kullanıcı görsellerin gittiğini SANMASIN.
+  if (!msGirisYapildi && (t.gorseller || []).length) {
+    showToast('⚠ Microsoft girişi yok — mail taslak olarak açılıyor, referans görselleri OTOMATİK eklenemez. Elle iliştirmeniz gerekir.');
+  }
+
   for (const firma of firmalar) {
     const f = firmaMap[firma];
     if (!f) continue;
@@ -7095,7 +7424,7 @@ async function rfqMailGonder() {
 
     if (msGirisYapildi) {
       // Outlook Graph API ile gönder
-      const gonderildi = await outlookMailGonder(hedefMailler, subject, body);
+      const gonderildi = await outlookMailGonder(hedefMailler, subject, body, _rfqGorseller);
       if (gonderildi) basarili++; else basarisiz++;
     } else {
       // Fallback: mailto
@@ -7115,7 +7444,7 @@ async function rfqMailGonder() {
     const govde = `Sayın ${isim},\n\nAşağıdaki ürünler için en kısa sürede fiyat teklifinizi iletmenizi rica ederiz:\n\n${urunListesi}\n\nTalep No  : ${t.no}\nTermin    : ${t.termin ? tarihFmt(t.termin) : '—'}${webLink}\n\nBirim fiyat (KDV hariç), teslim süresi, ödeme ve geçerlilik bilgilerini eklemenizi rica ederiz.${imzaMetni()}`;
 
     if (msGirisYapildi) {
-      const gonderildi = await outlookMailGonder([mt.mail], konu, govde);
+      const gonderildi = await outlookMailGonder([mt.mail], konu, govde, _rfqGorseller);
       if (gonderildi) basarili++; else basarisiz++;
     } else {
       window.open('mailto:' + mt.mail + '?subject=' + encodeURIComponent(konu) + '&body=' + encodeURIComponent(govde));
@@ -9701,7 +10030,65 @@ function talepModalAc() {
   document.getElementById('talep-urun-tbody').innerHTML = '';
   talepUrunSatirEkle();
   talepMusteriTemizle();
+  talepGorselTemizle();
   openModal('yeniTalep');
+}
+
+/* ── Yeni talep formunda görsel seçimi ──────────────────────────
+   Görseller burada yalnız BEKLETİLİR (bellekte); sunucuya talepKaydet
+   içinde, talep numarası kesinleştikten sonra yüklenir. */
+let _talepGorselStage = [];
+
+function talepGorselTemizle() {
+  _talepGorselStage = [];
+  const dosya = document.getElementById('talep-gorsel-dosya'); if (dosya) dosya.value = '';
+  const info  = document.getElementById('talep-gorsel-info');  if (info) info.textContent = '';
+  talepGorselOnizlemeRender();
+}
+
+async function talepGorselSec(input) {
+  const dosyalar = Array.from(input.files || []);
+  input.value = '';   // aynı dosya tekrar seçilebilsin
+  if (!dosyalar.length) return;
+  const info = document.getElementById('talep-gorsel-info');
+  if (info) info.textContent = 'Küçültülüyor...';
+  for (const f of dosyalar) {
+    if (!/^image\//.test(f.type)) { showToast(`⚠ "${f.name}" görsel değil — atlandı.`); continue; }
+    try {
+      const dataUrl = await gorselKucult(f);
+      const ayri = gorselB64Ayir(dataUrl);
+      if (!ayri) { showToast(`⚠ "${f.name}" işlenemedi — atlandı.`); continue; }
+      _talepGorselStage.push({
+        id: gorselYeniId(),
+        ad: f.name.replace(/\.[^.]+$/, '') + '.jpg',
+        tip: ayri.tip,
+        b64: ayri.b64,
+        boyut: Math.round(ayri.b64.length * 3 / 4),
+      });
+    } catch (e) { showToast(`⚠ "${f.name}" okunamadı — atlandı.`); }
+  }
+  if (info) info.textContent = '';
+  talepGorselOnizlemeRender();
+}
+
+function talepGorselStageSil(id) {
+  _talepGorselStage = _talepGorselStage.filter(g => g.id !== id);
+  talepGorselOnizlemeRender();
+}
+
+function talepGorselOnizlemeRender() {
+  const kap = document.getElementById('talep-gorsel-onizleme');
+  if (!kap) return;
+  kap.innerHTML = _talepGorselStage.map(g => `
+    <div style="position:relative;width:76px;height:76px;border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;background:var(--bg3);" title="${_gorevEsc(g.ad)}">
+      <img src="data:${g.tip};base64,${g.b64}" style="width:100%;height:100%;object-fit:cover;display:block;">
+      <button onclick="talepGorselStageSil('${g.id}')" title="Kaldır"
+        style="position:absolute;top:2px;right:2px;width:18px;height:18px;line-height:1;border:none;border-radius:50%;background:rgba(0,0,0,0.65);color:#fff;font-size:11px;cursor:pointer;padding:0;">×</button>
+    </div>`).join('');
+  const info = document.getElementById('talep-gorsel-info');
+  if (info) info.textContent = _talepGorselStage.length
+    ? `${_talepGorselStage.length} görsel · ${(_talepGorselStage.reduce((s,g)=>s+g.boyut,0)/1024).toFixed(0)} KB`
+    : '';
 }
 
 // Ürün satırı ekle
@@ -10299,6 +10686,12 @@ async function talepKaydet() {
   const _sahipEmail = yeniTalepSahibiEmail(musteriAd);
   const _sahipK = saticiKullaniciBul(_sahipEmail);
   const _vekaleten = _sahipEmail !== (aktifKullanici?.email || '').toLowerCase();
+  // Görseller talep nesnesi kurulMADAN yüklenir: meta doğrudan literal'e girsin.
+  // Sonrasında yüklenip nesneye yazılsaydı, upload await'i sırasında araya giren
+  // senkron pull TALEPLER'i değiştirip meta'yı düşürebilirdi.
+  const _gorselMeta = _talepGorselStage.length
+    ? await talepGorselleriSunucuyaYaz(no, _talepGorselStage)
+    : [];
   TALEPLER.unshift({
     no,
     noKesin, // false ise numara geçici (çevrimdışı) — RFQ öncesi sunucudan kesinleştirilir
@@ -10317,6 +10710,7 @@ async function talepKaydet() {
     portalTalebi: !!document.getElementById('talep-portal')?.checked,
     satici: (_sahipK?.id != null) ? _sahipK.id : aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
     saticiEmail: _sahipEmail, // KALICI kimlik — cihazlar arası kararlı, sahiplik bunun üzerinden çözülür (vekâleten ise asil'e)
+    gorseller: _gorselMeta,  // {id, ad, tip, boyut} — b64 ayrı depoda
   });
   renderTalepler();
   const _gosNo = noKesin ? no : talepNoBicimle(talepNoSayi(no));
@@ -13294,7 +13688,38 @@ async function graphGet(endpoint) {
   return r.json();
 }
 
-function mailHtmlOlustur(bodyText, urunler) {
+/* ── Mail'e referans görselleri: gövdede gömülü + ek olarak indirilebilir ──
+   Tek kopya gönderilir: isInline + contentId ile hem gövdede cid: olarak
+   render edilir, hem de ek listesinde durur (imza logosu ile aynı desen).
+   gorseller: [{id, ad, tip, b64}] — b64'lü TAM kayıtlar (meta değil). */
+function mailGorselEkleri(gorseller) {
+  const sonuc = { html: '', ekler: [] };
+  const liste = (gorseller || []).filter(g => g && g.b64);
+  if (!liste.length) return sonuc;
+  const kartlar = liste.map((g, i) => {
+    const cid = 'talepgorsel' + i;
+    sonuc.ekler.push({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: g.ad || ('gorsel' + (i + 1) + '.jpg'),
+      contentType: g.tip || 'image/jpeg',
+      contentBytes: g.b64,
+      contentId: cid,
+      isInline: true,
+    });
+    return `<td style="padding:0 10px 10px 0;vertical-align:top;">
+      <img src="cid:${cid}" style="max-width:260px;max-height:260px;border:1px solid #e0e0e0;border-radius:4px;display:block;" alt="${_gorevEsc(g.ad).replace(/"/g,'&quot;')}">
+    </td>`;
+  });
+  sonuc.html = `
+    <div style="margin:16px 0;">
+      <div style="font-weight:600;font-size:13px;color:#212121;margin-bottom:6px;">Referans Görseller</div>
+      <div style="font-size:12px;color:#757575;margin-bottom:8px;">Müşterinin ilettiği örnek görsellerdir; birebir aynı ürün olmak zorunda değildir — muadil öneriniz varsa belirtiniz.</div>
+      <table style="border-collapse:collapse;"><tr>${kartlar.join('')}</tr></table>
+    </div>`;
+  return sonuc;
+}
+
+function mailHtmlOlustur(bodyText, urunler, gorselHtml) {
   const i = AYARLAR.imza || {};
   const logoUrl = i.logoUrl || getEmonLogo() || '';
 
@@ -13376,6 +13801,7 @@ function mailHtmlOlustur(bodyText, urunler) {
     <div style="max-width:680px;">
       ${metinToHtml(oncesiMetin)}
       ${urunTabloHtml}
+      ${gorselHtml || ''}
       ${sonrasiMetin ? metinToHtml(sonrasiMetin) : ''}
       ${imzaHtml()}
     </div>
@@ -13404,7 +13830,8 @@ function mailGovdeLogoInline(htmlContent) {
   return sonuc;
 }
 
-async function outlookMailGonder(toList, subject, bodyText) {
+// gorseller: opsiyonel [{ad,tip,b64}] — verilirse gövdeye gömülür + ek olarak gider.
+async function outlookMailGonder(toList, subject, bodyText, gorseller) {
   try {
     // Token yenile
     if (msalInstance && aktifKullanici?.msAccount) {
@@ -13425,7 +13852,8 @@ async function outlookMailGonder(toList, subject, bodyText) {
 
     if (!msGraphToken) return false;
 
-    const _li = mailGovdeLogoInline(mailHtmlOlustur(bodyText, window._rfqUrunler));
+    const _g  = mailGorselEkleri(gorseller);
+    const _li = mailGovdeLogoInline(mailHtmlOlustur(bodyText, window._rfqUrunler, _g.html));
     const resp = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
       method: 'POST',
       headers: {
@@ -13437,7 +13865,7 @@ async function outlookMailGonder(toList, subject, bodyText) {
           subject: subject,
           body: { contentType: 'HTML', content: _li.content },
           toRecipients: toList.map(addr => ({ emailAddress: { address: addr } })),
-          attachments: _li.ekler
+          attachments: [..._li.ekler, ..._g.ekler]
         },
         saveToSentItems: true
       })
@@ -15907,6 +16335,9 @@ async function talepNoKesinlestir(t) {
       talepTeklifleri[yeniNo] = talepTeklifleri[eskiNo];
       delete talepTeklifleri[eskiNo];
     }
+    // Görseller de talep no'suna bağlı (talep_gorseller.talep_no) → teklifler gibi
+    // yeni numaraya TAŞI. Taşınmazsa eski no altında kalır ve RFQ'da bulunamazlar.
+    if ((t.gorseller || []).length) await talepGorselleriYenidenAnahtarla(eskiNo, yeniNo);
     t.no = yeniNo;
     const bEl = document.getElementById('td-baslik'); // detay başlığını tazele (açıksa)
     if (bEl && TALEPLER[aktifTalepIdx] === t) bEl.textContent = `#${t.no} — ${t.urun}`;
@@ -17728,6 +18159,20 @@ async function _veriPush(veri) {
   }
 }
 
+// TALEPLER'in senkron kopyası — görsel b64'ü ana bloğa SIZDIRMA güvenliği.
+// t.gorseller yalnız meta ({id,ad,tip,boyut}) taşımalı; b64 ayrı /api/talep-gorsel
+// deposunda. Bir kod yolu yanlışlıkla b64 iliştirirse blob megabaytlarca şişer ve
+// her kayıtta yeniden upload edilir → burada tek noktadan ayıklanır.
+function talepBlobGuvenli() {
+  const kopya = JSON.parse(JSON.stringify(TALEPLER));
+  kopya.forEach(t => {
+    if (Array.isArray(t.gorseller)) {
+      t.gorseller = t.gorseller.map(g => { const { b64, ...meta } = g; return meta; });
+    }
+  });
+  return kopya;
+}
+
 // Bekleyen (debounce'lu) kaydı HEMEN, await edilebilir şekilde sunucuya gönder.
 // Çıkış / oturum kapanışı öncesi çağrılır → son düzenleme yalnızca localStorage'da
 // kalıp yeniden girişte sunucudan gelen eski veriyle ezilmesin.
@@ -17783,7 +18228,7 @@ function veriKaydet() {
     }));
 
     const veri = {
-      TALEPLER: JSON.parse(JSON.stringify(TALEPLER)),
+      TALEPLER: talepBlobGuvenli(),
       MUSTERILER: JSON.parse(JSON.stringify(MUSTERILER)),
       TEDARIKCILER: tedGuvenli,
       talepTeklifleri: JSON.parse(JSON.stringify(talepTeklifleri)),

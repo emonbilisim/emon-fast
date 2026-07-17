@@ -703,6 +703,77 @@ jobs:
               echo "CLAUDE_API_KEY secret yok, .env degismedi (proxy 503 doner, frontend yerel key'e duser)"
             fi
 
+      - name: Patch backend (talep gorselleri — RFQ referans gorselleri)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/emonfast
+            set -a; . ./.env; set +a
+            # 8a) DDL: satir-basina-bir-gorsel tablosu. Base64 gorsel ana /api/veri blobuna
+            #     GIRMEZ (blob sismesin + her kayitta yeniden upload olmasin) — kase/formlar
+            #     ile ayni gerekce. talep_no ile RFQ ekranindan toplu cekilir.
+            PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL'
+            CREATE TABLE IF NOT EXISTS talep_gorseller (
+              id TEXT PRIMARY KEY,
+              talep_no TEXT,
+              data JSONB NOT NULL,
+              olusturma TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS talep_gorseller_talep_no_idx ON talep_gorseller (talep_no);
+            SQL
+            # 8b) Route enjeksiyonu (idempotent): GET /api/talep-gorseller/:talepNo +
+            #     GET /api/talep-gorsel/:id + PUT /api/talep-gorsel + DELETE /api/talep-gorsel/:id
+            cat > /tmp/emon-patch-tg.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            let degisti = false;
+            const yedek = () => { if (!degisti) fs.writeFileSync(f + '.bak.ci-tg', s); };
+            const tgRoute =
+              "app.get('/api/talep-gorseller/:talepNo', authMiddleware, async (req, res) => { // talep-gorsel v1\n" +
+              "  try {\n" +
+              "    const r = await pool.query('SELECT data FROM talep_gorseller WHERE talep_no=$1 ORDER BY olusturma', [String(req.params.talepNo)]);\n" +
+              "    res.json({ ok: true, gorseller: r.rows.map(x => x.data) });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.get('/api/talep-gorsel/:id', authMiddleware, async (req, res) => { // talep-gorsel v1\n" +
+              "  try {\n" +
+              "    const r = await pool.query('SELECT data FROM talep_gorseller WHERE id=$1', [String(req.params.id)]);\n" +
+              "    if (!r.rows.length) return res.status(404).json({ ok: false, hata: 'gorsel yok' });\n" +
+              "    res.json({ ok: true, gorsel: r.rows[0].data });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.put('/api/talep-gorsel', authMiddleware, async (req, res) => { // talep-gorsel v1\n" +
+              "  try {\n" +
+              "    const g = (req.body && typeof req.body === 'object') ? req.body : {};\n" +
+              "    if (!g.id) return res.status(400).json({ ok: false, hata: 'id gerekli' });\n" +
+              "    await pool.query('INSERT INTO talep_gorseller (id, talep_no, data) VALUES ($1,$2,$3) ON CONFLICT (id) DO UPDATE SET talep_no=$2, data=$3', [String(g.id), g.talepNo ? String(g.talepNo) : null, JSON.stringify(g)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.delete('/api/talep-gorsel/:id', authMiddleware, async (req, res) => { // talep-gorsel v1\n" +
+              "  try {\n" +
+              "    await pool.query('DELETE FROM talep_gorseller WHERE id=$1', [String(req.params.id)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n";
+            if (s.includes('// talep-gorsel v1')) {
+              console.log('talep-gorsel route zaten var');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", tgRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('talep-gorsel route eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, talep-gorsel eklenemedi');
+            }
+            if (degisti) fs.writeFileSync(f, s); else console.log('server.js (patch-tg) zaten guncel');
+            PATCH
+            node /tmp/emon-patch-tg.js
+
       - name: Rename and restart
         uses: appleboy/ssh-action@master
         with:
