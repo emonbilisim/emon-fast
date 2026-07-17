@@ -1881,6 +1881,27 @@
           <input type="file" id="ayar-mailorder-kase" accept="image/png,image/jpeg" onchange="moKaseYukle(this)">
           <button class="btn btn-sm" id="mailorder-kase-kaldir" onclick="moKaseKaldir()" style="display:none;">🗑 Kaldır</button>
         </div>
+        <!-- Beyaz zemin temizleme: kaşe PNG olsa da genelde opak beyaz zeminlidir -->
+        <div id="mailorder-kase-seffaf-kutu" style="display:none;margin-top:12px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);padding:10px 12px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="ayar-mailorder-kase-seffaf" style="width:16px;height:16px;accent-color:var(--accent);" onchange="moKaseSeffafDegisti(this)">
+            <span style="font-size:13px;">🪄 <strong>Beyaz zemini şeffaf yap</strong> — kaşe formun altındaki çizgileri kapatmasın</span>
+          </label>
+          <div id="mailorder-kase-esik-satir" style="display:none;margin-top:10px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span style="font-size:12px;color:var(--text2);">Hassasiyet</span>
+              <input type="range" id="ayar-mailorder-kase-esik" min="150" max="254" value="240" style="flex:1;max-width:220px;accent-color:var(--accent);" oninput="moKaseEsikKaydir(this)" onchange="moKaseEsikKaydet(this)">
+              <span id="mailorder-kase-esik-deger" class="mono" style="font-size:12px;color:var(--text3);width:32px;">240</span>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">Kaşenin etrafında beyaz kalıntı varsa sola çekin. Kaşenin kendisi soluyorsa sağa çekin.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:10px;flex-wrap:wrap;">
+            <div style="font-size:11px;color:var(--text3);">Önizleme (dama deseni = şeffaf):</div>
+            <div style="background-color:#fff;background-image:linear-gradient(45deg,#ccc 25%,transparent 25%),linear-gradient(-45deg,#ccc 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ccc 75%),linear-gradient(-45deg,transparent 75%,#ccc 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0;border:1px solid var(--border);border-radius:6px;padding:4px;">
+              <img id="mailorder-kase-seffaf-onizleme" style="max-height:70px;max-width:200px;display:block;">
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -13902,6 +13923,8 @@ let AYARLAR = {
   mailorderOnayci: '', // MO imzalama yetkilisi (e-posta) — onaya gönderilen MO'lar bu kişiye düşer
   mailorderSaticiForm: false, // Satıcı rolü "Tedarikçi Form Şablonları"nı yönetebilsin mi? (varsayılan KAPALI)
   mailorderKase: '',   // Kaşe/imza görseli (data URL) — onaylanınca forma basılır
+  mailorderKaseBeyazSeffaf: false, // Kaşenin opak beyaz zemini basarken şeffaflaştırılsın mı? (orijinal korunur)
+  mailorderKaseBeyazEsik: 240,     // Beyaz sayılma eşiği (100-254) — kaşeye göre ayarlanır
   talepNoBicim: { onek: 'TLB-', hane: 5 }, // talep numarası biçimi (admin ayarı, tüm kullanıcılara senkron)
   crmHedefAylikYeniMusteri: 0,             // CRM: aylık yeni müşteri hedefi (0 = belirsiz)
   imza: { ad:'', unvan:'', gsm:'', tel:'', mail:'', firma:'', adres:'', web:'', logoUrl:getEmonLogo() },
@@ -14299,6 +14322,48 @@ function moKaseDurumGuncelle() {
   const var_ = !!(AYARLAR.mailorderKase || '');
   if (img) { img.src = var_ ? AYARLAR.mailorderKase : ''; img.style.display = var_ ? 'inline-block' : 'none'; }
   if (kaldir) kaldir.style.display = var_ ? '' : 'none';
+  // Beyaz-şeffaf kutusu yalnız kaşe varken anlamlı
+  const kutu = document.getElementById('mailorder-kase-seffaf-kutu');
+  if (kutu) kutu.style.display = var_ ? '' : 'none';
+  const cb = document.getElementById('ayar-mailorder-kase-seffaf');
+  if (cb) cb.checked = !!AYARLAR.mailorderKaseBeyazSeffaf;
+  const esikEl = document.getElementById('ayar-mailorder-kase-esik');
+  if (esikEl) esikEl.value = kaseBeyazEsigi();
+  const esikDeger = document.getElementById('mailorder-kase-esik-deger');
+  if (esikDeger) esikDeger.textContent = kaseBeyazEsigi();
+  const esikSatir = document.getElementById('mailorder-kase-esik-satir');
+  if (esikSatir) esikSatir.style.display = AYARLAR.mailorderKaseBeyazSeffaf ? '' : 'none';
+  if (var_) moKaseSeffafOnizle();
+}
+
+// Basılacak hâli dama zeminli önizlemede göster — kullanıcı gerçek forma
+// basmadan ÖNCE sonucu görsün (eşik her kaşede farklı tutabilir).
+async function moKaseSeffafOnizle() {
+  const el = document.getElementById('mailorder-kase-seffaf-onizleme');
+  if (!el) return;
+  el.src = await moKaseBasilacakDataUrl();
+}
+
+async function moKaseSeffafDegisti(cb) {
+  AYARLAR.mailorderKaseBeyazSeffaf = !!cb.checked;
+  const esikSatir = document.getElementById('mailorder-kase-esik-satir');
+  if (esikSatir) esikSatir.style.display = cb.checked ? '' : 'none';
+  await moKaseSeffafOnizle();
+  veriKaydet();   // AYARLAR ile senkron (kaşenin kendisi ayrı depoda)
+  showToast(cb.checked ? '🪄 Beyaz zemin şeffaflaştırılacak.' : 'Kaşe orijinal haliyle basılacak.');
+}
+
+// Sürüklerken: yalnız önizleme (her pikselde kayıt atmayalım)
+function moKaseEsikKaydir(el) {
+  AYARLAR.mailorderKaseBeyazEsik = parseInt(el.value, 10);
+  const d = document.getElementById('mailorder-kase-esik-deger');
+  if (d) d.textContent = el.value;
+  moKaseSeffafOnizle();
+}
+// Bırakınca kaydet
+function moKaseEsikKaydet(el) {
+  AYARLAR.mailorderKaseBeyazEsik = parseInt(el.value, 10);
+  veriKaydet();
 }
 
 // Yetkilinin adını çöz (KULLANICILAR/ekip içinden), yoksa e-postayı göster
@@ -19436,6 +19501,7 @@ async function moEditAc(id) {
   if (idx < 0) return;
   const f = MO.formlar[idx];
   if (!f.b64) { showToast('Form içeriği bu cihazda yüklü değil — bağlantı gelince “Mail Order”ı yeniden açın (sunucudan çekilir).'); return; }
+  await moKaseBasilacakDataUrl();   // önbelleği ısıt: marker'lar kaşeyi BASILACAK hâliyle göstersin
   _moEdit = { idx, sayfa: 0, sayfaSayisi: 1, format: f.format, pdfDoc: null, imgEl: null, canvasW: 0, canvasH: 0, fontPx: 11, kaseW: 0.22, seciliKey: null, alanlar: JSON.parse(JSON.stringify(f.alanlar || [])) };
   document.getElementById('mo-edit-title').textContent = '🎯 Alan Eşleme — ' + f.tedarikci;
   document.getElementById('mo-edit-font').value = 11;
@@ -19522,9 +19588,12 @@ function moEditMarkerlariCiz() {
     if (a.sayfa !== _moEdit.sayfa) return;
     const m = document.createElement('div');
     if (a.key === MO_KASE_KEY) {
-      // Kaşe/imza: gerçek genişlikte (wFrac) görsel/kutu önizleme
+      // Kaşe/imza: gerçek genişlikte (wFrac) görsel/kutu önizleme.
+      // Basılacak hâli gösterilir (beyaz-şeffaf ayarı dahil) — editörde beyaz kutu
+      // görüp PDF'de şeffaf çıkması kafa karıştırır. _kaseEfektOnbellek hazır
+      // değilse ham gösterilir; moKaseSeffafOnizle/moFormBlobUret onu doldurur.
       const wpx = Math.max(20, (a.wFrac || 0.22) * _moEdit.canvasW);
-      const kase = AYARLAR.mailorderKase || '';
+      const kase = moKaseBasilacakDataUrlSenkron();
       m.style.cssText = `position:absolute;left:${a.x * 100}%;top:${a.y * 100}%;width:${wpx}px;border:1px dashed #16a34a;border-radius:3px;background:${kase ? 'transparent' : 'rgba(22,163,74,0.10)'};cursor:move;`;
       m.innerHTML = (kase ? `<img src="${kase}" style="width:100%;display:block;opacity:0.85;">` : `<div style="font-size:11px;color:#16a34a;padding:8px 4px;text-align:center;">Kaşe/İmza</div>`)
         + `<span data-mosil="${i}" style="position:absolute;top:-8px;right:-8px;cursor:pointer;color:#fff;background:#e33;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center;font-weight:700;font-size:11px;">×</span>`;
@@ -19631,10 +19700,84 @@ function moUretDeger(key, ctx) {
   }
 }
 // AYARLAR.mailorderKase data URL'ini {mime,b64}'e ayır
-function moKaseParcala() {
-  const d = AYARLAR.mailorderKase || '';
+function moKaseParcala(dataUrl) {
+  const d = dataUrl || AYARLAR.mailorderKase || '';
   const m = d.match(/^data:(image\/[a-z]+);base64,(.+)$/i);
   return m ? { mime: m[1], b64: m[2] } : null;
+}
+
+/* ── Kaşe: beyaz zemini şeffaflaştırma ─────────────────────────
+   Taranan/dışa aktarılan kaşeler PNG olsa da genelde OPAK BEYAZ zeminlidir →
+   forma basınca altındaki çizgi/yazıyı beyaz kutu gibi kapatır. Bu efekt beyaz
+   pikselleri saydamlaştırır; kaşenin kendi mürekkebi (siyah/mavi/kırmızı) kalır.
+
+   Sert eşik tek başına tırtıklı kenar ve beyaz hâle bırakır (kenar pikselleri
+   anti-aliasing yüzünden yarı beyazdır) → eşiğin altında YUMUŞAK bant kullanılır:
+   bant içinde alfa kademeli düşer. Sonuç her zaman PNG (alfa taşır).
+
+   ORİJİNALE DOKUNULMAZ: AYARLAR.mailorderKase ham dosya olarak kalır; efekt
+   basma anında uygulanır → ayar kapatılınca kaşe eski haline döner. */
+const KASE_BEYAZ_ESIK_VARSAYILAN = 240;   // bu parlaklığın üstü tamamen şeffaf
+const KASE_YUMUSAK_BANT = 35;             // eşiğin altındaki kademeli geçiş genişliği
+
+function kaseBeyazEsigi() {
+  const v = parseInt(AYARLAR.mailorderKaseBeyazEsik, 10);
+  return (Number.isFinite(v) && v >= 100 && v <= 254) ? v : KASE_BEYAZ_ESIK_VARSAYILAN;
+}
+
+async function gorselBeyaziSeffaflastir(dataUrl, esik) {
+  const img = await moLoadImage(dataUrl);
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, c.width, c.height);
+  const p = d.data;
+  const alt = esik - KASE_YUMUSAK_BANT;
+  for (let i = 0; i < p.length; i += 4) {
+    if (p[i + 3] === 0) continue;                      // zaten şeffaf
+    // Renkli mürekkebi korumak için parlaklık değil EN DÜŞÜK kanal ölçülür:
+    // beyazda üç kanal da yüksek; mavi/kırmızı kaşede en az bir kanal düşüktür,
+    // dolayısıyla parlak renkli mürekkep yanlışlıkla silinmez.
+    const enAz = Math.min(p[i], p[i + 1], p[i + 2]);
+    if (enAz >= esik) { p[i + 3] = 0; }                // beyaz → tamamen şeffaf
+    else if (enAz > alt) {                             // kenar bandı → kademeli
+      const oran = (enAz - alt) / (esik - alt);        // 0..1 (1 = beyaza yakın)
+      p[i + 3] = Math.round(p[i + 3] * (1 - oran));
+    }
+  }
+  ctx.putImageData(d, 0, 0);
+  return c.toDataURL('image/png');                     // alfa için PNG şart
+}
+
+// Basılacak kaşenin data URL'i — ayar açıksa beyazı şeffaflaştırılmış hali.
+// Sonuç önbelleklenir (aynı kaşe + aynı eşik her formda yeniden işlenmesin).
+let _kaseEfektCache = { anahtar: '', dataUrl: '' };
+function _kaseEfektAnahtar(ham, esik) { return esik + '|' + ham.length + '|' + ham.slice(-32); }
+
+async function moKaseBasilacakDataUrl() {
+  const ham = AYARLAR.mailorderKase || '';
+  if (!ham || !AYARLAR.mailorderKaseBeyazSeffaf) return ham;
+  const esik = kaseBeyazEsigi();
+  const anahtar = _kaseEfektAnahtar(ham, esik);
+  if (_kaseEfektCache.anahtar === anahtar) return _kaseEfektCache.dataUrl;
+  try {
+    const islenmis = await gorselBeyaziSeffaflastir(ham, esik);
+    _kaseEfektCache = { anahtar, dataUrl: islenmis };
+    return islenmis;
+  } catch (e) {
+    showToast('⚠ Kaşe şeffaflaştırılamadı — orijinal haliyle basılıyor.');
+    return ham;   // efekt başarısızsa kaşesiz kalmaktansa orijinali bas
+  }
+}
+
+// Senkron çağıranlar için (marker çizimi gibi): önbellek doluysa işlenmiş hâli,
+// değilse ham kaşe. Beklemez — çizim akışını async'e çevirmeye değmez.
+function moKaseBasilacakDataUrlSenkron() {
+  const ham = AYARLAR.mailorderKase || '';
+  if (!ham || !AYARLAR.mailorderKaseBeyazSeffaf) return ham;
+  const anahtar = _kaseEfektAnahtar(ham, kaseBeyazEsigi());
+  return _kaseEfektCache.anahtar === anahtar ? _kaseEfektCache.dataUrl : ham;
 }
 // Formu (PDF/görsel) ctx değerleriyle doldurup tek PDF blob üretir. moUret + onay indirme paylaşır.
 // opts.kaseEkle=true → onaylanan MO: formdaki Kaşe/İmza alanlarına AYARLAR.mailorderKase basılır.
@@ -19668,7 +19811,7 @@ async function moFormBlobUret(f, ctx, opts) {
       pg.drawText(asciiZorla ? moTrAscii(val) : String(val), { x: a.x * width, y: height - a.y * height - fs * 0.8, size: fs, font, color: PDFLib.rgb(0, 0, 0) });
     });
     if (kaseUygula) {
-      const kp = moKaseParcala();
+      const kp = moKaseParcala(await moKaseBasilacakDataUrl());
       if (kp) {
         const kb = moB64ToBytes(kp.b64);
         const kImg = /png/i.test(kp.mime) ? await doc.embedPng(kb) : await doc.embedJpg(kb);
@@ -19693,7 +19836,7 @@ async function moFormBlobUret(f, ctx, opts) {
       cx.fillText(String(val), a.x * c.width, a.y * c.height);
     });
     if (kaseUygula) {
-      const kImg = await moLoadImage(AYARLAR.mailorderKase);
+      const kImg = await moLoadImage(await moKaseBasilacakDataUrl());
       kaseAlanlar.forEach(a => {
         const w = (a.wFrac || 0.22) * c.width, hh = w * (kImg.naturalHeight / kImg.naturalWidth);
         cx.drawImage(kImg, a.x * c.width, a.y * c.height, w, hh);
