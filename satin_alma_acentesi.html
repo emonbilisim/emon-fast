@@ -581,6 +581,7 @@
       <span class="icon">📇</span> CRM
       <span id="crm-takip-badge" style="display:none;background:var(--accent2);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
     </div>
+    <div class="nav-label" id="nav-label-finans" data-nav-label="finans" style="margin-top:8px;display:none;">Finans</div>
     <div class="nav-item" onclick="goPage('mailorder',this)" id="nav-mailorder" style="display:none;">
       <span class="icon">💳</span> Mail Order
       <span class="nav-badge" id="badge-mailorder" title="İşlem bekleyen Mail Order (onay veya tedarikçiye gönderim)" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
@@ -18785,8 +18786,13 @@ function mailorderGorunur() {
   return roller.includes(aktifKullanici?.rol);
 }
 function mailorderNavGuncelle() {
+  const gorunur = mailorderGorunur();
   const nav = document.getElementById('nav-mailorder');
-  if (nav) nav.style.display = mailorderGorunur() ? 'flex' : 'none';
+  if (nav) nav.style.display = gorunur ? 'flex' : 'none';
+  // "Finans" bölüm başlığı şu an yalnız Mail Order'ı barındırıyor — tek öğesi
+  // gizliyse başlık da gizlenmeli, yoksa boş başlık kalır.
+  const label = document.getElementById('nav-label-finans');
+  if (label) label.style.display = gorunur ? 'block' : 'none';
 }
 // Tedarikçi Form Şablonları bölümü görünürlüğü. Admin/operasyon her zaman;
 // satıcı YALNIZ AYARLAR.mailorderSaticiForm açıksa (varsayılan kapalı).
