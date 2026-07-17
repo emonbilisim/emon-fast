@@ -25,7 +25,7 @@ function ok(c,msg){ if(c){pass++;} else {fail++;fails.push(msg);console.log('  �
 const bos = () => ({
   TALEPLER:[], MUSTERILER:[], TEDARIKCILER:[], CRM_AKTIVITELER:[],
   ONAY_BEKLEYENLER:{musteriler:[],tedarikciler:[],_tombstone:{}},
-  talepTeklifleri:{}, KULLANICILAR:[], AYARLAR:{}, FP_KURALLAR:[],
+  talepTeklifleri:{}, TALEP_TOMBSTONE:{}, KULLANICILAR:[], AYARLAR:{}, FP_KURALLAR:[],
   talepSayac:0, crmSayac:0
 });
 // merge'i push gibi çağır: (local, server, base)
@@ -126,6 +126,26 @@ console.log('=== ODAKLI SENARYOLAR ===');
   const r=push(local,server,base);
   ok(r.MUSTERILER.filter(m=>m.firma==='F').length===1, 'S10: müşteri mükerrerleri 1\'e collapse');
 }
+// S11: TALEP TOMBSTONE (C) — A siler, B AYNI ANDA düzenler → silme otoriter, re-inject YOK
+{
+  const base=bos(); base.TALEPLER=[{no:'Z',durum:'y'}];
+  // A sildi: tombstone damgası sunucuda
+  const server=bos(); server.TALEP_TOMBSTONE={'Z':Date.now()}; // TALEPLER'de Z yok (A sildi)
+  // B eşzamanlı düzenledi (base'inde Z var, düzenleyip gönderiyor)
+  const local=bos(); local.TALEPLER=[{no:'Z',durum:'B-DUZENLEDI'}];
+  const r=push(local,server,base);
+  ok(!r.TALEPLER.find(t=>t.no==='Z'), 'S11: tombstone silinen talebi concurrent-edit\'e rağmen düşürdü (re-inject YOK)');
+  ok(r.TALEP_TOMBSTONE && ('Z' in r.TALEP_TOMBSTONE), 'S11: tombstone senkronda korunuyor');
+}
+// S12: tombstone 21 GÜNDEN eski → budanır (talep no tekrar kullanılabilir olsun)
+{
+  const base=bos(); const server=bos(); const local=bos();
+  server.TALEP_TOMBSTONE={'ESKI':Date.now()-22*24*3600*1000}; // 22 gün önce
+  local.TALEPLER=[{no:'ESKI',durum:'yeni-talep'}]; // aynı no yeniden kullanıldı
+  const r=push(local,server,base);
+  ok(r.TALEPLER.find(t=>t.no==='ESKI'), 'S12: 21g\'den eski tombstone budandı, yeni talep yaşıyor');
+  ok(!('ESKI' in (r.TALEP_TOMBSTONE||{})), 'S12: eski tombstone girişi silindi');
+}
 
 console.log(`  → ${pass} geçti, ${fail} başarısız`);
 
@@ -158,6 +178,7 @@ function churn(clientCount, rounds){
       const tt=pick(c.mem.TALEPLER); tt['alan_'+t]='v'+t; // yeni alan (absence-clobber riski)
     } else if(act==='sil' && c.mem.TALEPLER.length){
       const tt=pick(c.mem.TALEPLER); _silinenTalepNolar.add(String(tt.no));
+      c.mem.TALEP_TOMBSTONE[String(tt.no)]=Date.now(); // senkronlanan tombstone (C) → re-inject'i kapatır
       c.mem.TALEPLER=c.mem.TALEPLER.filter(x=>x.no!==tt.no);
       silinmis.add(String(tt.no)); beklenen.delete(String(tt.no));
     }
@@ -183,9 +204,10 @@ for(const [nc,nr] of [[3,300],[5,500],[8,800]]){
   // ★ ASIL İNVARIANT (çoğalma): mükerrer YOK
   const cift=nolar.length-set.size;
   ok(cift===0, `churn(${nc},${nr}): ÇOĞALMA YOK (${cift} mükerrer)`);
-  // Bilgi amaçlı: re-inject (silme-vs-eşzamanlı-düzenleme yarışı) — veri kaybı değil, bilinen tradeoff
+  // ★ İNVARIANT (C — tombstone): silinen talep EŞZAMANLI DÜZENLEME olsa bile geri gelmemeli (re-inject=0)
   const reinject=[...silinmis].filter(n=>set.has(n)).length;
-  console.log(`  churn(${nc} istemci, ${nr} tur): ${server.TALEPLER.length} talep hayatta, ${silinmis.size} silme | KAYIP=${kayip.length} MÜKERRER=${cift} | (re-inject ${reinject} — silme-vs-düzenleme, veri kaybı değil)`);
+  ok(reinject===0, `churn(${nc},${nr}): RE-INJECT YOK (tombstone silmeyi otoriter kıldı, ${reinject} ihlal)`);
+  console.log(`  churn(${nc} istemci, ${nr} tur): ${server.TALEPLER.length} talep hayatta, ${silinmis.size} silme | KAYIP=${kayip.length} MÜKERRER=${cift} RE-INJECT=${reinject}`);
 }
 
 console.log(`\n=== TOPLAM: ${pass} geçti, ${fail} başarısız ===`);

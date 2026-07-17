@@ -6407,6 +6407,7 @@ function talepDurumDegistir(idx) {
 function talepSil(idx) {
   if (confirm(`"${TALEPLER[idx].urun}" talebini silmek istiyor musunuz?`)) {
     _silinenTalepNolar.add(String(TALEPLER[idx]?.no)); // union merge yalnız açıkça silineni düşürsün
+    TALEP_TOMBSTONE[String(TALEPLER[idx]?.no)] = Date.now(); // senkronlanan tombstone → concurrent-edit re-inject'i önle
     TALEPLER.splice(idx, 1);
     _taleplerKastenSilindi = true; // kasıtlı silme → boş/azalmış liste sunucuya yazılabilsin
     renderTalepler();
@@ -6421,6 +6422,7 @@ function aktiviteTalepSil(idx) {
   if (!t) return;
   if (!confirm(`"${t.no} — ${t.musteri}" talebi KALICI olarak silinsin mi?\n\nBu işlem geri alınamaz; talep ve ona bağlı teklif/onay verileri silinir.`)) return;
   _silinenTalepNolar.add(String(t.no)); // union merge yalnız açıkça silineni düşürsün
+  TALEP_TOMBSTONE[String(t.no)] = Date.now(); // senkronlanan tombstone → concurrent-edit re-inject'i önle
   TALEPLER.splice(idx, 1);
   _taleplerKastenSilindi = true; // kasıtlı silme → azalmış liste sunucuya yazılabilsin
   veriKaydet();
@@ -6453,6 +6455,18 @@ function aktifTalep() {
 }
 let rfqSeciliTedarikciler = new Set();
 let talepTeklifleri = {}; // { talepNo: [{tedarikci,birimFiyat,toplam,teslimat,gecerlilik,odeme,not,secili}] }
+let TALEP_TOMBSTONE = {}; // { talepNo: silmeTs } — silinen talepler senkronlanır → concurrent-edit re-inject'i önler (21g budama)
+// Tombstone'daki (silinmiş) talepleri bellekteki TALEPLER'den düşür + 21 günden eski girişleri buda.
+// Yükleme (apiVeriYukle/veriYukle) sonrası çağrılır → başka istemcinin geri-enjekte ettiği talep temizlenir.
+function _talepTombstoneFiltrele() {
+  try {
+    const kesim = Date.now() - 21 * 24 * 3600 * 1000;
+    for (const k in TALEP_TOMBSTONE) if (TALEP_TOMBSTONE[k] < kesim) delete TALEP_TOMBSTONE[k];
+    if (!Object.keys(TALEP_TOMBSTONE).length) return;
+    const kalan = TALEPLER.filter(t => !(String(t && t.no) in TALEP_TOMBSTONE));
+    if (kalan.length !== TALEPLER.length) { TALEPLER.length = 0; TALEPLER.push(...kalan); }
+  } catch (_) {}
+}
 
 const WORKFLOW_ADIMLARI = [
   { key:'rfq',     label:'RFQ Gönderildi',          icon:'📧' },
@@ -12216,6 +12230,7 @@ function arsivTalepSil(idx) {
   if (!t) return;
   if (!confirm(`"${t.no} — ${t.musteri}" talebi arşivden KALICI olarak silinsin mi?\n\nBu işlem geri alınamaz; talep ve ona bağlı tüm teklif/onay verileri silinir.`)) return;
   _silinenTalepNolar.add(String(t.no)); // union merge yalnız açıkça silineni düşürsün
+  TALEP_TOMBSTONE[String(t.no)] = Date.now(); // senkronlanan tombstone → concurrent-edit re-inject'i önle
   TALEPLER.splice(idx, 1);
   _taleplerKastenSilindi = true; // kasıtlı silme → azalmış liste sunucuya yazılabilsin
   veriKaydet();
@@ -17179,6 +17194,7 @@ async function apiVeriYukle() {
     if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
+    if (veri.TALEP_TOMBSTONE)  { Object.assign(TALEP_TOMBSTONE, veri.TALEP_TOMBSTONE); _talepTombstoneFiltrele(); } // silinen talepler geri gelmesin
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
     if (veri.AYARLAR)          Object.assign(AYARLAR, veri.AYARLAR);
@@ -17563,6 +17579,21 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   if (_silinenTalepNolar && _silinenTalepNolar.size) {
     sonuc.TALEPLER = sonuc.TALEPLER.filter(t => !_silinenTalepNolar.has(String(t && t.no)));
   }
+  // TALEP TOMBSTONE: silinen talep no'ları SENKRONLANIR (ONAY_BEKLEYENLER deseni). Session-scoped
+  // _silinenTalepNolar yalnız SİLEN istemcinin kendi push'unu korur; başka bir istemci aynı talebi
+  // EŞZAMANLI düzenlemişse (base≠local) union onu geri enjekte edebiliyordu (re-inject). Tombstone
+  // sunucudan gelince (apiVeriCekHam) merge'de o no'lu talep HER YERDEN düşer → silme otoriter olur.
+  // base∪local∪server, max ts, 21 günden eski budanır (talep no'ları tekrar kullanılmadığı için güvenli).
+  const _talepTomb = {};
+  [base.TALEP_TOMBSTONE, local.TALEP_TOMBSTONE, server.TALEP_TOMBSTONE].forEach(src => {
+    if (src && typeof src === 'object') for (const k in src) _talepTomb[k] = Math.max(_talepTomb[k] || 0, src[k] || 0);
+  });
+  const _talepTombKesim = Date.now() - 21 * 24 * 3600 * 1000;
+  for (const k in _talepTomb) if (_talepTomb[k] < _talepTombKesim) delete _talepTomb[k];
+  if (Object.keys(_talepTomb).length) {
+    sonuc.TALEPLER = sonuc.TALEPLER.filter(t => !(String(t && t.no) in _talepTomb));
+  }
+  sonuc.TALEP_TOMBSTONE = _talepTomb;
   // Fiyat onayı çakışma çözümü: admin'in onayı/reddi, bayat bir satıcı oturumunun
   // 'bekliyor'u tarafından geri alınmasın. Karar damgası (fiyatOnaySira) EN YENİ olan
   // taraf (yerel/sunucu) kazanır — base-diff'ten bağımsız. (Damgasız eski kayıtlar atlanır.)
@@ -17755,6 +17786,7 @@ function veriKaydet() {
       MUSTERILER: JSON.parse(JSON.stringify(MUSTERILER)),
       TEDARIKCILER: tedGuvenli,
       talepTeklifleri: JSON.parse(JSON.stringify(talepTeklifleri)),
+      TALEP_TOMBSTONE: JSON.parse(JSON.stringify(TALEP_TOMBSTONE)), // silinen talep tombstone'ları senkronlansın
       talepSayac,
       FP_KURALLAR: JSON.parse(JSON.stringify(FP_KURALLAR)),
       dovizKurlari: { ...dovizKurlari, guncelleme: dovizKurlari.guncelleme?.toISOString?.() || dovizKurlari.guncelleme },
@@ -17799,6 +17831,7 @@ function veriYukle() {
     if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
+    if (veri.TALEP_TOMBSTONE)  { Object.assign(TALEP_TOMBSTONE, veri.TALEP_TOMBSTONE); _talepTombstoneFiltrele(); } // silinen talepler geri gelmesin
     if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
     if (veri.talepSayac)       talepSayac = veri.talepSayac;
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
@@ -17935,6 +17968,7 @@ function _yedekVeriObje() {
     MUSTERILER: JSON.parse(JSON.stringify(MUSTERILER)),
     TEDARIKCILER: tedGuvenli,
     talepTeklifleri: JSON.parse(JSON.stringify(talepTeklifleri)),
+    TALEP_TOMBSTONE: JSON.parse(JSON.stringify(TALEP_TOMBSTONE)),
     talepSayac,
     FP_KULLANICILAR: undefined,
     FP_KURALLAR: JSON.parse(JSON.stringify(FP_KURALLAR)),
