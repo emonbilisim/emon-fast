@@ -6925,7 +6925,14 @@ function talepDetayAc(idx) {
   // "Stok yok" işaretli tedarikçiler aktif seçime alınmaz (RFQ/hatırlatma gitmesin)
   const _stokYokSet = new Set(t.rfqStokYok || []);
   rfqSeciliTedarikciler = new Set((t.rfqTedarikciler||[]).filter(f => !_stokYokSet.has(f)));
+  // Tedarikçi-bazlı seçimler TALEBE özgüdür → talep değişince sıfırlanmalı.
+  // rfqSeciliUrunler ürün İNDEKSİ tutar: sıfırlanmazsa A talebinde X firması için
+  // seçilen "0,2" indeksleri B talebinin bambaşka ürünlerine uygulanırdı.
+  // rfqSeciliGorseller görsel ID'si tutar: eski talebin id'leri tutmayacağı için
+  // süzgeç boşalır ve o tedarikçiye HİÇ görsel gitmezdi (sessiz).
   rfqSeciliMailler = {};
+  rfqSeciliUrunler = {};
+  rfqSeciliGorseller = {};
   rfqTedarikciAra();
   const urunler = t.urunler || (t.urun ? [{aciklama:t.urun}] : []);
   rfqOnerileriGoster(urunler);
@@ -7124,6 +7131,15 @@ function rfqTedarikciAra() {
       ? `<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(251,191,36,0.15);color:var(--amber);border:1px solid rgba(251,191,36,0.3);">📦 ${seciliUrunSayisi}/${tumUrunSayisi} ürün</span>`
       : '';
 
+    // Görsel rozeti: yalnız TAM listeden farklıysa göster (hepsi gidiyorsa gürültü).
+    const tumGorselSayisi   = TALEPLER[aktifTalepIdx]?.gorseller?.length || 0;
+    const gorselSecim       = rfqSeciliGorseller[f.firma];
+    const gorselBadge = (tumGorselSayisi && gorselSecim && gorselSecim.length < tumGorselSayisi)
+      ? (gorselSecim.length === 0
+          ? `<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg2);color:var(--text3);border:1px solid var(--border2);">🖼 görsel yok</span>`
+          : `<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(251,191,36,0.15);color:var(--amber);border:1px solid rgba(251,191,36,0.3);">🖼 ${gorselSecim.length}/${tumGorselSayisi} görsel</span>`)
+      : '';
+
     const eslesmeHtml = eslesme
       ? `<span style="font-size:10px;background:rgba(62,207,142,0.15);color:var(--green);padding:1px 6px;border-radius:10px;flex-shrink:0;margin-left:4px;">✓ Uyumlu</span>`
       : '';
@@ -7143,7 +7159,7 @@ function rfqTedarikciAra() {
       <input type="checkbox" ${secili?'checked':''} ${stoksuz?'disabled':''} style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;">
       <div style="flex:1;min-width:0;">
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:2px;font-weight:${secili?'600':'400'};${stoksuz?'text-decoration:line-through;color:var(--text3);':''}">
-          ${f.firma}${eslesmeHtml}${stokYokBadge}${urunBadge}
+          ${f.firma}${eslesmeHtml}${stokYokBadge}${urunBadge}${gorselBadge}
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">${f.urunler[0]||''}</span>
@@ -7216,6 +7232,7 @@ function rfqTedarikciToggle(firma) {
     rfqSeciliTedarikciler.delete(firma);
     delete rfqSeciliMailler[firma];
     delete rfqSeciliUrunler[firma];
+    delete rfqSeciliGorseller[firma];
   } else {
     rfqSeciliTedarikciler.add(firma);
   }
@@ -7241,6 +7258,7 @@ function rfqStokYokToggle(firma) {
     rfqSeciliTedarikciler.delete(firma);
     delete rfqSeciliMailler[firma];
     delete rfqSeciliUrunler[firma];
+    delete rfqSeciliGorseller[firma];
     showToast(firma + ' "stok yok" — artık RFQ\'da aktif değil.');
   }
   veriKaydet();
@@ -7252,6 +7270,7 @@ function rfqHepsiniTemizle() {
   rfqSeciliTedarikciler.clear();
   rfqSeciliMailler = {};
   rfqSeciliUrunler = {};
+  rfqSeciliGorseller = {};
   rfqTedarikciAra();
   const t = TALEPLER[aktifTalepIdx];
   rfqOnerileriGoster(t?.urunler||(t?.urun?[{aciklama:t.urun}]:[]));
@@ -7265,6 +7284,10 @@ function rfqSeciliSayiGuncelle() {
 
 // ── E-POSTA + ÜRÜN SEÇİM MODALI ──
 let rfqSeciliUrunler = {}; // firma -> [urun idx listesi]
+// firma -> [gorsel id listesi]. YOK (undefined) = hepsi gönderilir; BOŞ dizi [] =
+// bilinçli olarak hiç görsel gönderilmez. Ürün seçiminden farklı olarak boş dizi
+// anlamlıdır (bazı tedarikçiye görsel gitmesin denebilir) → "boşsa kaydetme" YAPMA.
+let rfqSeciliGorseller = {};
 
 function mailSecimAc(firma) {
   const t = TALEPLER[aktifTalepIdx];
@@ -7284,6 +7307,9 @@ function mailSecimAc(firma) {
   });
   const mevcutSecimMail   = rfqSeciliMailler[firma] || kisilerVeMailler.map(x=>x.mail);
   const mevcutSecimUrun   = rfqSeciliUrunler[firma]  || urunler.map((_,i)=>i); // varsayılan: hepsi
+  const gorseller         = t?.gorseller || [];
+  // undefined = hiç dokunulmamış → varsayılan hepsi. [] ise kullanıcı bilinçli boşalttı.
+  const mevcutSecimGorsel = rfqSeciliGorseller[firma] || gorseller.map(g=>g.id);
 
   const icerik = document.getElementById('mail-sec-icerik');
   icerik.innerHTML = `
@@ -7306,6 +7332,27 @@ function mailSecimAc(firma) {
     <div style="display:flex;gap:6px;margin-bottom:16px;">
       <button class="btn btn-sm" onclick="rfqUrunSecTumunu(true)">Tümünü Seç</button>
       <button class="btn btn-sm" onclick="rfqUrunSecTumunu(false)">Tümünü Kaldır</button>
+    </div>` : ''}
+
+    ${gorseller.length ? `
+    <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">🖼 Bu tedarikçiye gönderilecek görseller</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      ${gorseller.map(g => {
+        const tam = TALEP_GORSEL_CACHE[g.id];
+        const secili = mevcutSecimGorsel.includes(g.id);
+        const ic = tam
+          ? `<img src="data:${tam.tip};base64,${tam.b64}" style="width:100%;height:100%;object-fit:cover;display:block;">`
+          : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text3);">🖼</div>`;
+        return `<label title="${_gorevEsc(g.ad)}" style="position:relative;width:76px;height:76px;border:2px solid ${secili?'var(--accent)':'var(--border2)'};border-radius:var(--radius);overflow:hidden;background:var(--bg3);cursor:pointer;display:block;${secili?'':'opacity:0.45;'}">
+          ${ic}
+          <input type="checkbox" data-gorsel-id="${g.id}" ${secili?'checked':''} onchange="rfqGorselKutuDegisti(this)"
+            style="position:absolute;top:3px;left:3px;width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+        </label>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:16px;">
+      <button class="btn btn-sm" onclick="rfqGorselSecTumunu(true)">Tümünü Seç</button>
+      <button class="btn btn-sm" onclick="rfqGorselSecTumunu(false)">Tümünü Kaldır</button>
     </div>` : ''}
 
     <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">📬 Gönderilecek e-postalar</div>
@@ -7333,6 +7380,19 @@ function rfqUrunSecTumunu(secili) {
   document.querySelectorAll('[data-urun-idx]').forEach(cb => cb.checked = secili);
 }
 
+function rfqGorselSecTumunu(secili) {
+  document.querySelectorAll('[data-gorsel-id]').forEach(cb => { cb.checked = secili; rfqGorselKutuDegisti(cb); });
+}
+
+// Seçili/seçilmemiş görseli görsel olarak ayırt et (kutu küçük, küçük resmin
+// kendisi geri bildirim vermeli).
+function rfqGorselKutuDegisti(cb) {
+  const l = cb.closest('label');
+  if (!l) return;
+  l.style.borderColor = cb.checked ? 'var(--accent)' : 'var(--border2)';
+  l.style.opacity = cb.checked ? '' : '0.45';
+}
+
 function mailSecTumunu(secili) {
   document.querySelectorAll('#mail-sec-satirlar input[type=checkbox]').forEach(cb=>cb.checked=secili);
 }
@@ -7349,6 +7409,13 @@ function rfqMailGonderOnaylandi() {
     const seciliUrunler = [];
     document.querySelectorAll('[data-urun-idx]:checked').forEach(cb=>seciliUrunler.push(parseInt(cb.dataset.urunIdx)));
     if (seciliUrunler.length > 0) rfqSeciliUrunler[firma] = seciliUrunler;
+    // Görsel seçimi kaydet — modal görsel bölümünü hiç göstermediyse (talepte
+    // görsel yok) DOKUNMA; gösterdiyse boş seçim de geçerlidir ("görsel gitmesin").
+    if (document.querySelector('[data-gorsel-id]')) {
+      const seciliGorseller = [];
+      document.querySelectorAll('[data-gorsel-id]:checked').forEach(cb=>seciliGorseller.push(cb.dataset.gorselId));
+      rfqSeciliGorseller[firma] = seciliGorseller;
+    }
   }
   closeModal('mailSec');
   rfqTedarikciAra();
@@ -7396,8 +7463,14 @@ async function rfqMailGonder() {
   let basarili = 0;
   let basarisiz = 0;
 
-  // Referans görselleri (b64) bir kez çek — her tedarikçi mailine iliştirilecek.
+  // Referans görselleri (b64) bir kez çek — tedarikçi başına seçime göre süzülür.
   const _rfqGorseller = (msGirisYapildi && (t.gorseller || []).length) ? await rfqGorselleriHazirla(t.no) : [];
+  // firma -> o tedarikçiye gidecek görseller. Seçim yoksa (undefined) hepsi.
+  const _firmaGorselleri = (firma) => {
+    const secim = rfqSeciliGorseller[firma];
+    if (!secim) return _rfqGorseller;                       // dokunulmamış → hepsi
+    return _rfqGorseller.filter(g => secim.includes(g.id)); // [] ise hiçbiri
+  };
   // mailto fallback ek gönderemez — kullanıcı görsellerin gittiğini SANMASIN.
   if (!msGirisYapildi && (t.gorseller || []).length) {
     showToast('⚠ Microsoft girişi yok — mail taslak olarak açılıyor, referans görselleri OTOMATİK eklenemez. Elle iliştirmeniz gerekir.');
@@ -7445,7 +7518,7 @@ async function rfqMailGonder() {
 
     if (msGirisYapildi) {
       // Outlook Graph API ile gönder
-      const gonderildi = await outlookMailGonder(hedefMailler, subject, body, _rfqGorseller);
+      const gonderildi = await outlookMailGonder(hedefMailler, subject, body, _firmaGorselleri(firma));
       if (gonderildi) basarili++; else basarisiz++;
     } else {
       // Fallback: mailto
@@ -7465,7 +7538,7 @@ async function rfqMailGonder() {
     const govde = `Sayın ${isim},\n\nAşağıdaki ürünler için en kısa sürede fiyat teklifinizi iletmenizi rica ederiz:\n\n${urunListesi}\n\nTalep No  : ${t.no}\nTermin    : ${t.termin ? tarihFmt(t.termin) : '—'}${webLink}\n\nBirim fiyat (KDV hariç), teslim süresi, ödeme ve geçerlilik bilgilerini eklemenizi rica ederiz.${imzaMetni()}`;
 
     if (msGirisYapildi) {
-      const gonderildi = await outlookMailGonder([mt.mail], konu, govde, _rfqGorseller);
+      const gonderildi = await outlookMailGonder([mt.mail], konu, govde, _firmaGorselleri(mt.firma));
       if (gonderildi) basarili++; else basarisiz++;
     } else {
       window.open('mailto:' + mt.mail + '?subject=' + encodeURIComponent(konu) + '&body=' + encodeURIComponent(govde));

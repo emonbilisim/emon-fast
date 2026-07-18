@@ -154,6 +154,24 @@ console.log('=== 4) MAIL EKLERİ (Graph şeması + cid eşleşmesi) ===');
   ok(r.ekler[0].name === kotu.ad, '4m: ek adı (JSON gövdesi) olduğu gibi korundu');
 }
 
+console.log('=== 6) TEDARİKÇİ BAZLI GÖRSEL SEÇİMİ ===');
+{
+  // rfqMailGonder içindeki _firmaGorselleri süzgecinin birebir mantığı.
+  const gorseller = [tam('g1'), tam('g2'), tam('g3')];
+  const suz = (secimMap, firma) => {
+    const secim = secimMap[firma];
+    if (!secim) return gorseller;
+    return gorseller.filter(g => secim.includes(g.id));
+  };
+  ok(suz({}, 'A').length === 3, '6a: seçim yoksa (dokunulmamış) HEPSİ gider — mevcut davranış korundu');
+  ok(suz({ A: ['g1', 'g3'] }, 'A').map(g => g.id).join() === 'g1,g3', '6b: yalnız seçilen görseller gider');
+  ok(suz({ A: [] }, 'A').length === 0, '6c: boş seçim = HİÇ görsel gitmez (bilinçli tercih)');
+  ok(suz({ A: ['g1'] }, 'B').length === 3, '6d: bir firmanın seçimi diğerini etkilemez');
+  // Talep değişince sıfırlanmazsa: eski talebin id'leri tutmaz → sessizce 0 görsel
+  ok(suz({ A: ['eski-talep-id'] }, 'A').length === 0,
+     '6e: başka talebin id\'leri hiçbir görsele uymaz → talep değişiminde sıfırlama ŞART');
+}
+
 console.log('=== 5) data URL AYIRMA ===');
 {
   const a = gorselB64Ayir('data:image/jpeg;base64,XYZ');
