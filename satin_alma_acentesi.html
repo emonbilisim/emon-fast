@@ -12207,6 +12207,41 @@ function tahErteleKaydet(){
 }
 
 // ── Hatırlatma e-postası (muhasebe@ → müşterinin finansal kişisi) ──
+// Kurumsal footer: kapanış + logo + firma/muhasebe bloğu (imzaHtml deseninde, ama
+// paylaşımlı kutudan gittiği için kişisel isim yok — Muhasebe/Finans Departmanı).
+function tahMailImzaHtml(){
+  const iz    = AYARLAR.imza || {};
+  const logo  = (typeof getEmonLogo==='function' ? getEmonLogo() : '') || iz.logoUrl || '';
+  const firma = AYARLAR.sirket || iz.firma || 'EMON Bilgi İşlem Ürünleri Tic. A.Ş.';
+  const adres = AYARLAR.adres  || iz.adres || 'Perpa Ticaret Merkezi B Blok Kat:11 No:1691 Okmeydanı – Şişli / İSTANBUL';
+  const tel   = AYARLAR.tel    || iz.tel   || '0212 222 33 08';
+  const web   = (AYARLAR.web   || iz.web   || 'www.emon.com.tr').replace(/^https?:\/\//,'');
+  const kutu  = (typeof tahsilatGonderenKutu==='function' ? tahsilatGonderenKutu() : '') || 'muhasebe@emon.com.tr';
+  return `<p style="margin:22px 0 14px;line-height:1.6;">Saygılarımızla,</p>
+    <table cellpadding="0" cellspacing="0" style="border-top:2px solid #1565C0;margin-top:4px;font-family:Arial,Helvetica,sans-serif;">
+      <tr>
+        ${logo?`<td style="padding:14px 16px 0 0;vertical-align:top;width:130px;"><img src="${logo}" alt="EMON" style="width:120px;height:auto;display:block;"></td>`:''}
+        <td style="padding-top:14px;vertical-align:top;">
+          <div style="font-size:14px;font-weight:700;color:#1565C0;">${tahEsc(firma)}</div>
+          <div style="font-size:12px;color:#555;margin-bottom:6px;">Muhasebe / Finans Departmanı</div>
+          <div style="font-size:12px;color:#333;">📞 ${tahEsc(tel)}</div>
+          <div style="font-size:12px;color:#333;">📧 <a href="mailto:${tahEsc(kutu)}" style="color:#1565C0;text-decoration:none;">${tahEsc(kutu)}</a></div>
+          <div style="font-size:12px;"><a href="https://${tahEsc(web)}" style="color:#1565C0;text-decoration:none;">${tahEsc(web)}</a></div>
+          <div style="font-size:11px;color:#777;margin-top:4px;line-height:1.5;">${tahEsc(adres)}</div>
+        </td>
+      </tr>
+    </table>`;
+}
+// Serbest metni (textarea) paragraflara böler: \n\n → yeni paragraf, \n → satır sonu.
+function tahMailGovdeHtml(mesaj, ekHtml){
+  const paras = String(mesaj||'').trim().split(/\n{2,}/).filter(Boolean)
+    .map(p => `<p style="margin:0 0 14px;line-height:1.6;">${tahEsc(p).replace(/\n/g,'<br>')}</p>`).join('');
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;max-width:640px;padding:4px 2px;">
+    ${paras}
+    ${ekHtml||''}
+    ${tahMailImzaHtml()}
+  </div>`;
+}
 function tahMailAc(id){
   const r=TAHSILAT_KAYITLAR.map(tahHesapla).find(x=>x.id===id); if(!r) return;
   const m=tahMusteriBul(r.firma), kisi=tahFinansalKisi(m);
@@ -12219,8 +12254,8 @@ function tahMailAc(id){
   document.getElementById('tah-m-sub').textContent=(before?'Yaklaşan Ödeme Hatırlatması':'Ödeme Hatırlatması')+' — '+vade+' vadeli '+tahFmt(r.tutar)+' ₺';
   const faturaEk=r.faturaNo?(' (Fatura No: '+r.faturaNo+')'):'';
   const govde=before
-    ? `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin yaklaştığını hatırlatmak isteriz.${faturaEk}\n\nHerhangi bir sorunuz olursa memnuniyetle yardımcı oluruz.\n\nSaygılarımızla,\nEMON Muhasebe Departmanı`
-    : `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin bugün vadesi gelmiştir. Ödemenizi bugün içinde tamamlamanızı rica ederiz.${faturaEk}\n\nÖdemeyi gerçekleştirdiyseniz bu mesajı dikkate almayınız; dekontu tarafımıza iletmeniz yeterlidir.\n\nSaygılarımızla,\nEMON Muhasebe Departmanı`;
+    ? `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin yaklaştığını hatırlatmak isteriz.${faturaEk}\n\nHerhangi bir sorunuz olursa memnuniyetle yardımcı oluruz.`
+    : `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin bugün vadesi gelmiştir. Ödemenizi bugün içinde tamamlamanızı rica ederiz.${faturaEk}\n\nÖdemeyi gerçekleştirdiyseniz bu mesajı dikkate almayınız; dekontu tarafımıza iletmeniz yeterlidir.`;
   document.getElementById('tah-m-body').value=govde;
   const onay=r.mode==='Onaylı taslak';
   document.getElementById('tah-m-tag').textContent=onay?'Onaylı gönderim (büyük cari)':'Standart hatırlatma';
@@ -12233,7 +12268,7 @@ async function tahMailGonder(){
   if(!to){ showToast('Alıcı e-posta yok.'); return; }
   const konu=document.getElementById('tah-m-sub').textContent;
   const metin=document.getElementById('tah-m-body').value;
-  const html=`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;white-space:pre-wrap;">${tahEsc(metin)}</div>`;
+  const html=tahMailGovdeHtml(metin);
   const btn=document.getElementById('tah-m-send'), eski=btn.textContent; btn.textContent='Gönderiliyor…'; btn.disabled=true;
   const res=await tahsilatMailGonder([to],konu,html,{});
   btn.textContent=eski; btn.disabled=false;
@@ -12289,15 +12324,12 @@ async function tahTopluGonder(){
     const durum=r.days<0?(-r.days+' gün gecikti'):r.days===0?'Bugün vadeli':(r.days+' gün kaldı');
     return `<tr><td style="${td}">${tahEsc(r.faturaNo||'—')}</td><td style="${td}">${tahGunTR(r.vade)}</td><td style="${td}">${durum}</td><td style="${td}text-align:right;">${tahFmt(r.tutar)} ₺</td></tr>`;
   }).join('');
-  const html=`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
-    <div style="white-space:pre-wrap;">${tahEsc(mesaj)}</div>
-    <table style="border-collapse:collapse;font-size:13px;margin:14px 0;">
+  const tablo=`<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;margin:4px 0 10px;">
       <thead><tr><th style="${th}text-align:left;">Fatura No</th><th style="${th}text-align:left;">Vade</th><th style="${th}text-align:left;">Durum</th><th style="${th}text-align:right;">Tutar</th></tr></thead>
       <tbody>${satirlar}</tbody>
-      <tfoot><tr><td colspan="3" style="${td}text-align:right;font-weight:700;">TOPLAM (${kayitlar.length} fatura)</td><td style="${td}text-align:right;font-weight:700;">${tahFmt(toplam)} ₺</td></tr></tfoot>
-    </table>
-    <div>Saygılarımızla,<br>EMON Muhasebe Departmanı</div>
-  </div>`;
+      <tfoot><tr><td colspan="3" style="${td}text-align:right;font-weight:700;background:#f4f6fb;">TOPLAM (${kayitlar.length} fatura)</td><td style="${td}text-align:right;font-weight:700;background:#f4f6fb;">${tahFmt(toplam)} ₺</td></tr></tfoot>
+    </table>`;
+  const html=tahMailGovdeHtml(mesaj, tablo);
   const konu='Ödeme Hatırlatması — '+firma+' · '+kayitlar.length+' fatura, toplam '+tahFmt(toplam)+' ₺';
   const btn=document.getElementById('tah-tm-send'), eski=btn.textContent; btn.textContent='Gönderiliyor…'; btn.disabled=true;
   const res=await tahsilatMailGonder([to],konu,html,{});
