@@ -774,6 +774,66 @@ jobs:
             PATCH
             node /tmp/emon-patch-tg.js
 
+      - name: Patch backend (tahsilat — alacak/dunning takibi)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/emonfast
+            set -a; . ./.env; set +a
+            # 9a) DDL: satir-basina-bir-alacak tablosu (JSONB). Her kayit bagimsiz
+            #     upsert/delete edilir; dizi-clobber riski yok. id = istemci uid (TEXT).
+            PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL'
+            CREATE TABLE IF NOT EXISTS tahsilat (
+              id TEXT PRIMARY KEY,
+              data JSONB NOT NULL,
+              guncelleme TIMESTAMPTZ DEFAULT NOW()
+            );
+            SQL
+            # 9b) Route enjeksiyonu (idempotent): GET/PUT /api/tahsilat + DELETE /api/tahsilat/:id
+            cat > /tmp/emon-patch-tah.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            let degisti = false;
+            const yedek = () => { if (!degisti) fs.writeFileSync(f + '.bak.ci-tah', s); };
+            const tahRoute =
+              "app.get('/api/tahsilat', authMiddleware, async (req, res) => { // tahsilat v1\n" +
+              "  try {\n" +
+              "    const r = await pool.query('SELECT data FROM tahsilat ORDER BY guncelleme DESC');\n" +
+              "    res.json({ ok: true, kayitlar: r.rows.map(x => x.data) });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.put('/api/tahsilat', authMiddleware, async (req, res) => { // tahsilat v1\n" +
+              "  try {\n" +
+              "    const k = (req.body && typeof req.body === 'object') ? req.body : {};\n" +
+              "    if (!k.id) return res.status(400).json({ ok: false, hata: 'id gerekli' });\n" +
+              "    await pool.query('INSERT INTO tahsilat (id, data, guncelleme) VALUES ($1,$2,NOW()) ON CONFLICT (id) DO UPDATE SET data=$2, guncelleme=NOW()', [String(k.id), JSON.stringify(k)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n" +
+              "app.delete('/api/tahsilat/:id', authMiddleware, async (req, res) => { // tahsilat v1\n" +
+              "  try {\n" +
+              "    await pool.query('DELETE FROM tahsilat WHERE id=$1', [String(req.params.id)]);\n" +
+              "    res.json({ ok: true });\n" +
+              "  } catch (e) { res.status(500).json({ ok: false, hata: e.message }); }\n" +
+              "});\n";
+            if (s.includes('// tahsilat v1')) {
+              console.log('tahsilat route zaten var');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              yedek();
+              s = s.replace("app.get('/api/saglik'", tahRoute + "\napp.get('/api/saglik'");
+              degisti = true;
+              console.log('tahsilat route eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, tahsilat eklenemedi');
+            }
+            if (degisti) fs.writeFileSync(f, s); else console.log('server.js (patch-tah) zaten guncel');
+            PATCH
+            node /tmp/emon-patch-tah.js
+
       - name: Rename and restart
         uses: appleboy/ssh-action@master
         with:
