@@ -2366,6 +2366,34 @@
     </div>
   </div>
 
+  <!-- MODAL: Toplu Hatırlatma (bir cariye ait çok alacak, tek dökümlü mail) -->
+  <div class="modal-overlay" id="modal-tahTopluMail">
+    <div class="modal" style="width:min(96vw,680px);max-height:90vh;overflow-y:auto;">
+      <div class="modal-title">📋 Toplu Ödeme Hatırlatması</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:4px;">Gönderen: <span id="tah-tm-from" style="color:var(--accent);"></span></div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:4px;">Kime: <span id="tah-tm-to" style="color:var(--text);"></span></div>
+      <div style="font-size:13px;font-weight:700;margin:8px 0 6px;" id="tah-tm-firma"></div>
+      <div class="th-scroll" style="max-height:260px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;">
+        <table>
+          <thead><tr>
+            <th style="width:34px;"><input type="checkbox" id="tah-tm-all" checked onclick="tahTopluHepsi(this.checked)" title="Tümünü seç/kaldır"></th>
+            <th>Fatura No</th><th>Vade</th><th>Durum</th><th class="num">Tutar (₺)</th>
+          </tr></thead>
+          <tbody id="tah-tm-rows"></tbody>
+        </table>
+      </div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;">Seçili toplam: <span id="tah-tm-toplam" style="color:var(--accent);"></span></div>
+      <label class="form-label">Mesaj (dökümün üstünde görünür — düzenleyebilirsiniz)</label>
+      <textarea id="tah-tm-mesaj" rows="4" style="width:100%;font-size:13px;font-family:inherit;"></textarea>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">Fatura dökümü (tablo + toplam) otomatik olarak mesajın altına eklenir.</div>
+      <div class="modal-footer" style="align-items:center;">
+        <div style="flex:1;"></div>
+        <button class="btn" onclick="closeModal('tahTopluMail')">Kapat</button>
+        <button class="btn btn-primary" id="tah-tm-send" onclick="tahTopluGonder()">Gönder</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- MODAL: Görev Ata / Düzenle -->
@@ -12026,6 +12054,7 @@ function renderTahsilat(){
   const bg=document.getElementById('tah-bugun-etiket'); if(bg) bg.textContent=tahBugun().toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'});
   const ke=document.getElementById('tah-kutu-etiket'); if(ke) ke.textContent=(typeof tahsilatGonderenKutu==='function'?tahsilatGonderenKutu():'')||'muhasebe@emon.com.tr';
   const kayitlar=TAHSILAT_KAYITLAR.map(tahHesapla);
+  const firmaAdet={}; kayitlar.forEach(r=>{ firmaAdet[r.firma]=(firmaAdet[r.firma]||0)+1; });
   const openTot=kayitlar.reduce((s,r)=>s+r.tutar,0);
   const gec=kayitlar.filter(r=>r.days<0), dueToday=kayitlar.filter(r=>r.days===0), week=kayitlar.filter(r=>r.days>0&&r.days<=7), need=kayitlar.filter(r=>r.need);
   const firmaSayi=new Set(kayitlar.map(r=>r.firma)).size;
@@ -12062,6 +12091,7 @@ function renderTahsilat(){
       <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
         ${!m?`<button class="btn btn-sm" style="color:var(--purple);" onclick="tahMusteriYap('${r.id}')">👤 Müşteri yap</button>`:''}
         ${(r.segment!=='Temas yok'&&mailVar)?`<button class="btn btn-sm" style="color:var(--accent);" onclick="tahMailAc('${r.id}')">✉ Hatırlat</button>`:''}
+        ${(mailVar&&firmaAdet[r.firma]>1)?`<button class="btn btn-sm" style="color:var(--accent2);" onclick="tahTopluAc('${r.id}')" title="Bu cariye ait tüm açık alacakları tek dökümlü mailde iste">📋 Toplu (${firmaAdet[r.firma]})</button>`:''}
         <button class="btn btn-sm" style="color:var(--green);" onclick="tahTahsil('${r.id}')">✓ Tahsil</button>
         <button class="btn btn-sm" style="color:var(--amber);" onclick="tahErteleAc('${r.id}')">↻ Ertele</button>
       </div></td>
@@ -12210,6 +12240,72 @@ async function tahMailGonder(){
   if(res.ok){
     r.sonHatirlatma=new Date().toISOString(); tahKayitYaz(r);
     closeModal('tahMail'); renderTahsilat(); showToast('📧 Hatırlatma gönderildi → '+to);
+  } else { showToast('⚠ '+(res.hata||'Gönderilemedi')); }
+}
+
+// ── Toplu hatırlatma: bir cariye ait birden çok alacağı tek dökümlü mailde iste ──
+let _tahTopluFirma=null;
+function tahTopluAc(id){
+  const rec=TAHSILAT_KAYITLAR.find(x=>x.id===id); if(!rec) return;
+  const firma=rec.firma, m=tahMusteriBul(firma), kisi=tahFinansalKisi(m);
+  if(!kisi||!kisi.mail){ showToast('Bu müşteri için e-postalı finansal iletişim kişisi yok — müşteri kartından ekleyin.'); return; }
+  _tahTopluFirma=firma;
+  const kayitlar=TAHSILAT_KAYITLAR.filter(r=>r.firma===firma).map(tahHesapla).sort((a,b)=>a.days-b.days||b.tutar-a.tutar);
+  document.getElementById('tah-tm-firma').textContent=firma+' — '+kayitlar.length+' açık alacak';
+  document.getElementById('tah-tm-to').textContent=kisi.mail+(kisi.ad?(' ('+kisi.ad+')'):'');
+  document.getElementById('tah-tm-from').textContent=((typeof tahsilatGonderenKutu==='function'?tahsilatGonderenKutu():'')||'muhasebe@emon.com.tr')+' (Outlook üzerinden)';
+  document.getElementById('tah-tm-rows').innerHTML=kayitlar.map(r=>`<tr>
+    <td><input type="checkbox" class="tah-tm-cb" data-id="${r.id}" data-tutar="${r.tutar}" checked onclick="tahTopluHesapla()"></td>
+    <td>${r.faturaNo?tahEsc(r.faturaNo):'—'}</td>
+    <td>${tahGunTR(r.vade)}</td>
+    <td>${tahDurumPill(r)}</td>
+    <td class="num">${tahFmt(r.tutar)}</td>
+  </tr>`).join('');
+  const all=document.getElementById('tah-tm-all'); if(all) all.checked=true;
+  const greet=kisi.ad?('Sayın '+kisi.ad):('Sayın '+firma+' Yetkilisi');
+  document.getElementById('tah-tm-mesaj').value=greet+',\n\nAşağıda açık bakiyenizi oluşturan faturaların dökümünü bilgilerinize sunarız. Ödemelerinizi vadelerinde tamamlamanızı rica eder, işbirliğiniz için teşekkür ederiz.';
+  tahTopluHesapla();
+  openModal('tahTopluMail');
+}
+function tahTopluHepsi(chk){ document.querySelectorAll('#tah-tm-rows .tah-tm-cb').forEach(c=>c.checked=chk); tahTopluHesapla(); }
+function tahTopluHesapla(){
+  let t=0,n=0; document.querySelectorAll('#tah-tm-rows .tah-tm-cb').forEach(c=>{ if(c.checked){ t+=Number(c.dataset.tutar)||0; n++; } });
+  const tel=document.getElementById('tah-tm-toplam'); if(tel) tel.textContent=tahFmt(t)+' ₺ ('+n+' fatura)';
+  const cbs=[...document.querySelectorAll('#tah-tm-rows .tah-tm-cb')], all=document.getElementById('tah-tm-all');
+  if(all) all.checked = cbs.length>0 && cbs.every(c=>c.checked);
+  const btn=document.getElementById('tah-tm-send'); if(btn) btn.disabled = n===0;
+}
+async function tahTopluGonder(){
+  const firma=_tahTopluFirma, m=tahMusteriBul(firma), kisi=tahFinansalKisi(m), to=kisi&&kisi.mail;
+  if(!to){ showToast('Alıcı e-posta yok.'); return; }
+  const secili=[...document.querySelectorAll('#tah-tm-rows .tah-tm-cb')].filter(c=>c.checked).map(c=>c.dataset.id);
+  if(!secili.length){ showToast('En az bir fatura seçin.'); return; }
+  const kayitlar=secili.map(id=>TAHSILAT_KAYITLAR.find(x=>x.id===id)).filter(Boolean).map(tahHesapla).sort((a,b)=>a.days-b.days||b.tutar-a.tutar);
+  const toplam=kayitlar.reduce((s,r)=>s+r.tutar,0);
+  const mesaj=document.getElementById('tah-tm-mesaj').value;
+  const td='padding:6px 10px;border:1px solid #ddd;';
+  const th='padding:6px 10px;border:1px solid #ddd;background:#f4f6fb;';
+  const satirlar=kayitlar.map(r=>{
+    const durum=r.days<0?(-r.days+' gün gecikti'):r.days===0?'Bugün vadeli':(r.days+' gün kaldı');
+    return `<tr><td style="${td}">${tahEsc(r.faturaNo||'—')}</td><td style="${td}">${tahGunTR(r.vade)}</td><td style="${td}">${durum}</td><td style="${td}text-align:right;">${tahFmt(r.tutar)} ₺</td></tr>`;
+  }).join('');
+  const html=`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+    <div style="white-space:pre-wrap;">${tahEsc(mesaj)}</div>
+    <table style="border-collapse:collapse;font-size:13px;margin:14px 0;">
+      <thead><tr><th style="${th}text-align:left;">Fatura No</th><th style="${th}text-align:left;">Vade</th><th style="${th}text-align:left;">Durum</th><th style="${th}text-align:right;">Tutar</th></tr></thead>
+      <tbody>${satirlar}</tbody>
+      <tfoot><tr><td colspan="3" style="${td}text-align:right;font-weight:700;">TOPLAM (${kayitlar.length} fatura)</td><td style="${td}text-align:right;font-weight:700;">${tahFmt(toplam)} ₺</td></tr></tfoot>
+    </table>
+    <div>Saygılarımızla,<br>EMON Muhasebe Departmanı</div>
+  </div>`;
+  const konu='Ödeme Hatırlatması — '+firma+' · '+kayitlar.length+' fatura, toplam '+tahFmt(toplam)+' ₺';
+  const btn=document.getElementById('tah-tm-send'), eski=btn.textContent; btn.textContent='Gönderiliyor…'; btn.disabled=true;
+  const res=await tahsilatMailGonder([to],konu,html,{});
+  btn.textContent=eski; btn.disabled=false;
+  if(res.ok){
+    const now=new Date().toISOString();
+    kayitlar.forEach(r=>{ const kk=TAHSILAT_KAYITLAR.find(x=>x.id===r.id); if(kk){ kk.sonHatirlatma=now; tahKayitYaz(kk); } });
+    closeModal('tahTopluMail'); renderTahsilat(); showToast('📧 Toplu hatırlatma gönderildi ('+kayitlar.length+' fatura) → '+to);
   } else { showToast('⚠ '+(res.hata||'Gönderilemedi')); }
 }
 
