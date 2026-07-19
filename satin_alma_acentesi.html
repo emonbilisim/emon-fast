@@ -586,6 +586,10 @@
       <span class="icon">💳</span> Mail Order
       <span class="nav-badge" id="badge-mailorder" title="İşlem bekleyen Mail Order (onay veya tedarikçiye gönderim)" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
     </div>
+    <div class="nav-item" onclick="goPage('tahsilat',this)" id="nav-tahsilat" style="display:none;">
+      <span class="icon">🧾</span> Tahsilat Takip
+      <span class="nav-badge" id="badge-tahsilat" title="Bugün temas edilecek alacaklar" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
+    </div>
     <div class="nav-label" style="margin-top:8px;">Ayarlar</div>
     <div class="nav-item" onclick="goPage('kullanicilar',this)" id="nav-kullanicilar">
       <span class="icon">🔐</span> Kullanıcılar
@@ -1921,6 +1925,12 @@
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Ön koşullar (tek seferlik): M365'te bu adres bir <b>paylaşımlı kutu</b> olmalı, Exchange admin gönderen kullanıcıya <b>“Farklı gönder (Send As)”</b> yetkisi vermeli ve kullanıcı bir kez <b>yeniden giriş</b> yapıp izni onaylamalı. Boş bırakılırsa varsayılan <b>muhasebe@emon.com.tr</b> kullanılır.</div>
       <input type="text" id="ayar-tahsilat-gonderen" placeholder="muhasebe@emon.com.tr" onchange="tahsilatKutuKaydet(this)" style="width:100%;max-width:360px;">
       <div id="tahsilat-gonderen-durum" style="font-size:12px;font-weight:600;margin-top:8px;"></div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+        <label class="form-label" style="margin:0 0 6px;">👤 Kayıtsız Carileri Müşteri Olarak Ekle</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Alacaklarda görünen ama müşteri kartı olmayan cariler için <b>iskelet müşteri kartı</b> (yalnız firma adı) oluşturur. Sonra Müşteriler’den her birine <b>🧾 finansal iletişim kişisi</b> ekleyip hatırlatma gönderebilirsiniz. Kişi eklenene kadar o carilere mail atılmaz.</div>
+        <button class="btn btn-sm" id="tah-eksik-btn" onclick="tahEksikMusterileriEkle()">👤 Kayıtsız carileri müşteri olarak ekle</button>
+        <div id="tah-eksik-durum" style="font-size:12px;font-weight:600;margin-top:8px;"></div>
+      </div>
     </div>
 
     <!-- Sunucu Deposu / Sistem Durumu -->
@@ -2209,6 +2219,150 @@
         <button class="btn btn-sm btn-primary" onclick="moFormModalAc()">➕ Form Ekle</button>
       </div>
       <div id="mo-form-liste"></div>
+    </div>
+  </div>
+
+  <!-- TAHSİLAT TAKİP MERKEZİ (Finans) — native; müşteriler MUSTERILER'den -->
+  <style>
+    #page-tahsilat .th-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+    @media(max-width:1000px){#page-tahsilat .th-kpis{grid-template-columns:repeat(2,1fr);}}
+    #page-tahsilat .th-kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+    #page-tahsilat .th-kpi .lbl{color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+    #page-tahsilat .th-kpi .val{font-size:20px;font-weight:700;margin-top:6px;color:var(--text);}
+    #page-tahsilat .th-kpi .note{font-size:11px;color:var(--text2);margin-top:3px;}
+    #page-tahsilat .th-kpi.hl{border-color:rgba(245,166,35,.5);background:rgba(245,166,35,.07);}
+    #page-tahsilat table{width:100%;border-collapse:collapse;font-size:13px;}
+    #page-tahsilat th,#page-tahsilat td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:top;}
+    #page-tahsilat th{color:var(--text3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;position:sticky;top:0;background:var(--bg3);z-index:1;}
+    #page-tahsilat td.num,#page-tahsilat th.num{text-align:right;font-variant-numeric:tabular-nums;}
+    #page-tahsilat .th-scroll{max-height:600px;overflow:auto;}
+    #page-tahsilat .th-pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;}
+    #page-tahsilat .th-gec{background:rgba(240,96,96,.15);color:var(--red);}
+    #page-tahsilat .th-bugun{background:rgba(245,166,35,.15);color:var(--amber);}
+    #page-tahsilat .th-on{background:rgba(167,139,250,.15);color:var(--purple);}
+    #page-tahsilat .th-hafta{background:rgba(79,142,247,.15);color:var(--accent);}
+    #page-tahsilat .th-ileri{background:var(--bg3);color:var(--text2);}
+    #page-tahsilat .th-seg{display:inline-block;padding:2px 9px;border-radius:6px;font-size:11px;font-weight:600;}
+    #page-tahsilat .th-s-once{background:rgba(62,207,142,.14);color:var(--green);}
+    #page-tahsilat .th-s-vade{background:rgba(79,142,247,.14);color:var(--accent);}
+    #page-tahsilat .th-s-yok{background:var(--bg3);color:var(--text2);}
+    #page-tahsilat .th-note{color:var(--text2);font-size:12px;max-width:200px;white-space:normal;}
+    #page-tahsilat .th-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+    #page-tahsilat .th-tab{background:var(--bg2);border:1px solid var(--border);color:var(--text2);padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;}
+    #page-tahsilat .th-tab.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+    #modal-tahEkle .th-mtabs{display:flex;gap:6px;margin-bottom:14px;}
+    #modal-tahEkle .th-mtab{flex:1;text-align:center;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text2);cursor:pointer;font-size:13px;font-weight:600;}
+    #modal-tahEkle .th-mtab.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  </style>
+  <div class="content page" id="page-tahsilat">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:600;">🧾 Tahsilat Takip Merkezi</div>
+        <div style="font-size:12px;color:var(--text3);">Alacak &amp; hatırlatma takibi — müşteriler EMON FAST müşteri kartlarından · Bugün: <span id="tah-bugun-etiket"></span></div>
+      </div>
+      <div style="flex:1;"></div>
+      <button class="btn btn-sm" onclick="tahYenile()">↻ Yenile</button>
+      <button class="btn btn-primary btn-sm" onclick="tahEkleAc()">＋ Alacak Ekle</button>
+    </div>
+    <div class="th-kpis" id="tah-kpis"></div>
+    <div class="th-tabs">
+      <button class="th-tab active" data-f="temas" onclick="tahFiltreSec('temas',this)">📞 Bugün temas <span id="tah-c-temas"></span></button>
+      <button class="th-tab" data-f="gec" onclick="tahFiltreSec('gec',this)">Gecikmiş</button>
+      <button class="th-tab" data-f="bugun" onclick="tahFiltreSec('bugun',this)">Bugün vadeli <span id="tah-c-bugun"></span></button>
+      <button class="th-tab" data-f="hafta" onclick="tahFiltreSec('hafta',this)">Bu hafta <span id="tah-c-hafta"></span></button>
+      <button class="th-tab" data-f="tum" onclick="tahFiltreSec('tum',this)">Tümü <span id="tah-c-tum"></span></button>
+      <div style="flex:1;"></div>
+      <select onchange="_tahSeg=this.value;renderTahsilat();" style="padding:7px 10px;">
+        <option value="">Tüm segmentler</option>
+        <option value="Önceden temas">Önceden temas</option>
+        <option value="Vade günü">Vade günü</option>
+        <option value="Temas yok">Temas yok</option>
+      </select>
+    </div>
+    <div class="card" style="padding:0;">
+      <div class="th-scroll">
+        <table>
+          <thead><tr><th>Cari</th><th class="num">Tutar (₺)</th><th>Vade</th><th>Durum</th><th>Segment</th><th>Not</th><th>Aksiyon</th></tr></thead>
+          <tbody id="tah-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;line-height:1.6;">
+      Segment/temas kuralı cari açık toplamına göre otomatik önerilir (büyük cari → önceden temas + onaylı taslak). Hatırlatma, müşteri kartındaki <b>🧾 finansal iletişim kişisine</b> <b id="tah-kutu-etiket">muhasebe@emon.com.tr</b> kutusundan gider. Alacak verisi <code>/api/tahsilat</code> ile senkronlanır; endpoint yoksa bu cihazda saklanır.
+    </div>
+  </div>
+
+  <!-- MODAL: Alacak Ekle (manuel / excel) -->
+  <div class="modal-overlay" id="modal-tahEkle">
+    <div class="modal" style="width:min(96vw,640px);max-height:90vh;overflow-y:auto;">
+      <div class="modal-title">＋ Yeni Alacak Ekle</div>
+      <div class="th-mtabs">
+        <div class="th-mtab active" data-p="manuel" onclick="tahEkleSekme('manuel')">✍ Manuel</div>
+        <div class="th-mtab" data-p="excel" onclick="tahEkleSekme('excel')">📊 Excel Liste</div>
+      </div>
+      <div id="tah-pane-manuel">
+        <div class="grid2">
+          <div class="form-group"><label class="form-label">Müşteri (Cari) *</label>
+            <input type="text" id="tah-f-firma" list="tah-firma-list" placeholder="Kayıtlı müşteri seçin veya yazın" autocomplete="off">
+            <datalist id="tah-firma-list"></datalist>
+          </div>
+          <div class="form-group"><label class="form-label">Tutar (₺) *</label><input type="number" id="tah-f-tutar" step="0.01" min="0" placeholder="0,00"></div>
+          <div class="form-group"><label class="form-label">Vade Tarihi *</label><input type="date" id="tah-f-vade"></div>
+          <div class="form-group"><label class="form-label">Fatura No (ops.)</label><input type="text" id="tah-f-fno" placeholder="örn. GIB2026..."></div>
+          <div class="form-group"><label class="form-label">Fatura Tarihi (ops.)</label><input type="date" id="tah-f-ftar"></div>
+          <div class="form-group" style="grid-column:1/3;"><label class="form-label">Not (ops.)</label><input type="text" id="tah-f-not" placeholder="örn. teyit edilecek"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Müşteri kayıtlı değilse önce tanımlayın: <button class="btn btn-sm" onclick="tahYeniMusteri()">＋ Yeni Müşteri</button></div>
+        <div id="tah-manuel-msg" style="font-size:12px;margin-bottom:8px;"></div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('tahEkle')">İptal</button>
+          <button class="btn btn-primary" onclick="tahManuelEkle()">Listeye Ekle</button>
+        </div>
+      </div>
+      <div id="tah-pane-excel" style="display:none;">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Sütunlar: <b>Cari/Firma</b>, <b>Tutar</b>, <b>Vade</b> (ops: Fatura No, Fatura Tarihi, Not). İlk satır başlık olsun.</div>
+        <input type="file" id="tah-excel-input" accept=".xlsx,.xls,.csv" onchange="tahExcelOku(this)" style="font-size:12px;color:var(--text2);margin-bottom:8px;">
+        <div id="tah-excel-prev" style="display:none;margin-bottom:8px;"></div>
+        <div id="tah-excel-msg" style="font-size:12px;margin-bottom:8px;"></div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('tahEkle')">İptal</button>
+          <button class="btn btn-primary" onclick="tahExcelEkle()">Listeye Ekle</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Alacağı Ertele -->
+  <div class="modal-overlay" id="modal-tahErtele">
+    <div class="modal" style="width:min(96vw,480px);">
+      <div class="modal-title">↻ Alacağı Ertele</div>
+      <div class="form-group"><label class="form-label">Kayıt</label><input type="text" id="tah-d-info" readonly></div>
+      <div class="grid2">
+        <div class="form-group"><label class="form-label">Mevcut Vade</label><input type="text" id="tah-d-old" readonly></div>
+        <div class="form-group"><label class="form-label">Yeni Vade</label><input type="date" id="tah-d-new"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Not (ops.)</label><input type="text" id="tah-d-note" placeholder="örn. müşteri 1 hafta erteledi"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('tahErtele')">Vazgeç</button>
+        <button class="btn btn-primary" onclick="tahErteleKaydet()">↻ Ertele</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Hatırlatma E-postası -->
+  <div class="modal-overlay" id="modal-tahMail">
+    <div class="modal" style="width:min(96vw,620px);max-height:90vh;overflow-y:auto;">
+      <div class="modal-title">✉ Tahsilat Hatırlatması</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:4px;">Gönderen: <span id="tah-m-from" style="color:var(--accent);"></span></div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:4px;">Kime: <span id="tah-m-to" style="color:var(--text);"></span></div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Konu: <span id="tah-m-sub" style="color:var(--text);"></span></div>
+      <textarea id="tah-m-body" rows="10" style="width:100%;font-size:13px;font-family:inherit;"></textarea>
+      <div class="modal-footer" style="align-items:center;">
+        <span id="tah-m-tag" style="font-size:11px;color:var(--text3);"></span>
+        <div style="flex:1;"></div>
+        <button class="btn" onclick="closeModal('tahMail')">Kapat</button>
+        <button class="btn btn-primary" id="tah-m-send" onclick="tahMailGonder()">Gönder</button>
+      </div>
     </div>
   </div>
 
@@ -4525,7 +4679,7 @@ document.addEventListener('touchend', e => {
 
 // NAVİGASYON
 // Sadece admin'in erişebileceği sayfalar — satıcı doğrudan çağırsa bile engellenir
-const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari'];
+const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari', 'tahsilat'];
 function goPage(id, el) {
   if (ADMIN_ONLY_SAYFALAR.includes(id) && aktifKullanici?.rol !== 'admin') {
     showToast('Bu sayfaya erişim yetkiniz yok.');
@@ -4548,7 +4702,7 @@ function goPage(id, el) {
   document.getElementById('page-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order'};
+  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order',tahsilat:'Tahsilat Takip Merkezi'};
   document.getElementById('page-title').textContent = titles[id] || id;
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
@@ -4562,6 +4716,7 @@ function goPage(id, el) {
   if (id === 'crm') renderCRM();
   if (id === 'gorevler') { renderGorevler(); gorevlerYenile(); }
   if (id === 'mailorder') { renderMailOrder(); moYenile(); }
+  if (id === 'tahsilat') { renderTahsilat(); tahYenile(); }
   // Liste/özet sayfalarına geçişte sunucudan taze veri çek (başka
   // kullanıcıların eklediği müşteri/tedarikçi/talepler görünsün)
   if (id === 'musteriler' || id === 'tedarikciler' || id === 'panel' || id === 'talepler') {
@@ -5454,7 +5609,11 @@ function yetkiliEkleRow(d) {
       <div><div class="form-label">Unvan</div><input type="text" placeholder="örn. Satın Alma Müdürü" value="${d?d.unvan:''}" class="ytkl-unvan" style="width:100%;"></div>
       <div><div class="form-label">Telefon</div><input type="text" placeholder="0212 XXX XX XX" value="${d?d.tel:''}" class="ytkl-tel" style="width:100%;"></div>
       <div><div class="form-label">E-posta</div><input type="email" placeholder="yetkili@firma.com" value="${d?d.mail:''}" class="ytkl-mail" style="width:100%;"></div>
-    </div>`;
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--text2);cursor:pointer;">
+      <input type="checkbox" class="ytkl-finansal" ${d&&d.finansal?'checked':''} style="width:14px;height:14px;accent-color:var(--accent);">
+      🧾 Finansal iletişim — tahsilat hatırlatmaları bu kişiye gönderilir
+    </label>`;
   list.appendChild(div);
 }
 function ozelSartEkle(metin) {
@@ -5694,7 +5853,7 @@ async function musteriKaydet() {
   const yetkililer = [];
   document.querySelectorAll('#mf-yetkililer-list > div').forEach(div=>{
     const ad=div.querySelector('.ytkl-ad').value.trim();
-    if(ad) yetkililer.push({ad,unvan:div.querySelector('.ytkl-unvan').value.trim(),tel:div.querySelector('.ytkl-tel').value.trim(),mail:div.querySelector('.ytkl-mail').value.trim()});
+    if(ad) yetkililer.push({ad,unvan:div.querySelector('.ytkl-unvan').value.trim(),tel:div.querySelector('.ytkl-tel').value.trim(),mail:div.querySelector('.ytkl-mail').value.trim(),finansal:!!div.querySelector('.ytkl-finansal')?.checked});
   });
   if (!yetkililer.length) { hata.textContent='En az bir yetkili kişi ekleyin.'; hata.style.display='block'; return; }
   // Yetkili e-posta zorunlu
@@ -11778,6 +11937,325 @@ async function tahsilatMailGonder(toList, subject, html, opts) {
   }
 }
 
+/* ═══════════ TAHSİLAT TAKİP MERKEZİ (Finans) ═══════════════════════════════
+   Alacak/dunning takibi. Müşteriler MEVCUT MUSTERILER DB'sinden (ayrı cari yok).
+   Hatırlatma, müşteri kartındaki "finansal" işaretli yetkiliye tahsilatMailGonder
+   (muhasebe@ paylaşımlı kutu) ile gider. Kayıtlar /api/tahsilat ile senkron
+   (apiGorevler deseni: GET liste / PUT upsert / DELETE); endpoint yoksa
+   localStorage'a (emonfast_tahsilat) düşer — MO/diğer akışlardan bağımsız. */
+let TAHSILAT_KAYITLAR = [];
+let _tahFiltre = 'temas', _tahSeg = '', _tahExcelSatir = [], _tahEkleId = null, _tahMailId = null;
+const TAH_LS = 'emonfast_tahsilat';
+
+function tahEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function tahFmt(n){return new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n)||0);}
+function tahFmt0(n){return new Intl.NumberFormat('tr-TR',{maximumFractionDigits:0}).format(Number(n)||0);}
+function tahBugun(){const d=new Date();d.setHours(0,0,0,0);return d;}
+function tahUid(){return 'T'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function tahGunTR(iso){return String(iso||'').split('-').reverse().join('.');}
+
+// müşteri bul (firma adına göre, harf-duyarsız) + finansal iletişim kişisi
+function tahMusteriBul(firma){const f=String(firma||'').trim().toLocaleLowerCase('tr');return MUSTERILER.find(m=>String(m.firma||'').trim().toLocaleLowerCase('tr')===f)||null;}
+function tahFinansalKisi(m){if(!m)return null;const ys=m.yetkililer||[];return ys.find(y=>y.finansal&&y.mail)||ys.find(y=>y.finansal)||ys.find(y=>y.mail)||ys[0]||null;}
+
+// firma açık toplamı + otomatik segment/mod (ctot'a göre) + kaydın türetilmiş alanları
+function tahCtot(firma){return TAHSILAT_KAYITLAR.filter(r=>r.firma===firma).reduce((s,r)=>s+(Number(r.tutar)||0),0);}
+function tahSegment(ctot){
+  if(ctot>=200000)return{segment:'Önceden temas',pre:7,mode:'Onaylı taslak'};
+  if(ctot>=50000)return{segment:'Vade günü',pre:2,mode:'Onaylı taslak'};
+  if(ctot>=10000)return{segment:'Vade günü',pre:1,mode:'Otomatik'};
+  return{segment:'Temas yok',pre:0,mode:'Otomatik'};
+}
+function tahHesapla(r){
+  const ctot=tahCtot(r.firma), seg=tahSegment(ctot);
+  const days=Math.round((new Date(r.vade)-tahBugun())/86400000);
+  const status=days<0?'Gecikmiş':days===0?'Bugün':(seg.segment==='Önceden temas'&&days<=seg.pre)?'Ön temas':days<=7?'Bu hafta':'İleri';
+  const need=(seg.segment!=='Temas yok')&&(days<0||days===0||(seg.segment==='Önceden temas'&&days<=seg.pre));
+  return {...r, ctot, segment:seg.segment, pre:seg.pre, mode:seg.mode, days, status, need};
+}
+
+// ── Senkron (apiGorevler deseni) + localStorage fallback ──
+function tahYerelKaydet(){try{localStorage.setItem(TAH_LS,JSON.stringify(TAHSILAT_KAYITLAR));}catch(_){}}
+function tahYerelYukle(){try{const raw=localStorage.getItem(TAH_LS);if(raw)TAHSILAT_KAYITLAR=JSON.parse(raw)||[];}catch(_){TAHSILAT_KAYITLAR=[];}}
+async function apiTahsilatYukle(){
+  const token=apiTokenAl(); if(!token) return false;
+  try{
+    const r=await fetch(API_URL+'/api/tahsilat',{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){ if(r.status===401) oturumSuresiDoldu(); return false; }
+    const veri=await r.json();
+    if(Array.isArray(veri.kayitlar)){ TAHSILAT_KAYITLAR=veri.kayitlar; tahYerelKaydet(); }
+    return true;
+  }catch(e){ return false; }  // endpoint yok/HTML dönerse → yerel korunur
+}
+async function apiTahsilatKaydet(k){
+  const token=apiTokenAl(); if(!token) return false;
+  try{ const r=await fetch(API_URL+'/api/tahsilat',{method:'PUT',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify(k)}); if(r.status===401) oturumSuresiDoldu(); return r.ok; }catch(e){ return false; }
+}
+async function apiTahsilatSil(id){
+  const token=apiTokenAl(); if(!token) return false;
+  try{ const r=await fetch(API_URL+'/api/tahsilat/'+encodeURIComponent(id),{method:'DELETE',headers:{'Authorization':'Bearer '+token}}); if(r.status===401) oturumSuresiDoldu(); return r.ok; }catch(e){ return false; }
+}
+async function tahKayitYaz(k){
+  const i=TAHSILAT_KAYITLAR.findIndex(x=>x.id===k.id);
+  if(i>=0) TAHSILAT_KAYITLAR[i]=k; else TAHSILAT_KAYITLAR.push(k);
+  tahYerelKaydet(); await apiTahsilatKaydet(k);
+}
+async function tahKayitSil(id){
+  TAHSILAT_KAYITLAR=TAHSILAT_KAYITLAR.filter(x=>x.id!==id);
+  tahYerelKaydet(); await apiTahsilatSil(id);
+}
+async function tahYenile(){ tahYerelYukle(); await apiTahsilatYukle(); renderTahsilat(); tahBadgeGuncelle(); }
+function tahBadgeGuncelle(){
+  const b=document.getElementById('badge-tahsilat'); if(!b) return;
+  const n=TAHSILAT_KAYITLAR.map(tahHesapla).filter(r=>r.need).length;
+  b.textContent=n; b.style.display=(n>0 && tahsilatGorunur())?'inline-block':'none';
+}
+
+// ── Render ──
+function tahDurumPill(r){
+  if(r.days<0) return `<span class="th-pill th-gec">${-r.days} gün gecikti</span>`;
+  if(r.days===0) return `<span class="th-pill th-bugun">Bugün</span>`;
+  if(r.status==='Ön temas') return `<span class="th-pill th-on">T-${r.days} · ön temas</span>`;
+  if(r.days<=7) return `<span class="th-pill th-hafta">${r.days} gün kaldı</span>`;
+  return `<span class="th-pill th-ileri">${r.days} gün</span>`;
+}
+function tahSegClass(s){return s==='Önceden temas'?'th-s-once':s==='Vade günü'?'th-s-vade':'th-s-yok';}
+function tahFiltreSec(f,el){_tahFiltre=f;document.querySelectorAll('#page-tahsilat .th-tab[data-f]').forEach(x=>x.classList.remove('active'));if(el)el.classList.add('active');renderTahsilat();}
+function renderTahsilat(){
+  if(!document.getElementById('tah-rows')) return;
+  const bg=document.getElementById('tah-bugun-etiket'); if(bg) bg.textContent=tahBugun().toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'});
+  const ke=document.getElementById('tah-kutu-etiket'); if(ke) ke.textContent=(typeof tahsilatGonderenKutu==='function'?tahsilatGonderenKutu():'')||'muhasebe@emon.com.tr';
+  const kayitlar=TAHSILAT_KAYITLAR.map(tahHesapla);
+  const openTot=kayitlar.reduce((s,r)=>s+r.tutar,0);
+  const gec=kayitlar.filter(r=>r.days<0), dueToday=kayitlar.filter(r=>r.days===0), week=kayitlar.filter(r=>r.days>0&&r.days<=7), need=kayitlar.filter(r=>r.need);
+  const firmaSayi=new Set(kayitlar.map(r=>r.firma)).size;
+  const kpis=[
+    {lbl:'Açık Alacak',val:'₺'+tahFmt0(openTot),note:kayitlar.length+' kayıt · '+firmaSayi+' cari'},
+    {lbl:'Gecikmiş',val:'₺'+tahFmt0(gec.reduce((s,r)=>s+r.tutar,0)),note:gec.length+' fatura'},
+    {lbl:'Bugün Vadeli',val:'₺'+tahFmt0(dueToday.reduce((s,r)=>s+r.tutar,0)),note:dueToday.length+' fatura'},
+    {lbl:'Bu Hafta',val:'₺'+tahFmt0(week.reduce((s,r)=>s+r.tutar,0)),note:week.length+' fatura'},
+    {lbl:'Temas Bekleyen',val:need.length,note:'bugün aranacak/yazılacak',hl:true},
+  ];
+  document.getElementById('tah-kpis').innerHTML=kpis.map(k=>`<div class="th-kpi ${k.hl?'hl':''}"><div class="lbl">${k.lbl}</div><div class="val">${k.val}</div><div class="note">${k.note}</div></div>`).join('');
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('tah-c-temas',need.length); set('tah-c-bugun',dueToday.length); set('tah-c-hafta',week.length); set('tah-c-tum',kayitlar.length);
+  let list=kayitlar.slice();
+  if(_tahFiltre==='temas') list=list.filter(r=>r.need);
+  else if(_tahFiltre==='gec') list=list.filter(r=>r.days<0);
+  else if(_tahFiltre==='bugun') list=list.filter(r=>r.days===0);
+  else if(_tahFiltre==='hafta') list=list.filter(r=>r.days>0&&r.days<=7);
+  if(_tahSeg) list=list.filter(r=>r.segment===_tahSeg);
+  list.sort((a,b)=>a.days-b.days||b.tutar-a.tutar);
+  document.getElementById('tah-rows').innerHTML=list.map(r=>{
+    const m=tahMusteriBul(r.firma), kisi=tahFinansalKisi(m), mailVar=!!(kisi&&kisi.mail);
+    return `<tr>
+      <td>
+        <div style="font-weight:600;">${tahEsc(r.firma)}${!m?' <span class="th-pill th-gec" title="Müşteri kartı yok">⚠ müşteri yok</span>':''}</div>
+        <div style="font-size:11px;color:var(--text3);">cari toplam ₺${tahFmt0(r.ctot)}${r.faturaNo?' · 🧾 '+tahEsc(r.faturaNo):''}</div>
+        ${m?`<div style="font-size:11px;color:var(--text3);">📧 ${kisi?tahEsc(kisi.ad||'(isimsiz)'):'finansal kişi yok'}${mailVar?' · '+tahEsc(kisi.mail):' · <span style="color:var(--amber);">e-posta yok</span>'}</div>`:''}
+      </td>
+      <td class="num">${tahFmt(r.tutar)}</td>
+      <td>${tahGunTR(r.vade)}</td>
+      <td>${tahDurumPill(r)}</td>
+      <td><span class="th-seg ${tahSegClass(r.segment)}">${r.segment}</span></td>
+      <td class="th-note">${r['not']?tahEsc(r['not']):'—'}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${!m?`<button class="btn btn-sm" style="color:var(--purple);" onclick="tahMusteriYap('${r.id}')">👤 Müşteri yap</button>`:''}
+        ${(r.segment!=='Temas yok'&&mailVar)?`<button class="btn btn-sm" style="color:var(--accent);" onclick="tahMailAc('${r.id}')">✉ Hatırlat</button>`:''}
+        <button class="btn btn-sm" style="color:var(--green);" onclick="tahTahsil('${r.id}')">✓ Tahsil</button>
+        <button class="btn btn-sm" style="color:var(--amber);" onclick="tahErteleAc('${r.id}')">↻ Ertele</button>
+      </div></td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:30px;">Bu filtrede kayıt yok.</td></tr>`;
+  tahBadgeGuncelle();
+}
+
+// ── Alacak ekle (manuel / excel) ──
+function tahEkleSekme(p){
+  document.querySelectorAll('#modal-tahEkle .th-mtab').forEach(x=>x.classList.toggle('active',x.dataset.p===p));
+  document.getElementById('tah-pane-manuel').style.display=p==='manuel'?'block':'none';
+  document.getElementById('tah-pane-excel').style.display=p==='excel'?'block':'none';
+}
+function tahEkleAc(){
+  const dl=document.getElementById('tah-firma-list');
+  if(dl) dl.innerHTML=[...new Set(MUSTERILER.map(m=>m.firma).filter(Boolean))].sort().map(f=>`<option value="${tahEsc(f)}">`).join('');
+  ['tah-f-firma','tah-f-tutar','tah-f-not','tah-f-fno','tah-f-ftar'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('tah-f-vade').value=tahBugun().toISOString().slice(0,10);
+  document.getElementById('tah-manuel-msg').textContent='';
+  document.getElementById('tah-excel-msg').textContent='';
+  _tahExcelSatir=[]; const ep=document.getElementById('tah-excel-prev'); if(ep){ep.style.display='none';ep.innerHTML='';}
+  const fi=document.getElementById('tah-excel-input'); if(fi) fi.value='';
+  tahEkleSekme('manuel');
+  openModal('tahEkle');
+}
+function tahYeniMusteri(){ closeModal('tahEkle'); if(typeof musteriFormAc==='function') musteriFormAc(-1); showToast('Yeni müşteriyi kaydedin (finansal iletişim kişisini işaretleyin), sonra Tahsilat → Alacak Ekle.'); }
+function tahManuelEkle(){
+  const firma=document.getElementById('tah-f-firma').value.trim();
+  const tutar=parseFloat(document.getElementById('tah-f-tutar').value);
+  const vade=document.getElementById('tah-f-vade').value;
+  const msg=document.getElementById('tah-manuel-msg');
+  if(!firma||!(tutar>0)||!vade){ msg.style.color='var(--red)'; msg.textContent='Firma, tutar ve vade zorunludur.'; return; }
+  const m=tahMusteriBul(firma);
+  if(!m){ msg.style.color='var(--red)'; msg.innerHTML='"'+tahEsc(firma)+'" müşteri kartı yok. Önce <b>＋ Yeni Müşteri</b> ile tanımlayın.'; return; }
+  const k={ id:tahUid(), firma:m.firma, tutar:Math.round(tutar*100)/100, vade,
+    not:document.getElementById('tah-f-not').value.trim()||null,
+    faturaNo:document.getElementById('tah-f-fno').value.trim()||null,
+    faturaTarihi:document.getElementById('tah-f-ftar').value||null,
+    olusturma:new Date().toISOString(), olusturan:_benEmail() };
+  tahKayitYaz(k).then(()=>{ renderTahsilat(); });
+  closeModal('tahEkle'); showToast('Alacak eklendi: '+k.firma+' · ₺'+tahFmt(k.tutar));
+}
+function tahExcelOku(input){
+  const file=input.files&&input.files[0]; if(!file) return;
+  const msg=document.getElementById('tah-excel-msg');
+  if(typeof XLSX==='undefined'){ msg.style.color='var(--red)'; msg.textContent='Excel kütüphanesi henüz yüklenmedi, birkaç saniye sonra tekrar deneyin.'; return; }
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:null});
+      if(!rows.length) throw 'boş';
+      const keys=Object.keys(rows[0]);
+      const pick=(c)=>{for(const k of keys){const kl=k.toLocaleLowerCase('tr');for(const x of c)if(kl.includes(x))return k;}return null;};
+      const kc=pick(['cari','müşteri','musteri','unvan','firma']), kt=pick(['tutar','bakiye','borç','borc','amount']), kv=pick(['vade','tarih','date']), kn=pick(['not','açıklama','aciklama']), kfn=pick(['fatura no','fatura numar','belge no','fno']), kfd=pick(['fatura tarih','ftarih','belge tarih']);
+      _tahExcelSatir=rows.map(r=>{
+        let v=r[kv]; if(v instanceof Date) v=v.toISOString().slice(0,10); else if(v) v=String(v).slice(0,10);
+        let fd=kfd?r[kfd]:null; if(fd instanceof Date) fd=fd.toISOString().slice(0,10); else if(fd) fd=String(fd).slice(0,10);
+        let t=r[kt]; if(typeof t==='string') t=parseFloat(t.replace(/\./g,'').replace(',','.'));
+        return { firma:(r[kc]||'').toString().trim(), tutar:t, vade:v, not:kn?r[kn]:null, faturaNo:(kfn&&r[kfn]!=null)?String(r[kfn]).trim():null, faturaTarihi:fd||null };
+      }).filter(x=>x.firma&&x.tutar>0&&x.vade);
+      tahExcelOnizle();
+    }catch(e){ msg.style.color='var(--red)'; msg.textContent='Dosya okunamadı. Cari / Tutar / Vade sütunlu bir tablo olduğundan emin olun.'; }
+  };
+  reader.readAsArrayBuffer(file);
+}
+function tahExcelOnizle(){
+  const el=document.getElementById('tah-excel-prev'), msg=document.getElementById('tah-excel-msg');
+  if(!_tahExcelSatir.length){ el.style.display='none'; return; }
+  el.style.display='block';
+  const bilinmeyen=_tahExcelSatir.filter(r=>!tahMusteriBul(r.firma)).length;
+  el.innerHTML=`<div class="th-scroll" style="max-height:240px;border:1px solid var(--border);border-radius:var(--radius);"><table><thead><tr><th>Cari</th><th class="num">Tutar</th><th>Vade</th><th>Fatura No</th></tr></thead><tbody>${_tahExcelSatir.map(r=>`<tr><td>${tahEsc(r.firma)}${!tahMusteriBul(r.firma)?' <span class="th-pill th-gec">yok</span>':''}</td><td class="num">${tahFmt(r.tutar)}</td><td>${tahEsc(r.vade)}</td><td>${tahEsc(r.faturaNo||'—')}</td></tr>`).join('')}</tbody></table></div>`;
+  msg.style.color='var(--green)';
+  msg.innerHTML=_tahExcelSatir.length+' geçerli satır.'+(bilinmeyen?' <span style="color:var(--amber);">'+bilinmeyen+' satırın müşteri kartı yok — eklenir ama hatırlatma için müşteriyi tanımlayın.</span>':'');
+}
+function tahExcelEkle(){
+  const msg=document.getElementById('tah-excel-msg');
+  if(!_tahExcelSatir.length){ msg.style.color='var(--red)'; msg.textContent='Önce geçerli bir Excel dosyası yükleyin.'; return; }
+  const now=new Date().toISOString(), email=_benEmail();
+  const yeni=_tahExcelSatir.map(r=>{ const m=tahMusteriBul(r.firma); return { id:tahUid(), firma:m?m.firma:r.firma.toLocaleUpperCase('tr'), tutar:Math.round(r.tutar*100)/100, vade:r.vade, not:r['not']||null, faturaNo:r.faturaNo||null, faturaTarihi:r.faturaTarihi||null, olusturma:now, olusturan:email }; });
+  yeni.forEach(k=>TAHSILAT_KAYITLAR.push(k));
+  tahYerelKaydet(); yeni.forEach(k=>apiTahsilatKaydet(k));
+  renderTahsilat(); closeModal('tahEkle'); showToast(yeni.length+' alacak eklendi.');
+}
+
+// ── Tahsil et / Ertele ──
+function tahTahsil(id){
+  const r=TAHSILAT_KAYITLAR.find(x=>x.id===id); if(!r) return;
+  if(!confirm(r.firma+' — ₺'+tahFmt(r.tutar)+'\nTahsil edildi olarak işaretlensin mi? Kayıt listeden düşecek.')) return;
+  tahKayitSil(id).then(()=>renderTahsilat());
+  showToast('✓ Tahsil edildi: '+r.firma);
+}
+function tahErteleAc(id){
+  const r=TAHSILAT_KAYITLAR.find(x=>x.id===id); if(!r) return; _tahEkleId=id;
+  document.getElementById('tah-d-info').value=r.firma+' · ₺'+tahFmt(r.tutar);
+  document.getElementById('tah-d-old').value=tahGunTR(r.vade);
+  const nd=new Date(r.vade); nd.setDate(nd.getDate()+7);
+  document.getElementById('tah-d-new').value=nd.toISOString().slice(0,10);
+  document.getElementById('tah-d-note').value='';
+  openModal('tahErtele');
+}
+function tahErteleKaydet(){
+  const r=TAHSILAT_KAYITLAR.find(x=>x.id===_tahEkleId); if(!r) return;
+  const nv=document.getElementById('tah-d-new').value; if(!nv){ showToast('Yeni vade seçin.'); return; }
+  const note=document.getElementById('tah-d-note').value.trim(), eski=r.vade;
+  let base=String(r['not']||'').replace(/\s*·?\s*ertelendi←[\d.]+/g,'').trim();
+  if(note) base=base?base+' · '+note:note;
+  r.vade=nv; r['not']=(base?base+' · ':'')+'ertelendi←'+tahGunTR(eski);
+  tahKayitYaz(r).then(()=>renderTahsilat());
+  closeModal('tahErtele'); showToast('↻ Ertelendi → '+tahGunTR(nv));
+}
+
+// ── Hatırlatma e-postası (muhasebe@ → müşterinin finansal kişisi) ──
+function tahMailAc(id){
+  const r=TAHSILAT_KAYITLAR.map(tahHesapla).find(x=>x.id===id); if(!r) return;
+  const m=tahMusteriBul(r.firma), kisi=tahFinansalKisi(m);
+  if(!kisi||!kisi.mail){ showToast('Bu müşteri için e-postalı finansal iletişim kişisi yok — müşteri kartından ekleyin.'); return; }
+  _tahMailId=id;
+  const vade=tahGunTR(r.vade), before=r.days>0;
+  const greet=kisi.ad?('Sayın '+kisi.ad):('Sayın '+r.firma+' Yetkilisi');
+  document.getElementById('tah-m-to').textContent=kisi.mail;
+  document.getElementById('tah-m-from').textContent=((typeof tahsilatGonderenKutu==='function'?tahsilatGonderenKutu():'')||'muhasebe@emon.com.tr')+' (Outlook üzerinden)';
+  document.getElementById('tah-m-sub').textContent=(before?'Yaklaşan Ödeme Hatırlatması':'Ödeme Hatırlatması')+' — '+vade+' vadeli '+tahFmt(r.tutar)+' ₺';
+  const faturaEk=r.faturaNo?(' (Fatura No: '+r.faturaNo+')'):'';
+  const govde=before
+    ? `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin yaklaştığını hatırlatmak isteriz.${faturaEk}\n\nHerhangi bir sorunuz olursa memnuniyetle yardımcı oluruz.\n\nSaygılarımızla,\nEMON Muhasebe Departmanı`
+    : `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin bugün vadesi gelmiştir. Ödemenizi bugün içinde tamamlamanızı rica ederiz.${faturaEk}\n\nÖdemeyi gerçekleştirdiyseniz bu mesajı dikkate almayınız; dekontu tarafımıza iletmeniz yeterlidir.\n\nSaygılarımızla,\nEMON Muhasebe Departmanı`;
+  document.getElementById('tah-m-body').value=govde;
+  const onay=r.mode==='Onaylı taslak';
+  document.getElementById('tah-m-tag').textContent=onay?'Onaylı gönderim (büyük cari)':'Standart hatırlatma';
+  document.getElementById('tah-m-send').textContent=onay?'Onayla ve Gönder':'Gönder';
+  openModal('tahMail');
+}
+async function tahMailGonder(){
+  const r=TAHSILAT_KAYITLAR.find(x=>x.id===_tahMailId); if(!r) return;
+  const m=tahMusteriBul(r.firma), kisi=tahFinansalKisi(m), to=kisi&&kisi.mail;
+  if(!to){ showToast('Alıcı e-posta yok.'); return; }
+  const konu=document.getElementById('tah-m-sub').textContent;
+  const metin=document.getElementById('tah-m-body').value;
+  const html=`<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;white-space:pre-wrap;">${tahEsc(metin)}</div>`;
+  const btn=document.getElementById('tah-m-send'), eski=btn.textContent; btn.textContent='Gönderiliyor…'; btn.disabled=true;
+  const res=await tahsilatMailGonder([to],konu,html,{});
+  btn.textContent=eski; btn.disabled=false;
+  if(res.ok){
+    r.sonHatirlatma=new Date().toISOString(); tahKayitYaz(r);
+    closeModal('tahMail'); renderTahsilat(); showToast('📧 Hatırlatma gönderildi → '+to);
+  } else { showToast('⚠ '+(res.hata||'Gönderilemedi')); }
+}
+
+// ── Kayıtsız cari → müşteri kartı (toplu iskelet + satır-başı) ──
+// Alacaklarda geçen ama MUSTERILER'de olmayan benzersiz firmalar (harf-duyarsız).
+function tahEksikCariler(){
+  const kayitli=new Set(MUSTERILER.map(m=>String(m.firma||'').trim().toLocaleLowerCase('tr')));
+  const eksik=new Map();
+  TAHSILAT_KAYITLAR.forEach(r=>{ const f=String(r.firma||'').trim(); const k=f.toLocaleLowerCase('tr'); if(f && !kayitli.has(k) && !eksik.has(k)) eksik.set(k,f); });
+  return [...eksik.values()];
+}
+function tahEksikDurumGuncelle(){
+  const el=document.getElementById('tah-eksik-durum'); const btn=document.getElementById('tah-eksik-btn');
+  const n=tahEksikCariler().length;
+  if(btn) btn.textContent = n ? ('👤 '+n+' kayıtsız cariyi müşteri olarak ekle') : '👤 Kayıtsız cari yok';
+  if(btn) btn.disabled = !n;
+  if(el){ el.textContent = n ? (n+' cari alacaklarda var ama müşteri kartı yok.') : 'Tüm cariler müşteri olarak kayıtlı.'; el.style.color = n ? 'var(--amber)' : 'var(--green)'; }
+}
+async function tahEksikMusterileriEkle(){
+  if(typeof tahYerelYukle==='function') tahYerelYukle();
+  await apiTahsilatYukle();
+  const eksik=tahEksikCariler();
+  if(!eksik.length){ showToast('Tüm cariler zaten müşteri olarak kayıtlı.'); tahEksikDurumGuncelle(); return; }
+  if(!confirm(eksik.length+' kayıtsız cari için iskelet müşteri kartı oluşturulacak.\n(Yalnız firma adıyla; finansal iletişim kişisini sonra Müşteriler’den ekleyeceksiniz.)\n\nDevam edilsin mi?')) return;
+  const bugun=new Date().toISOString().slice(0,10);
+  eksik.forEach(firma=>{
+    MUSTERILER.push({ firma, sektor:'', yetkililer:[], adres:'', vergino:'', vergidaire:'',
+      odeme:{havale:false,kk:false,kkkom:false,kkkomOran:'',vadeli:false,vadeGun:''},
+      ozelSartlar:[], fiyatgrup:'', durum:'Aktif', musteriTipi:'',
+      not:'Tahsilat modülünden otomatik oluşturuldu — finansal iletişim kişisi ekleyin.', tarih:bugun });
+  });
+  veriKaydet();
+  if(typeof renderMusteriler==='function') renderMusteriler();
+  if(typeof renderTahsilat==='function') renderTahsilat();
+  tahEksikDurumGuncelle();
+  showToast('✅ '+eksik.length+' iskelet müşteri kartı oluşturuldu. Finansal iletişim kişilerini Müşteriler’den ekleyin.');
+}
+// Satır-başı: tek cariyi müşteri formuyla ekle (ad prefill; finansal kişi orada eklenir).
+function tahMusteriYap(id){
+  const r=TAHSILAT_KAYITLAR.find(x=>x.id===id); if(!r) return;
+  if(typeof musteriFormAc!=='function'){ showToast('Müşteri formu bulunamadı.'); return; }
+  musteriFormAc(-1);
+  const f=document.getElementById('mf-firma'); if(f) f.value=r.firma;
+  showToast('“'+r.firma+'” için müşteri kartı — finansal iletişim kişisini (🧾) işaretleyip kaydedin.');
+}
+
 // Portal talebi onaylandığında satıcının kendi e-postasına arşiv maili gönder
 async function portalArsivMailiGonder(t, tabloHtml, toplamStr) {
   if (!t || !t.portalTalebi) return;
@@ -14640,6 +15118,8 @@ function ayarlariYukle() {
   moKaseDurumGuncelle();
   moMuhasebeDurumGuncelle();
   tahsilatKutuDurumGuncelle();
+  if (typeof tahYerelYukle === 'function') tahYerelYukle();
+  if (typeof tahEksikDurumGuncelle === 'function') tahEksikDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
@@ -19504,14 +19984,17 @@ function mailorderGorunur() {
   const roller = Array.isArray(AYARLAR.mailorderRoller) ? AYARLAR.mailorderRoller : [];
   return roller.includes(aktifKullanici?.rol);
 }
+function tahsilatGorunur() { return aktifKullanici?.rol === 'admin'; }  // Finans/tahsilat: şimdilik admin
 function mailorderNavGuncelle() {
-  const gorunur = mailorderGorunur();
+  const moGorunur = mailorderGorunur();
   const nav = document.getElementById('nav-mailorder');
-  if (nav) nav.style.display = gorunur ? 'flex' : 'none';
-  // "Finans" bölüm başlığı şu an yalnız Mail Order'ı barındırıyor — tek öğesi
-  // gizliyse başlık da gizlenmeli, yoksa boş başlık kalır.
+  if (nav) nav.style.display = moGorunur ? 'flex' : 'none';
+  const tahG = tahsilatGorunur();
+  const tahNav = document.getElementById('nav-tahsilat');
+  if (tahNav) tahNav.style.display = tahG ? 'flex' : 'none';
+  // "Finans" bölüm başlığı: alt öğelerden en az biri görünüyorsa göster.
   const label = document.getElementById('nav-label-finans');
-  if (label) label.style.display = gorunur ? 'block' : 'none';
+  if (label) label.style.display = (moGorunur || tahG) ? 'block' : 'none';
 }
 // Tedarikçi Form Şablonları bölümü görünürlüğü. Admin/operasyon her zaman;
 // satıcı YALNIZ AYARLAR.mailorderSaticiForm açıksa (varsayılan kapalı).
