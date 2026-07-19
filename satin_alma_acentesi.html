@@ -1911,6 +1911,18 @@
       </div>
     </div>
 
+    <!-- Tahsilat Takip Merkezi — izole paylaşımlı-kutu gönderimi (MO'dan bağımsız) -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div class="card-title" style="margin-bottom:4px;">🧾 Tahsilat Takip Merkezi</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:14px;">
+        Tahsilat hatırlatma mailleri bu <b>paylaşımlı kutudan</b> (Send As) gönderilir. Mail Order ve diğer mail akışlarından <b>tamamen bağımsızdır</b> — onları etkilemez.
+      </div>
+      <label class="form-label" style="margin:0 0 6px;">📤 Gönderen Kutusu (paylaşımlı kutu · Send As)</label>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Ön koşullar (tek seferlik): M365'te bu adres bir <b>paylaşımlı kutu</b> olmalı, Exchange admin gönderen kullanıcıya <b>“Farklı gönder (Send As)”</b> yetkisi vermeli ve kullanıcı bir kez <b>yeniden giriş</b> yapıp izni onaylamalı. Boş bırakılırsa varsayılan <b>muhasebe@emon.com.tr</b> kullanılır.</div>
+      <input type="text" id="ayar-tahsilat-gonderen" placeholder="muhasebe@emon.com.tr" onchange="tahsilatKutuKaydet(this)" style="width:100%;max-width:360px;">
+      <div id="tahsilat-gonderen-durum" style="font-size:12px;font-weight:600;margin-top:8px;"></div>
+    </div>
+
     <!-- Sunucu Deposu / Sistem Durumu -->
     <div class="card" style="margin-top:16px;" data-admin-only>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
@@ -11706,6 +11718,66 @@ async function graphMailHtmlGonder(toList, subject, htmlContent) {
   } catch (e) { console.error('graphMailHtmlGonder hatası:', e); return false; }
 }
 
+/* ── TAHSİLAT TAKİP MERKEZİ — izole paylaşımlı-kutu gönderimi ─────────────────
+   MO/RFQ/teklif akışlarından TAMAMEN bağımsız. Tahsilat hatırlatma mailleri
+   paylaşımlı kutudan (varsayılan muhasebe@emon.com.tr) "Send As" ile gider.
+   Ön koşullar (Azure/Exchange, tek seferlik):
+     1) M365'te bu adres bir PAYLAŞIMLI KUTU olmalı (lisanssız/ücretsiz),
+     2) Exchange admin gönderen kullanıcıya "Farklı gönder (Send As)" yetkisi vermeli,
+     3) Kullanıcı bir kez yeniden giriş yapıp Mail.Send.Shared iznini onaylamalı.
+   Kullanım (modül tarafından):
+     const r = await tahsilatMailGonder(['finans@musteri.com'], 'Konu', htmlGovde,
+                  { cc:[], bcc:[], ekler:[{ ad:'ekstre.pdf', b64, mime:'application/pdf' }] });
+     if (!r.ok) showToast(r.hata);
+   Ek base64'ü için mevcut moBlobB64(blob) yardımcı fonksiyonu kullanılabilir. */
+const TAHSILAT_GONDEREN_VARSAYILAN = 'muhasebe@emon.com.tr';
+function tahsilatGonderenKutu() {
+  const raw = AYARLAR.tahsilatGonderenKutu;
+  const k = String(raw == null || raw === '' ? TAHSILAT_GONDEREN_VARSAYILAN : raw).trim().toLowerCase();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(k) ? k : '';
+}
+async function tahsilatMailGonder(toList, subject, html, opts) {
+  opts = opts || {};
+  const kutu = tahsilatGonderenKutu();
+  if (!kutu) return { ok: false, hata: 'Tahsilat gönderen kutusu tanımlı/geçersiz (Ayarlar > Tahsilat Takip Merkezi).' };
+  const to = (Array.isArray(toList) ? toList : [toList]).filter(Boolean);
+  if (!to.length) return { ok: false, hata: 'Alıcı adresi yok.' };
+  try {
+    if (msalInstance && aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount);
+    if (!msGraphToken) return { ok: false, hata: 'Microsoft 365 bağlı değil — soldaki menüden bağlanın.' };
+    const adres = arr => (arr || []).filter(Boolean).map(a => ({ emailAddress: { address: a } }));
+    const ekler = (opts.ekler || []).filter(e => e && e.b64).map(e => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: e.ad || 'ek.pdf',
+      contentType: e.mime || 'application/pdf',
+      contentBytes: e.b64
+    }));
+    const message = {
+      subject: subject || '',
+      body: { contentType: 'HTML', content: html || '' },
+      toRecipients: adres(to),
+      ...(opts.cc && opts.cc.length ? { ccRecipients: adres(opts.cc) } : {}),
+      ...(opts.bcc && opts.bcc.length ? { bccRecipients: adres(opts.bcc) } : {}),
+      ...(ekler.length ? { attachments: ekler } : {})
+    };
+    const resp = await fetch(GRAPH_API + '/users/' + encodeURIComponent(kutu) + '/sendMail', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, saveToSentItems: true })
+    });
+    if (resp.ok || resp.status === 202) return { ok: true, kutu };
+    let detay = ''; try { detay = await resp.text(); } catch {}
+    if (resp.status === 403) {
+      return { ok: false, hata: '403 — “' + kutu + '” kutusundan gönderim reddedildi. Send As yetkisi verilmemiş veya Mail.Send.Shared onaylanmamış olabilir: bir kez çıkış→yeniden Microsoft 365 girişi yapıp izni onaylayın; Exchange admin de Send As yetkisini versin.' };
+    }
+    console.error('tahsilatMailGonder:', resp.status, detay);
+    return { ok: false, hata: 'Graph hatası ' + resp.status + (detay ? ': ' + detay.slice(0, 300) : '') };
+  } catch (e) {
+    console.error('tahsilatMailGonder:', e);
+    return { ok: false, hata: e.message || 'Bilinmeyen hata' };
+  }
+}
+
 // Portal talebi onaylandığında satıcının kendi e-postasına arşiv maili gönder
 async function portalArsivMailiGonder(t, tabloHtml, toplamStr) {
   if (!t || !t.portalTalebi) return;
@@ -13502,7 +13574,13 @@ const AZURE_CONFIG = {
   redirectUri:  window.location.origin,
 };
 
-const GRAPH_SCOPES = ['Mail.Send', 'Mail.ReadWrite', 'User.Read', 'offline_access'];
+// Temel scope'lar her akış için gerekir. Mail.Send.Shared YALNIZ Tahsilat Takip Merkezi'nin
+// paylaşımlı-kutudan gönderimi (tahsilatMailGonder) içindir; MO/RFQ/teklif bunu kullanmaz.
+// Kullanıcı onayıyla gelir (admin consent gerekmez). Henüz onaylanmamış hesaplarda tam set
+// consent_required verir → msTokenYenile temel sete düşer, böylece çekirdek mail gönderimi
+// (ve MO) hiç bozulmaz (bkz. msTokenYenile fallback).
+const GRAPH_SCOPES_BASE = ['Mail.Send', 'Mail.ReadWrite', 'User.Read', 'offline_access'];
+const GRAPH_SCOPES = [...GRAPH_SCOPES_BASE, 'Mail.Send.Shared'];
 const GRAPH_API    = 'https://graph.microsoft.com/v1.0';
 let msalInstance   = null;
 // Microsoft 365 ile giriş yapınca admin yetkisi alacak e-postalar (küçük harf).
@@ -13719,12 +13797,20 @@ async function msTokenYenile(account) {
     const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
     msGraphToken = r.accessToken;
   } catch (e) {
-    // Yalnızca etkileşim gerekiyorsa token'ı sıfırla — kullanıcı yeniden giriş yapmalı.
-    // Ağ/geçici hatalarda mevcut token korunur (token henüz expire olmamış olabilir).
-    const ad  = e?.name || '';
-    const mes = String(e?.errorCode || e?.message || '').toLowerCase();
-    if (ad === 'InteractionRequiredAuthError' || /interaction_required|login_required|consent_required|invalid_grant/.test(mes)) {
-      msGraphToken = null;
+    // Mail.Send.Shared henüz onaylanmamışsa (paylaşımlı kutu hiç kullanılmadı) tam set
+    // consent_required verir. Çekirdek mail gönderimi (MO dâhil) bozulmasın diye TEMEL
+    // scope'larla tekrar dene; paylaşımlı gönderim gerektiğinde kullanıcı yeniden giriş yapıp onaylar.
+    try {
+      const r2 = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES_BASE, account });
+      msGraphToken = r2.accessToken;
+    } catch (e2) {
+      // Yalnızca etkileşim gerekiyorsa token'ı sıfırla — kullanıcı yeniden giriş yapmalı.
+      // Ağ/geçici hatalarda mevcut token korunur (token henüz expire olmamış olabilir).
+      const ad  = e2?.name || '';
+      const mes = String(e2?.errorCode || e2?.message || '').toLowerCase();
+      if (ad === 'InteractionRequiredAuthError' || /interaction_required|login_required|consent_required|invalid_grant/.test(mes)) {
+        msGraphToken = null;
+      }
     }
   }
   msStatusGuncelle();
@@ -14393,6 +14479,26 @@ function moMuhasebeDurumGuncelle() {
     el.style.color = liste.length ? 'var(--green)' : 'var(--text3)';
   }
 }
+// Tahsilat Takip Merkezi — gönderen paylaşımlı kutu (MO ayarlarından TAMAMEN bağımsız).
+function tahsilatKutuKaydet(el) {
+  const k = String(el.value || '').trim().toLowerCase();
+  if (k && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(k)) { showToast('Geçerli bir e-posta girin.'); return; }
+  AYARLAR.tahsilatGonderenKutu = k;
+  el.value = k;
+  veriKaydet();
+  tahsilatKutuDurumGuncelle();
+  showToast(k ? '📤 Tahsilat gönderen kutusu: ' + k : 'Varsayılana döndü: ' + TAHSILAT_GONDEREN_VARSAYILAN);
+}
+function tahsilatKutuDurumGuncelle() {
+  const inp = document.getElementById('ayar-tahsilat-gonderen');
+  if (inp && document.activeElement !== inp) inp.value = AYARLAR.tahsilatGonderenKutu || '';
+  const el = document.getElementById('tahsilat-gonderen-durum');
+  if (el) {
+    const k = tahsilatGonderenKutu();
+    el.textContent = k ? '✅ Tahsilat mailleri ' + k + ' adresinden gidecek (Send As).' : '⚠ Geçerli bir gönderen kutusu yok.';
+    el.style.color = k ? 'var(--green)' : 'var(--amber)';
+  }
+}
 // Kaşe/imza görseli — admin yükler, AYARLAR.mailorderKase (data URL) senkron.
 async function moKaseYukle(input) {
   const file = input.files && input.files[0];
@@ -14533,6 +14639,7 @@ function ayarlariYukle() {
   moOnayciDurumGuncelle();
   moKaseDurumGuncelle();
   moMuhasebeDurumGuncelle();
+  tahsilatKutuDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
