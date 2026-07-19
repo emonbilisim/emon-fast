@@ -19132,6 +19132,9 @@ const MO_ALANLAR = [
   { key: 'cvv',      etiket: 'CVV' },
   { key: 'tarih',    etiket: 'Tarih' },
   { key: 'aciklama', etiket: 'Açıklama' },
+  { key: 'firma',    etiket: 'Firma Adı' },
+  { key: 'adres',    etiket: 'Adres' },
+  { key: 'tik',      etiket: '✓ İşaret/Tik' },
   { key: 'kase',     etiket: '🖋️ Kaşe/İmza' },
 ];
 const MO_KASE_KEY = 'kase'; // metin değil görsel alan — onaylanınca basılır
@@ -19235,7 +19238,7 @@ function moNoMaskele(no) { const t = String(no || '').replace(/\s+/g, ''); const
 function moNoBicim(no) { return String(no || '').replace(/\s+/g, '').replace(/(.{4})/g, '$1 ').trim(); }
 function moEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 // Standart PDF fontu (Helvetica/WinAnsi) Türkçe ş/ğ/İ/ı kodlayamaz → çökmesin diye ASCII'ye indir.
-function moTrAscii(s) { return String(s == null ? '' : s).replace(/[şŞğĞıİçÇöÖüÜ]/g, c => ({ 'ş': 's', 'Ş': 'S', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I', 'ç': 'c', 'Ç': 'C', 'ö': 'o', 'Ö': 'O', 'ü': 'u', 'Ü': 'U' }[c])); }
+function moTrAscii(s) { return String(s == null ? '' : s).replace(/✓/g, 'X').replace(/[şŞğĞıİçÇöÖüÜ]/g, c => ({ 'ş': 's', 'Ş': 'S', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I', 'ç': 'c', 'Ç': 'C', 'ö': 'o', 'Ö': 'O', 'ü': 'u', 'Ü': 'U' }[c])); }
 function moB64ToBytes(b64) { const bin = atob(b64); const len = bin.length, bytes = new Uint8Array(len); for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i); return bytes; }
 function moLoadImage(src) { return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; }); }
 function moIndir(blob, ad) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = ad; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); }
@@ -19673,7 +19676,9 @@ function moEditMarkerlariCiz() {
     } else {
       const fpx = Math.max(8, a.fontFrac * _moEdit.canvasH);
       m.style.cssText = `position:absolute;left:${a.x * 100}%;top:${a.y * 100}%;font-size:${fpx}px;background:rgba(37,99,235,0.14);border:1px solid #2563eb;border-radius:3px;padding:0 3px;white-space:nowrap;cursor:move;color:#0a3;line-height:1.1;`;
-      m.innerHTML = `<span style="color:#2563eb;font-weight:600;">${moEsc(moAlanEtiket(a.key))}</span> <span data-mosil="${i}" style="cursor:pointer;color:#e33;font-weight:700;padding-left:2px;">×</span>`;
+      // Tik: forma basılacak gerçek "✓" glifini göster (küçük kutucuğa hassas yerleşim)
+      const govde = a.key === 'tik' ? `<span style="color:#16a34a;font-weight:700;">✓</span>` : `<span style="color:#2563eb;font-weight:600;">${moEsc(moAlanEtiket(a.key))}</span>`;
+      m.innerHTML = govde + ` <span data-mosil="${i}" style="cursor:pointer;color:#e33;font-weight:700;padding-left:2px;">×</span>`;
     }
     m.addEventListener('mousedown', ev => {
       if (ev.target.getAttribute('data-mosil') != null) { _moEdit.alanlar.splice(i, 1); moEditMarkerlariCiz(); ev.stopPropagation(); return; }
@@ -19769,6 +19774,9 @@ function moUretDeger(key, ctx) {
     case 'cvv': return ctx.kart.cvv || '';
     case 'tarih': return ctx.tarih;
     case 'aciklama': return ctx.aciklama;
+    case 'firma': return AYARLAR.sirket || 'EMON Bilgi İşlem Ürünleri Tic. A.Ş.';
+    case 'adres': return AYARLAR.adres || 'Perpa Ticaret Merkezi B Blok Kat:11 No:1691 Okmeydanı – Şişli / İSTANBUL';
+    case 'tik': return '✓';   // kutu işaretleme — forma birden çok kez konabilir
     default: return '';
   }
 }
