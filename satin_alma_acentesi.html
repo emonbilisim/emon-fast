@@ -1874,6 +1874,12 @@
         <div id="mailorder-onayci-durum" style="font-size:12px;font-weight:600;width:100%;"></div>
       </div>
       <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+        <label class="form-label" style="margin:0 0 6px;">🧾 Muhasebe Bilgi Kopyası (BCC)</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">MO tedarikçiye gönderildiğinde, damgalı PDF'in bir kopyası bu adres(ler)e <b>gizli kopya (BCC)</b> olarak da iletilir — tedarikçi bu adresleri görmez. Birden fazla için virgül/noktalı virgülle ayırın. Boş bırakılırsa kopya gönderilmez.</div>
+        <input type="text" id="ayar-mailorder-muhasebe" placeholder="muhasebe@emon.com.tr, finans@emon.com.tr" onchange="moMuhasebeKaydet(this)" style="width:100%;">
+        <div id="mailorder-muhasebe-durum" style="font-size:12px;font-weight:600;margin-top:8px;"></div>
+      </div>
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
         <label class="form-label" style="margin:0 0 8px;">🖋️ Kaşe / İmza Görseli</label>
         <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Onaylanan MO'larda formdaki “Kaşe/İmza” alanına basılır. Şeffaf arka planlı PNG önerilir.</div>
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
@@ -14368,6 +14374,25 @@ function moOnayciDurumGuncelle() {
     el.style.color = AYARLAR.mailorderOnayci ? 'var(--green)' : 'var(--amber)';
   }
 }
+// Muhasebe bilgi kopyası — MO tedarikçiye gönderilince BCC olarak bu adreslere de gider.
+function moMuhasebeKaydet(el) {
+  const liste = moEpostaListe(el.value);
+  AYARLAR.mailorderMuhasebe = liste.join(', ');
+  el.value = AYARLAR.mailorderMuhasebe;
+  veriKaydet();
+  moMuhasebeDurumGuncelle();
+  showToast(liste.length ? '🧾 Muhasebe kopyası ' + liste.length + ' adrese ayarlandı.' : 'Muhasebe kopyası temizlendi.');
+}
+function moMuhasebeDurumGuncelle() {
+  const inp = document.getElementById('ayar-mailorder-muhasebe');
+  if (inp && document.activeElement !== inp) inp.value = AYARLAR.mailorderMuhasebe || '';
+  const el = document.getElementById('mailorder-muhasebe-durum');
+  if (el) {
+    const liste = moEpostaListe(AYARLAR.mailorderMuhasebe);
+    el.textContent = liste.length ? '✅ Tedarikçiye gönderilince kopya gidecek: ' + liste.join(', ') : 'Muhasebe kopyası kapalı — MO yalnız tedarikçiye gönderilir.';
+    el.style.color = liste.length ? 'var(--green)' : 'var(--text3)';
+  }
+}
 // Kaşe/imza görseli — admin yükler, AYARLAR.mailorderKase (data URL) senkron.
 async function moKaseYukle(input) {
   const file = input.files && input.files[0];
@@ -14507,6 +14532,7 @@ function ayarlariYukle() {
   mailorderRolDurumGuncelle();
   moOnayciDurumGuncelle();
   moKaseDurumGuncelle();
+  moMuhasebeDurumGuncelle();
   setVal('ayar-sirket', AYARLAR.sirket);
   setVal('ayar-mail',   AYARLAR.mail);
   setVal('ayar-tel',    AYARLAR.tel);
@@ -20063,7 +20089,7 @@ async function moBlobB64(blob) {
   return btoa(s);
 }
 // Outlook (Graph) ile EKLİ mail gönder (PDF ekiyle)
-async function moGraphEkliMail(toList, subject, html, ekAdi, ekB64) {
+async function moGraphEkliMail(toList, subject, html, ekAdi, ekB64, bccList) {
   try {
     if (msalInstance && aktifKullanici?.msAccount) await msTokenYenile(aktifKullanici.msAccount);
     if (!msGraphToken) return false;
@@ -20075,6 +20101,7 @@ async function moGraphEkliMail(toList, subject, html, ekAdi, ekB64) {
           subject,
           body: { contentType: 'HTML', content: html },
           toRecipients: toList.map(a => ({ emailAddress: { address: a } })),
+          ...(Array.isArray(bccList) && bccList.length ? { bccRecipients: bccList.map(a => ({ emailAddress: { address: a } })) } : {}),
           attachments: [{ '@odata.type': '#microsoft.graph.fileAttachment', name: ekAdi, contentType: 'application/pdf', contentBytes: ekB64 }]
         },
         saveToSentItems: true
@@ -20110,12 +20137,14 @@ async function moTedarikciyeGonder(id) {
         <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${moEsc(t.tarih)}</td></tr>
       </table>
     </div>`;
-  const ok = await moGraphEkliMail(alicilar, '[Mail Order] ' + t.no + ' — ' + t.tedarikci, html, res.ad, b64);
+  const muhasebe = moEpostaListe(AYARLAR.mailorderMuhasebe);
+  const ok = await moGraphEkliMail(alicilar, '[Mail Order] ' + t.no + ' — ' + t.tedarikci, html, res.ad, b64, muhasebe);
   if (ok) {
     t.tedarikciyeGonderildi = new Date().toISOString();
+    if (muhasebe.length) t.muhasebeKopyaGonderildi = t.tedarikciyeGonderildi;
     moSunucuUyar(await apiMoTalepKaydet(t), 'Tedarikçi gönderimi');
     moOnayListeRender(); moArsivRender();
-    showToast('📧 ' + t.no + ' tedarikçiye gönderildi (' + alicilar.join(', ') + ').');
+    showToast('📧 ' + t.no + ' tedarikçiye gönderildi (' + alicilar.join(', ') + ')' + (muhasebe.length ? ' · 🧾 muhasebeye kopya' : '') + '.');
   } else {
     showToast('⚠ Gönderilemedi — Outlook (M365) bağlı değil olabilir. “İndir” ile alıp elle iletebilirsiniz.');
   }
