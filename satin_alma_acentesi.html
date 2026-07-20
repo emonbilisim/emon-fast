@@ -1488,6 +1488,7 @@
           <tr><td style="color:var(--text3);padding:5px 0;">Adres</td><td id="d-adres"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Vergi No</td><td id="d-vergino" class="mono"></td></tr>
           <tr><td style="color:var(--text3);padding:5px 0;">Vergi Dairesi</td><td id="d-vergidaire"></td></tr>
+          <tr><td style="color:var(--text3);padding:5px 0;">Logo Cari Kodu</td><td id="d-logokod" class="mono"></td></tr>
         </table>
       </div>
       <div class="card">
@@ -3094,6 +3095,7 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
       <div class="form-group"><label class="form-label">Vergi No</label><input type="text" id="mf-vergino" placeholder="1234567890" class="mono"></div>
       <div class="form-group"><label class="form-label">Vergi Dairesi</label><input type="text" id="mf-vergidaire" placeholder="örn. Kadıköy"></div>
     </div>
+    <div class="form-group"><label class="form-label">Logo Cari Kodu</label><input type="text" id="mf-logokod" placeholder="Logo ERP cari kodu (örn. 120.01.0001)" class="mono"></div>
     <div class="form-group"><label class="form-label">Adres</label><input type="text" id="mf-adres" placeholder="Açık adres..."></div>
 
     <!-- ── 2. YETKİLİLER ── -->
@@ -5673,7 +5675,7 @@ function musteriFormAc(idx) {
 
   if (idx === -1) {
     document.getElementById('mf-baslik').textContent = '👥 Yeni Müşteri Ekle';
-    ['mf-firma','mf-vergino','mf-vergidaire','mf-adres','mf-not'].forEach(id=>document.getElementById(id).value='');
+    ['mf-firma','mf-vergino','mf-vergidaire','mf-logokod','mf-adres','mf-not'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value='ilk'; } // yeni müşteri → varsayılan İlk Kayıt
@@ -5692,6 +5694,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-baslik').textContent = '✏️ Müşteri Düzenle';
     document.getElementById('mf-firma').value=m.firma||''; document.getElementById('mf-sektor').value=m.sektor||'';
     document.getElementById('mf-vergino').value=m.vergino||''; document.getElementById('mf-vergidaire').value=m.vergidaire||'';
+    document.getElementById('mf-logokod').value=m.logoKod||'';
     document.getElementById('mf-adres').value=m.adres||''; document.getElementById('mf-fiyatgrup').value=m.fiyatgrup||'';
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=m.kaynak||''; }
@@ -5899,6 +5902,7 @@ async function musteriKaydet() {
   const kayit = {
     firma, sektor:document.getElementById('mf-sektor').value, yetkililer,
     adres:document.getElementById('mf-adres').value.trim(), vergino:document.getElementById('mf-vergino').value.trim(), vergidaire:document.getElementById('mf-vergidaire').value.trim(),
+    logoKod:document.getElementById('mf-logokod').value.trim(),
     odeme:{havale:document.getElementById('mf-odeme-havale').checked,kk:document.getElementById('mf-odeme-kk').checked,kkkom:document.getElementById('mf-odeme-kkkom').checked,kkkomOran:document.getElementById('mf-kkkom-oran').value.trim(),vadeli:document.getElementById('mf-odeme-vadeli').checked,vadeGun:document.getElementById('mf-vade-gun').value,cins:document.getElementById('mf-odeme-cins')?.value||'TL'},
     ozelSartlar, fiyatgrup:document.getElementById('mf-fiyatgrup').value, durum:document.getElementById('mf-durum').value,
     kaynak:document.getElementById('mf-kaynak')?.value || '',
@@ -6171,6 +6175,7 @@ function musteriDetay(idx) {
   document.getElementById('d-adres').textContent=m.adres||'—';
   document.getElementById('d-vergino').textContent=m.vergino||'—';
   document.getElementById('d-vergidaire').textContent=m.vergidaire||'—';
+  document.getElementById('d-logokod').textContent=m.logoKod||'—';
   document.getElementById('d-odeme').innerHTML=odemeBadgeMusteri(m.odeme,m.ozelSartlar);
   document.getElementById('d-vade').textContent=m.odeme&&m.odeme.vadeli&&m.odeme.vadeGun?m.odeme.vadeGun+' gün':'—';
   { const ocEl=document.getElementById('d-odeme-cins'); if(ocEl) ocEl.textContent=(m.odeme&&m.odeme.cins==='Doviz')?'Döviz':'TL'; }
@@ -11289,6 +11294,7 @@ async function onayMusteriKabul(i) {
     document.getElementById('mf-adres').value    = kayit.adres || '';
     document.getElementById('mf-vergino').value  = kayit.vergino || '';
     document.getElementById('mf-vergidaire').value = kayit.vergidaire || '';
+    document.getElementById('mf-logokod').value  = kayit.logoKod || '';
     document.getElementById('mf-not').value      = kayit.not || '';
     document.getElementById('mf-durum').value    = kayit.durum || 'Aktif';
 
