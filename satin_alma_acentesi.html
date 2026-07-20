@@ -2300,6 +2300,7 @@
       <div class="th-mtabs">
         <div class="th-mtab active" data-p="manuel" onclick="tahEkleSekme('manuel')">✍ Manuel</div>
         <div class="th-mtab" data-p="excel" onclick="tahEkleSekme('excel')">📊 Excel Liste</div>
+        <div class="th-mtab" data-p="gorsel" onclick="tahEkleSekme('gorsel')">📷 Görsel (AI)</div>
       </div>
       <div id="tah-pane-manuel">
         <div class="grid2">
@@ -2328,6 +2329,16 @@
         <div class="modal-footer">
           <button class="btn" onclick="closeModal('tahEkle')">İptal</button>
           <button class="btn btn-primary" onclick="tahExcelEkle()">Listeye Ekle</button>
+        </div>
+      </div>
+      <div id="tah-pane-gorsel" style="display:none;">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Logo <b>"Satış Faturaları Dökümü"</b> ekran görüntüsünü / PNG'ini yükleyin — AI tabloyu okur. <b>CARİ HESAP</b>, müşteri kartındaki <b>Logo Cari Kodu</b> ile eşleştirilir. <b style="color:var(--amber);">AI okuması %100 değildir — eklemeden önce tutar/tarihleri kontrol edin.</b></div>
+        <input type="file" id="tah-gorsel-input" accept="image/*" onchange="tahGorselOku(this)" style="font-size:12px;color:var(--text2);margin-bottom:8px;">
+        <div id="tah-gorsel-msg" style="font-size:12px;margin-bottom:8px;"></div>
+        <div id="tah-gorsel-prev" style="display:none;margin-bottom:8px;"></div>
+        <div class="modal-footer">
+          <button class="btn" onclick="closeModal('tahEkle')">İptal</button>
+          <button class="btn btn-primary" onclick="tahGorselEkle()">Listeye Ekle</button>
         </div>
       </div>
     </div>
@@ -12109,8 +12120,7 @@ function renderTahsilat(){
 // ── Alacak ekle (manuel / excel) ──
 function tahEkleSekme(p){
   document.querySelectorAll('#modal-tahEkle .th-mtab').forEach(x=>x.classList.toggle('active',x.dataset.p===p));
-  document.getElementById('tah-pane-manuel').style.display=p==='manuel'?'block':'none';
-  document.getElementById('tah-pane-excel').style.display=p==='excel'?'block':'none';
+  ['manuel','excel','gorsel'].forEach(k=>{ const el=document.getElementById('tah-pane-'+k); if(el) el.style.display=(k===p)?'block':'none'; });
 }
 function tahEkleAc(){
   const dl=document.getElementById('tah-firma-list');
@@ -12121,6 +12131,9 @@ function tahEkleAc(){
   document.getElementById('tah-excel-msg').textContent='';
   _tahExcelSatir=[]; const ep=document.getElementById('tah-excel-prev'); if(ep){ep.style.display='none';ep.innerHTML='';}
   const fi=document.getElementById('tah-excel-input'); if(fi) fi.value='';
+  _tahGorselSatir=[]; const gp=document.getElementById('tah-gorsel-prev'); if(gp){gp.style.display='none';gp.innerHTML='';}
+  const gm=document.getElementById('tah-gorsel-msg'); if(gm) gm.textContent='';
+  const gi=document.getElementById('tah-gorsel-input'); if(gi) gi.value='';
   tahEkleSekme('manuel');
   openModal('tahEkle');
 }
@@ -12183,6 +12196,108 @@ function tahExcelEkle(){
   yeni.forEach(k=>TAHSILAT_KAYITLAR.push(k));
   tahYerelKaydet(); yeni.forEach(k=>apiTahsilatKaydet(k));
   renderTahsilat(); closeModal('tahEkle'); showToast(yeni.length+' alacak eklendi.');
+}
+
+// ── Görsel (PNG/foto) → AI ile oku: Logo "Satış Faturaları Dökümü" ──
+let _tahGorselSatir=[];
+function tahTarihISO(s){
+  s=String(s||'').trim(); if(!s) return '';
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m=s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/); if(m) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  return '';
+}
+function tahTutarParse(v){
+  if(typeof v==='number') return v;
+  let s=String(v||'').replace(/[^\d.,]/g,'');
+  if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.');   // TR: nokta binlik, virgül ondalık
+  const n=parseFloat(s); return Number.isFinite(n)?n:0;
+}
+// Müşteriyi Logo Cari Kodu ile bul (harf-duyarsız)
+function tahMusteriByLogo(kod){
+  const k=String(kod||'').trim().toLocaleLowerCase('tr'); if(!k) return null;
+  return MUSTERILER.find(m=>String(m.logoKod||'').trim().toLocaleLowerCase('tr')===k)||null;
+}
+// AI'a yollamadan önce en fazla 1568px'e küçült (doğruluk + payload) → {b64,mime}
+function tahGorselKucult(file){
+  return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file), im=new Image();
+    im.onload=()=>{
+      const max=1568, o=Math.max(im.naturalWidth,im.naturalHeight), sc=o>max?max/o:1;
+      const c=document.createElement('canvas'); c.width=Math.round(im.naturalWidth*sc); c.height=Math.round(im.naturalHeight*sc);
+      const cx=c.getContext('2d'); cx.fillStyle='#fff'; cx.fillRect(0,0,c.width,c.height); cx.drawImage(im,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);
+      const dataUrl=c.toDataURL('image/jpeg',0.92);
+      res({ b64:dataUrl.split(',')[1], mime:'image/jpeg' });
+    };
+    im.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('görsel okunamadı')); };
+    im.src=url;
+  });
+}
+async function tahGorselOku(input){
+  const file=input.files&&input.files[0]; if(!file) return;
+  const msg=document.getElementById('tah-gorsel-msg');
+  if(!/^image\//.test(file.type||'')){ msg.style.color='var(--red)'; msg.textContent='Lütfen bir görsel (PNG/JPG) seçin.'; return; }
+  if(typeof _claudeAiCagir!=='function'){ msg.style.color='var(--red)'; msg.textContent='AI okuyucu bu sürümde yok.'; return; }
+  msg.style.color='var(--text2)'; msg.textContent='🤖 AI görseli okuyor… (birkaç saniye)';
+  const prev=document.getElementById('tah-gorsel-prev'); prev.style.display='none';
+  try{
+    const img=await tahGorselKucult(file);
+    const sistem='Sen bir muhasebe asistanısın. Görsel bir Logo ERP "Satış Faturaları Dökümü" raporudur. Yalnızca fatura satırlarını çıkarır, uydurmazsın.';
+    const komut='Bu rapordaki HER fatura satırını çıkar. Üstteki başlık bloğunu (Rapor Adı/Firma/Çalışma Dönemi/Kullanıcı vb.) ve alttaki "Toplam" satırını ATLA. Her satır için: '
+      +'"cari"=CARİ HESAP sütunu (aynen), "faturaNo"=FATURA NO, "faturaTarihi"=FAT.TARİHİ (GG.AA.YYYY), "vade"=VADE TARİHİ (GG.AA.YYYY), '
+      +'"tutar"=FAT.TOPL. sütunu (KDV DAHİL genel toplam; Türk biçimi ör. "1.892,04"). Emin olmadığın alanı boş bırak. '
+      +'YALNIZCA şu JSON: {"satirlar":[{"cari":"","faturaNo":"","faturaTarihi":"","vade":"","tutar":""}]}';
+    const bloklar=[ {type:'image', source:{type:'base64', media_type:img.mime, data:img.b64}}, {type:'text', text:komut} ];
+    const r=await _claudeAiCagir('claude-sonnet-4-6', sistem, bloklar, 8000);
+    if(!r || r._err){ msg.style.color='var(--red)'; msg.textContent='AI okunamadı ('+((r&&r._err)||'boş yanıt')+'). Görsel net mi? Tekrar deneyin ya da Excel/Manuel kullanın.'; return; }
+    const satir=Array.isArray(r.satirlar)?r.satirlar:[];
+    _tahGorselSatir=satir.map(x=>({
+      cari:String(x.cari||'').trim(), faturaNo:String(x.faturaNo||'').trim(),
+      faturaTarihi:tahTarihISO(x.faturaTarihi), vade:tahTarihISO(x.vade), tutar:tahTutarParse(x.tutar)
+    })).filter(x=>x.cari||x.faturaNo||x.tutar>0);
+    if(!_tahGorselSatir.length){ msg.style.color='var(--amber)'; msg.textContent='AI satır bulamadı. Görsel net değilse Excel/Manuel deneyin.'; return; }
+    tahGorselOnizle();
+  }catch(e){ msg.style.color='var(--red)'; msg.textContent='Hata: '+(e.message||e); }
+}
+function tahGorselOnizle(){
+  const el=document.getElementById('tah-gorsel-prev'), msg=document.getElementById('tah-gorsel-msg');
+  el.style.display='block';
+  el.innerHTML=`<div style="font-size:11px;color:var(--amber);margin-bottom:6px;">🤖 AI okudu — değerleri kontrol edip düzeltin, sonra "Listeye Ekle".</div>
+    <div class="th-scroll" style="max-height:300px;border:1px solid var(--border);border-radius:var(--radius);"><table><thead><tr><th>Cari (Logo)</th><th>Fatura No</th><th>Fatura Tar.</th><th>Vade</th><th class="num">Tutar (₺)</th><th></th></tr></thead><tbody>${
+      _tahGorselSatir.map((r,i)=>{
+        const eslesti=!!(tahMusteriByLogo(r.cari)||tahMusteriBul(r.cari));
+        return `<tr>
+          <td><input value="${tahEsc(r.cari)}" oninput="_tahGorselSatir[${i}].cari=this.value" style="width:130px;">${eslesti?'':' <span class="th-pill th-gec">yok</span>'}</td>
+          <td><input value="${tahEsc(r.faturaNo)}" oninput="_tahGorselSatir[${i}].faturaNo=this.value" style="width:160px;"></td>
+          <td><input type="date" value="${r.faturaTarihi}" oninput="_tahGorselSatir[${i}].faturaTarihi=this.value"></td>
+          <td><input type="date" value="${r.vade}" oninput="_tahGorselSatir[${i}].vade=this.value"></td>
+          <td class="num"><input type="number" step="0.01" value="${r.tutar}" oninput="_tahGorselSatir[${i}].tutar=parseFloat(this.value)||0" style="width:100px;text-align:right;"></td>
+          <td><button class="btn btn-sm" onclick="_tahGorselSatir.splice(${i},1);tahGorselOnizle();" style="color:var(--red);">✕</button></td>
+        </tr>`;
+      }).join('')
+    }</tbody></table></div>`;
+  const eslesmeyen=_tahGorselSatir.filter(r=>!(tahMusteriByLogo(r.cari)||tahMusteriBul(r.cari))).length;
+  msg.style.color='var(--green)';
+  msg.innerHTML=_tahGorselSatir.length+' satır okundu.'+(eslesmeyen?' <span style="color:var(--amber);">'+eslesmeyen+' cari eşleşmedi (Logo Cari Kodu kartta tanımlı değil) — eklenir ama hatırlatma için müşteriyi tanımlayın.</span>':'');
+}
+function tahGorselEkle(){
+  const msg=document.getElementById('tah-gorsel-msg');
+  if(!_tahGorselSatir.length){ msg.style.color='var(--red)'; msg.textContent='Önce bir görsel yükleyin.'; return; }
+  const now=new Date().toISOString(), email=_benEmail();
+  const mevcutNo=new Set(TAHSILAT_KAYITLAR.map(x=>String(x.faturaNo||'').trim().toLocaleLowerCase('tr')).filter(Boolean));
+  const yeni=[]; let atlandi=0;
+  _tahGorselSatir.forEach(r=>{
+    if(!(r.tutar>0) || !r.vade){ atlandi++; return; }
+    const fnKey=String(r.faturaNo||'').trim().toLocaleLowerCase('tr');
+    if(fnKey && mevcutNo.has(fnKey)){ atlandi++; return; }   // mükerrer fatura no → atla
+    const m=tahMusteriByLogo(r.cari)||tahMusteriBul(r.cari);
+    const k={ id:tahUid(), firma:m?m.firma:(r.cari||'—'), logoKod:r.cari||null, tutar:Math.round(r.tutar*100)/100, vade:r.vade, faturaNo:r.faturaNo||null, faturaTarihi:r.faturaTarihi||null, not:null, olusturma:now, olusturan:email };
+    TAHSILAT_KAYITLAR.push(k); if(fnKey) mevcutNo.add(fnKey); yeni.push(k);
+  });
+  tahYerelKaydet(); yeni.forEach(k=>apiTahsilatKaydet(k));
+  renderTahsilat();
+  if(yeni.length) closeModal('tahEkle');
+  showToast(yeni.length+' alacak eklendi'+(atlandi?(' · '+atlandi+' atlandı (mükerrer/eksik)'):'')+'.');
 }
 
 // ── Tahsil et / Ertele ──
@@ -17431,10 +17546,10 @@ function musteriBulByMail(mail) {
 }
 
 // Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
-async function maildenTalepCikar(mailIcerik, pdfler) {
+async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) return { _err: 'no-key' };
   try {
-    const promptMetin =
+    let promptMetin =
       'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele ve TÜRÜNÜ (tip) belirle.\n\n' +
       'TÜRLER:\n' +
       '- "talep": Müşteri yeni ürün/hizmet için fiyat teklifi istiyor.\n' +
@@ -17452,6 +17567,17 @@ async function maildenTalepCikar(mailIcerik, pdfler) {
       'SADECE şu JSON ile cevap ver (markdown/açıklama yok):\n' +
       '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":""}';
 
+    // "Yeni Talep Olarak Al" dönüşümü: tip'i tartışma, mail+eklerden TÜM ürünleri çıkar.
+    if (zorlaTalep) {
+      promptMetin =
+        'Aşağıdaki müşteri e-postası ve (varsa) ekleri bir TEKLİF TALEBİ olarak işlenecek. tip HER ZAMAN "talep".\n' +
+        'Mailden VE EKLERİNDEN (PDF/Excel dökümü metni) İSTENEN TÜM ürün kalemlerini çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet"). Fiyatlandırılacak her satırı ayrı kalem yap.\n' +
+        'Müşterinin kendi talep/referans numarası varsa musteriNo. Son teklif zamanı varsa sonTeklifTarih (YYYY-MM-DD) / sonTeklifSaat (HH:MM). ozet: tek cümlelik kısa Türkçe özet.\n\n' +
+        'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
+        'SADECE şu JSON (markdown yok):\n' +
+        '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":""}';
+    }
+
     const contentBlocks = [];
     if (pdfler && pdfler.length) {
       pdfler.forEach(p => contentBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.data } }));
@@ -17460,7 +17586,7 @@ async function maildenTalepCikar(mailIcerik, pdfler) {
 
     const sistem = 'Sen Türkçe konuşan bir satın alma asistanısın. Gelen müşteri mailini analiz edip SADECE geçerli düz JSON dön. Açıklama, markdown veya ```json bloğu kullanma.';
     // Haiku-first, PDF'te Sonnet fallback (maliyet ↓); output küçük → max_tokens 500
-    return await _claudeAiCagirAkilli(sistem, contentBlocks, 500, !!(pdfler && pdfler.length));
+    return await _claudeAiCagirAkilli(sistem, contentBlocks, zorlaTalep ? 1500 : 500, !!(pdfler && pdfler.length));
   } catch (e) {
     console.warn('Talep parse hatasi:', e);
     return { _err: 'network' };
@@ -17521,21 +17647,29 @@ async function otoTalepTara(sessiz = false, zorla = false) {
         if (r.ok) { const d = await r.json(); if (d.body?.content) govde = d.body.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
       } catch {}
       govde = mailGovdeKirp(govde, 2500);
-      // PDF ekleri (en fazla 3, <5MB)
-      let pdfler = [];
+      // Ekler (<5MB): PDF → AI'a document block; Excel/CSV → CSV metnine çevrilip mail'e eklenir.
+      let pdfler = [], ekMetin = '';
       if (m.hasAttachments) {
         try {
           const r = await fetch(GRAPH_API + '/me/messages/' + m.id + '/attachments', { headers: { Authorization: 'Bearer ' + msGraphToken } });
           if (r.ok) {
-            (await r.json()).value
-              .filter(e => (e.contentType || '').includes('pdf') || (e.name || '').toLowerCase().endsWith('.pdf'))
-              .slice(0, 3)
-              .forEach(e => { if (e.contentBytes && (e.size || 0) < 5 * 1024 * 1024) pdfler.push({ name: e.name, data: e.contentBytes }); });
+            for (const e of ((await r.json()).value || [])) {
+              const ad = (e.name || '').toLowerCase(), ct = (e.contentType || '').toLowerCase();
+              if (!e.contentBytes || (e.size || 0) >= 5 * 1024 * 1024) continue;
+              if (ct.includes('pdf') || ad.endsWith('.pdf')) {
+                if (pdfler.length < 3) pdfler.push({ name: e.name, data: e.contentBytes });
+              } else if (/\.(xlsx|xls|csv)$/.test(ad) && typeof XLSX !== 'undefined') {
+                try {
+                  const wb = XLSX.read(moB64ToBytes(e.contentBytes), { type: 'array' });
+                  wb.SheetNames.slice(0, 3).forEach(sn => { ekMetin += '\n\n[EK: ' + e.name + ' · ' + sn + ']\n' + XLSX.utils.sheet_to_csv(wb.Sheets[sn]).slice(0, 4000); });
+                } catch {}
+              }
+            }
           }
         } catch {}
       }
 
-      const icerik = 'KONU: ' + (m.subject || '') + '\n\n' + govde;
+      const icerik = 'KONU: ' + (m.subject || '') + '\n\n' + govde + (ekMetin ? ('\n\n--- EKLER ---' + ekMetin) : '');
       const sonuc = await maildenTalepCikar(icerik, pdfler);
       if (sonuc && sonuc._err) continue; // geçici hata → işaretleme, sonraki taramada tekrar denenir
 
@@ -17998,16 +18132,73 @@ function otoTalepSil(taslakId) {
 // AI'ın yanlışlıkla "revizyon"/"onay" olarak sınıfladığı maili düzenlenebilir YENİ
 // talebe çevir. Revizyon/onay taslağında ürün çıkarılmamış olabilir → boş satır ver;
 // kullanıcı ürünleri girip "Talep Oluştur" ile gerçek talebe dönüştürür.
-function otoTaslakYeniTalepYap(taslakId) {
+// Maildel gövde + eklerini (PDF → AI'a document; Excel/CSV → metne çevrilip mail'e eklenir) çek.
+async function otoMailIcerikEkCek(ts) {
+  let govde = ts.ozet || '';
+  try {
+    const r = await fetch(GRAPH_API + '/me/messages/' + ts.mailId + '?$select=body,subject', { headers: { Authorization: 'Bearer ' + msGraphToken } });
+    if (r.ok) { const d = await r.json(); if (d.body && d.body.content) govde = d.body.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
+  } catch {}
+  govde = (typeof mailGovdeKirp === 'function') ? mailGovdeKirp(govde, 4000) : String(govde).slice(0, 4000);
+  const pdfler = [];
+  let ekMetin = '';
+  try {
+    const r = await fetch(GRAPH_API + '/me/messages/' + ts.mailId + '/attachments', { headers: { Authorization: 'Bearer ' + msGraphToken } });
+    if (r.ok) {
+      for (const e of ((await r.json()).value || [])) {
+        const ad = (e.name || '').toLowerCase(), ct = (e.contentType || '').toLowerCase();
+        if (!e.contentBytes || (e.size || 0) >= 5 * 1024 * 1024) continue;
+        if (ct.includes('pdf') || ad.endsWith('.pdf')) {
+          if (pdfler.length < 3) pdfler.push({ name: e.name, data: e.contentBytes });
+        } else if (/\.(xlsx|xls|csv)$/.test(ad) && typeof XLSX !== 'undefined') {
+          try {
+            const wb = XLSX.read(moB64ToBytes(e.contentBytes), { type: 'array' });
+            wb.SheetNames.slice(0, 3).forEach(sn => { ekMetin += '\n\n[EK: ' + e.name + ' · ' + sn + ']\n' + XLSX.utils.sheet_to_csv(wb.Sheets[sn]).slice(0, 4000); });
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  const icerik = 'KONU: ' + (ts.konu || '') + '\n\n' + govde + (ekMetin ? ('\n\n--- EKLER ---' + ekMetin) : '');
+  return { icerik, pdfler };
+}
+
+// AI'ın "revizyon"/"onay" sandığı maili düzenlenebilir YENİ talebe çevir + mail/ekten
+// ürünleri AI ile çıkar (revizyon sınıfında ürünler boş bırakılmıştı).
+async function otoTaslakYeniTalepYap(taslakId) {
   const cfg = otoTalepCfg();
   const ts = cfg.taslaklar.find(x => x.id === taslakId);
   if (!ts) return;
   ts.tip = 'talep';
+  otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  // Mail + ekinden ürünleri çıkarmayı dene (M365 bağlıysa ve mailId varsa)
+  if (ts.mailId && typeof msGraphToken !== 'undefined' && msGraphToken && typeof maildenTalepCikar === 'function') {
+    showToast('🤖 Mail ve ekinden ürünler okunuyor…');
+    try {
+      const { icerik, pdfler } = await otoMailIcerikEkCek(ts);
+      const r = await maildenTalepCikar(icerik, pdfler, true);
+      if (r && !r._err && Array.isArray(r.urunler)) {
+        const urunler = r.urunler
+          .map(u => ({ aciklama: String(u.aciklama || '').trim(), kod: String(u.kod || '').trim(), adet: String(u.adet || '1'), birim: String(u.birim || 'Adet') }))
+          .filter(u => u.aciklama || u.kod);
+        if (urunler.length) {
+          ts.urunler = urunler;
+          if (r.musteriNo && !ts.musteriNo) ts.musteriNo = r.musteriNo;
+          if (r.sonTeklifTarih && !ts.sonTeklifTarih) ts.sonTeklifTarih = r.sonTeklifTarih;
+          if (r.sonTeklifSaat && !ts.sonTeklifSaat) ts.sonTeklifSaat = r.sonTeklifSaat;
+          otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+          showToast('✅ ' + urunler.length + ' ürün mail/ekten okundu — kontrol edip Talep Oluştur.');
+          return;
+        }
+      }
+      showToast('Üründen otomatik okunamadı — satırları elle girin.');
+    } catch (e) { console.warn('yeni-talep re-extract:', e); showToast('Ürün çıkarılamadı — satırları elle girin.'); }
+  }
+  // Ürün gelmediyse en az bir boş satır bırak
   if (!Array.isArray(ts.urunler) || !ts.urunler.length) {
     ts.urunler = [{ aciklama: '', kod: '', adet: '1', birim: 'Adet' }];
+    otoTalepDurumKaydet(); otoTalepTaslakRender();
   }
-  otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
-  showToast('Taslak “Yeni Talep” olarak işaretlendi — ürünleri kontrol edip Talep Oluştur.');
 }
 
 // Ters yön: AI'ın "yeni talep" sandığı ama aslında mevcut bir teklife revizyon olan
