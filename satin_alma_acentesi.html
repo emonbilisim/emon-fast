@@ -17850,6 +17850,7 @@ function otoTalepTaslakRender() {
         <button class="btn btn-sm" onclick="otoTalepUrunEkle('${ts.id}')" style="font-size:11px;margin-top:6px;">+ Satır Ekle</button>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
           <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
+          <button class="btn btn-sm" onclick="otoTaslakRevizyonYap('${ts.id}')" style="font-size:12px;color:var(--accent2);border-color:rgba(79,142,247,0.35);" title="AI yanlış sınıflamışsa: yeni talep değil, mevcut teklife revizyon/onay olarak işaretle">✏️ Revizyon Olarak Al</button>
           <button class="btn btn-primary btn-sm" onclick="otoTalepOnayla('${ts.id}')" style="font-size:12px;">✅ Talep Oluştur</button>
         </div>
       </div>`;
@@ -18007,6 +18008,17 @@ function otoTaslakYeniTalepYap(taslakId) {
   }
   otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
   showToast('Taslak “Yeni Talep” olarak işaretlendi — ürünleri kontrol edip Talep Oluştur.');
+}
+
+// Ters yön: AI'ın "yeni talep" sandığı ama aslında mevcut bir teklife revizyon olan
+// maili revizyon kartına çevir → kullanıcı ilgili teklifi seçip "Revize İstendi İşaretle".
+function otoTaslakRevizyonYap(taslakId) {
+  const cfg = otoTalepCfg();
+  const ts = cfg.taslaklar.find(x => x.id === taslakId);
+  if (!ts) return;
+  ts.tip = 'revizyon';
+  otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  showToast('Taslak “Revizyon” olarak işaretlendi — ilgili teklifi seçip Revize İstendi İşaretle.');
 }
 
 const _ottOnayMesgul = new Set(); // çift-tık/yarış koruması: aynı taslak için eşzamanlı onayı engelle
