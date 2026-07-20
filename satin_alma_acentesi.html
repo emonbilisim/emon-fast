@@ -17809,6 +17809,7 @@ function otoTalepTaslakRender() {
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
             <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
+            <button class="btn btn-sm" onclick="otoTaslakYeniTalepYap('${ts.id}')" style="font-size:12px;color:var(--accent2);border-color:rgba(79,142,247,0.35);" title="AI yanlış sınıflamışsa: revizyon/onay değil, düzenlenebilir YENİ talebe çevir">↩ Yeni Talep Olarak Al</button>
             ${revize
               ? `<button class="btn btn-primary btn-sm" onclick="otoRevizeUygula('${ts.id}')" style="font-size:12px;">✏️ Revize İstendi İşaretle</button>`
               : `<button class="btn btn-primary btn-sm" onclick="otoOnayUygula('${ts.id}')" style="font-size:12px;">✅ Kabul İşaretle</button>`}
@@ -17991,6 +17992,21 @@ function otoTalepSil(taslakId) {
   otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
   if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
   showToast('Taslak yoksayıldı.');
+}
+
+// AI'ın yanlışlıkla "revizyon"/"onay" olarak sınıfladığı maili düzenlenebilir YENİ
+// talebe çevir. Revizyon/onay taslağında ürün çıkarılmamış olabilir → boş satır ver;
+// kullanıcı ürünleri girip "Talep Oluştur" ile gerçek talebe dönüştürür.
+function otoTaslakYeniTalepYap(taslakId) {
+  const cfg = otoTalepCfg();
+  const ts = cfg.taslaklar.find(x => x.id === taslakId);
+  if (!ts) return;
+  ts.tip = 'talep';
+  if (!Array.isArray(ts.urunler) || !ts.urunler.length) {
+    ts.urunler = [{ aciklama: '', kod: '', adet: '1', birim: 'Adet' }];
+  }
+  otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+  showToast('Taslak “Yeni Talep” olarak işaretlendi — ürünleri kontrol edip Talep Oluştur.');
 }
 
 const _ottOnayMesgul = new Set(); // çift-tık/yarış koruması: aynı taslak için eşzamanlı onayı engelle
