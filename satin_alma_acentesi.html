@@ -2377,7 +2377,7 @@
         <table>
           <thead><tr>
             <th style="width:34px;"><input type="checkbox" id="tah-tm-all" checked onclick="tahTopluHepsi(this.checked)" title="Tümünü seç/kaldır"></th>
-            <th>Fatura No</th><th>Vade</th><th>Durum</th><th class="num">Tutar (₺)</th>
+            <th>Fatura No</th><th>Fatura Tarihi</th><th>Vade</th><th>Durum</th><th class="num">Tutar (₺)</th>
           </tr></thead>
           <tbody id="tah-tm-rows"></tbody>
         </table>
@@ -12252,7 +12252,8 @@ function tahMailAc(id){
   document.getElementById('tah-m-to').textContent=kisi.mail;
   document.getElementById('tah-m-from').textContent=((typeof tahsilatGonderenKutu==='function'?tahsilatGonderenKutu():'')||'muhasebe@emon.com.tr')+' (Outlook üzerinden)';
   document.getElementById('tah-m-sub').textContent=(before?'Yaklaşan Ödeme Hatırlatması':'Ödeme Hatırlatması')+' — '+vade+' vadeli '+tahFmt(r.tutar)+' ₺';
-  const faturaEk=r.faturaNo?(' (Fatura No: '+r.faturaNo+')'):'';
+  const faturaBilgi=[r.faturaNo?('Fatura No: '+r.faturaNo):'', r.faturaTarihi?('Fatura Tarihi: '+tahGunTR(r.faturaTarihi)):''].filter(Boolean).join(', ');
+  const faturaEk=faturaBilgi?(' ('+faturaBilgi+')'):'';
   const govde=before
     ? `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin yaklaştığını hatırlatmak isteriz.${faturaEk}\n\nHerhangi bir sorunuz olursa memnuniyetle yardımcı oluruz.`
     : `${greet},\n\n${vade} vadeli ${tahFmt(r.tutar)} ₺ tutarındaki ödemenizin bugün vadesi gelmiştir. Ödemenizi bugün içinde tamamlamanızı rica ederiz.${faturaEk}\n\nÖdemeyi gerçekleştirdiyseniz bu mesajı dikkate almayınız; dekontu tarafımıza iletmeniz yeterlidir.`;
@@ -12292,6 +12293,7 @@ function tahTopluAc(id){
   document.getElementById('tah-tm-rows').innerHTML=kayitlar.map(r=>`<tr>
     <td><input type="checkbox" class="tah-tm-cb" data-id="${r.id}" data-tutar="${r.tutar}" checked onclick="tahTopluHesapla()"></td>
     <td>${r.faturaNo?tahEsc(r.faturaNo):'—'}</td>
+    <td>${r.faturaTarihi?tahGunTR(r.faturaTarihi):'—'}</td>
     <td>${tahGunTR(r.vade)}</td>
     <td>${tahDurumPill(r)}</td>
     <td class="num">${tahFmt(r.tutar)}</td>
@@ -12322,12 +12324,12 @@ async function tahTopluGonder(){
   const th='padding:6px 10px;border:1px solid #ddd;background:#f4f6fb;';
   const satirlar=kayitlar.map(r=>{
     const durum=r.days<0?(-r.days+' gün gecikti'):r.days===0?'Bugün vadeli':(r.days+' gün kaldı');
-    return `<tr><td style="${td}">${tahEsc(r.faturaNo||'—')}</td><td style="${td}">${tahGunTR(r.vade)}</td><td style="${td}">${durum}</td><td style="${td}text-align:right;">${tahFmt(r.tutar)} ₺</td></tr>`;
+    return `<tr><td style="${td}">${tahEsc(r.faturaNo||'—')}</td><td style="${td}">${r.faturaTarihi?tahGunTR(r.faturaTarihi):'—'}</td><td style="${td}">${tahGunTR(r.vade)}</td><td style="${td}">${durum}</td><td style="${td}text-align:right;">${tahFmt(r.tutar)} ₺</td></tr>`;
   }).join('');
   const tablo=`<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:13px;margin:4px 0 10px;">
-      <thead><tr><th style="${th}text-align:left;">Fatura No</th><th style="${th}text-align:left;">Vade</th><th style="${th}text-align:left;">Durum</th><th style="${th}text-align:right;">Tutar</th></tr></thead>
+      <thead><tr><th style="${th}text-align:left;">Fatura No</th><th style="${th}text-align:left;">Fatura Tarihi</th><th style="${th}text-align:left;">Vade</th><th style="${th}text-align:left;">Durum</th><th style="${th}text-align:right;">Tutar</th></tr></thead>
       <tbody>${satirlar}</tbody>
-      <tfoot><tr><td colspan="3" style="${td}text-align:right;font-weight:700;background:#f4f6fb;">TOPLAM (${kayitlar.length} fatura)</td><td style="${td}text-align:right;font-weight:700;background:#f4f6fb;">${tahFmt(toplam)} ₺</td></tr></tfoot>
+      <tfoot><tr><td colspan="4" style="${td}text-align:right;font-weight:700;background:#f4f6fb;">TOPLAM (${kayitlar.length} fatura)</td><td style="${td}text-align:right;font-weight:700;background:#f4f6fb;">${tahFmt(toplam)} ₺</td></tr></tfoot>
     </table>`;
   const html=tahMailGovdeHtml(mesaj, tablo);
   const konu='Ödeme Hatırlatması — '+firma+' · '+kayitlar.length+' fatura, toplam '+tahFmt(toplam)+' ₺';
