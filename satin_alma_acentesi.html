@@ -17433,8 +17433,22 @@ function otoTalepAralikGuncelle(val) {
   showToast('⏱ Tarama aralığı: ' + cfg.aralikDk + ' dakika');
 }
 
-// Onay/revizyon maili için ilgili gönderilmiş teklifi (TALEP no) bul:
-// önce mailde geçen teklif no'su, yoksa müşteriye ait en güncel gönderilmiş teklif
+// Onay/revizyon maili eşleştirmesinde aday talepler.
+// Müşteriler teklifi BEKLERKEN de talebi revize ediyor (ürün ekleme/adet değişikliği) →
+// yalnız "teklifi gönderilmiş" olanlara bakmak yetmez; KAPANMAMIŞ tüm talepler adaydır.
+// Kapalı = Tamamlandı / İptal / teklifDurumu 'red' (arşiv kriteriyle aynı).
+function otoAdayTalepler() {
+  return TALEPLER.filter(t =>
+    t && t.no && talepGorunur(t) &&
+    t.durum !== 'Tamamlandı' && t.durum !== 'İptal' && t.teklifDurumu !== 'red');
+}
+// Talep teklif olarak müşteriye gitti mi (etiketleme için)
+function otoTalepTeklifGitti(t) {
+  return !!(t && (t.musteriTeklifGonderildi || t.durum === 'Müşteriye İletildi'));
+}
+
+// Onay/revizyon maili için ilgili talebi (TALEP no) bul: önce mailde geçen teklif no'su,
+// yoksa müşteriye ait en güncel AÇIK talep (önce teklifi gönderilmiş olan, yoksa üzerinde çalışılan).
 function otoEslesenTalepBul(teklifNo, musteri) {
   if (teklifNo) {
     const norm = String(teklifNo).toUpperCase();
@@ -17442,8 +17456,9 @@ function otoEslesenTalepBul(teklifNo, musteri) {
     if (t) return t.no;
   }
   if (musteri) {
-    const aday = TALEPLER.find(x => x.musteri === musteri && (x.musteriTeklifGonderildi || x.durum === 'Müşteriye İletildi'));
-    if (aday) return aday.no;
+    const aday = otoAdayTalepler().filter(x => x.musteri === musteri);
+    const t = aday.find(otoTalepTeklifGitti) || aday[0];
+    if (t) return t.no;
   }
   return '';
 }
@@ -17554,10 +17569,12 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
       'TÜRLER:\n' +
       '- "talep": Müşteri yeni ürün/hizmet için fiyat teklifi istiyor.\n' +
       '- "onay": Müşteri bizim gönderdiğimiz teklifi KABUL/ONAY ediyor, sipariş veriyor.\n' +
-      '- "revizyon": Müşteri gönderdiğimiz teklifte DEĞİŞİKLİK/revizyon istiyor (fiyat, adet, koşul, indirim vb.).\n' +
+      '- "revizyon": Müşteri DAHA ÖNCE İLETTİĞİ bir talebinde/teklifte DEĞİŞİKLİK istiyor: ürün ekliyor, adet değiştiriyor, ürün çıkarıyor, fiyat/koşul/indirim istiyor. (Teklifi henüz göndermemiş olabiliriz — "teklifinizi bekliyorum, şunu da ekleyin" de revizyondur.)\n' +
       '- "diger": Teşekkür, bilgi, fatura, otomatik yanıt, pazarlama, alakasız mail → işlenmeyecek.\n\n' +
       'KURALLAR:\n' +
-      '- tip "talep" ise ürünleri ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet"). Diğer tiplerde urunler boş dizi.\n' +
+      '- tip "talep" ise ürünleri ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet").\n' +
+      '- tip "revizyon" ise: müşterinin EKLEDİĞİ veya ADEDİNİ DEĞİŞTİRDİĞİ ürünleri aynı biçimde urunler dizisine yaz (adet = müşterinin istediği YENİ adet). Ürün adı/adedi geçmiyorsa (yalnız fiyat/indirim/termin isteği) urunler boş dizi. Müşterinin ÇIKARILMASINI istediği ürünleri urunler\'e YAZMA, bunun yerine not alanında belirt.\n' +
+      '- tip "onay"/"diger" ise urunler boş dizi.\n' +
       '- Mailde bizim teklif numaramız geçiyorsa (örn. TLB-024 biçiminde) teklifNo alanına yaz.\n' +
       '- Müşterinin kendi talep/referans numarası varsa musteriNo alanına yaz.\n' +
       '- onay/revizyon ise: müşterinin asıl söylediğini (neyi onayladığı / hangi değişikliği istediği) not alanına kısaca yaz.\n' +
@@ -17576,6 +17593,18 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
         'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
         'SADECE şu JSON (markdown yok):\n' +
         '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":""}';
+    }
+
+    // Revizyon kartında "Ürünleri Mailden Oku": tip tartışılmaz, yalnız DEĞİŞEN kalemler istenir
+    if (zorlaTalep === 'revizyon') {
+      promptMetin =
+        'Aşağıdaki müşteri e-postası, DAHA ÖNCE İLETİLMİŞ bir talebin/teklifin REVİZYONUDUR. tip HER ZAMAN "revizyon".\n' +
+        'Mailden VE EKLERİNDEN müşterinin bu mailde EKLEDİĞİ veya ADEDİNİ DEĞİŞTİRDİĞİ ürün kalemlerini çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (istenen YENİ adet), birim.\n' +
+        'ÖNEMLİ: Yalnızca müşterinin BU mailde değişiklik istediği kalemleri yaz. Alıntılanan eski yazışmadaki, üzerinde değişiklik İSTENMEYEN kalemleri tekrar yazma. Ürün değişikliği yoksa urunler boş dizi.\n' +
+        'Müşterinin ÇIKARILMASINI istediği ürünleri urunler\'e yazma; not alanında belirt. ozet: tek cümlelik kısa Türkçe özet.\n\n' +
+        'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
+        'SADECE şu JSON (markdown yok):\n' +
+        '{"tip":"revizyon","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":""}';
     }
 
     const contentBlocks = [];
@@ -17702,7 +17731,14 @@ async function otoTalepTara(sessiz = false, zorla = false) {
         });
         yeniTaslak++;
       } else if (tip === 'onay' || tip === 'revizyon') {
-        cfg.taslaklar.unshift({ ...ortak, tip, eslesenTalepNo: otoEslesenTalepBul(ortak.teklifNo, ortak.musteri) });
+        // Revizyonda müşterinin eklediği/adedini değiştirdiği ürünler → uygulanınca talebe BİRLEŞTİRİLİR
+        const revUrunler = (tip === 'revizyon' && Array.isArray(sonuc.urunler))
+          ? sonuc.urunler.filter(u => u && u.aciklama).map(u => ({
+              aciklama: String(u.aciklama || ''), kod: String(u.kod || ''),
+              adet: String(u.adet || '1'), birim: String(u.birim || 'Adet'),
+            }))
+          : [];
+        cfg.taslaklar.unshift({ ...ortak, tip, urunler: revUrunler, eslesenTalepNo: otoEslesenTalepBul(ortak.teklifNo, ortak.musteri) });
         yeniTaslak++;
       } else {
         // TASLAK ÜRETMEYEN mail (talep/onay/revizyon değil) → tekrar AI'ya gitmesin diye işaretle.
@@ -17840,7 +17876,7 @@ async function teklifYanitlariTara(sessiz) {
 // Eşleşmesi olmayan yanıtta seçilen teklifle uygula
 function teklifYanitUygula(id, revize) {
   const no = (document.getElementById('tkl-teklif-' + id)?.value || '').trim();
-  if (!no) { showToast('⚠ Lütfen ilgili teklifi seçin.'); return; }
+  if (!no) { showToast('⚠ Lütfen ilgili talebi seçin.'); return; }
   otoOnayRevizeUygula(id, revize, no);
 }
 // Onay/revize taslaklarını Teklifler sekmesinde göster
@@ -17857,10 +17893,10 @@ function teklifMusteriYanitlariRender() {
   if (yanitlar.length === 0) { liste.innerHTML = ''; return; }
   const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
   const teklifOpsiyon = (secili, musteri) => {
-    const aday = TALEPLER.filter(x => x.musteriTeklifGonderildi || x.durum === 'Müşteriye İletildi');
+    const aday = otoAdayTalepler();
     const sirali = aday.filter(x => x.musteri === musteri).concat(aday.filter(x => x.musteri !== musteri));
-    return '<option value="">— İlgili teklif seç —</option>' +
-      sirali.map(x => `<option value="${esc(x.no)}"${x.no === secili ? ' selected' : ''}>${esc(x.no)} · ${esc(x.musteri)}</option>`).join('');
+    return '<option value="">— İlgili talep seç —</option>' +
+      sirali.map(x => `<option value="${esc(x.no)}"${x.no === secili ? ' selected' : ''}>${esc(x.no)} · ${esc(x.musteri)}${otoTalepTeklifGitti(x) ? ' · teklif gönderildi' : ' · çalışılıyor'}</option>`).join('');
   };
   liste.innerHTML = yanitlar.map(ts => {
     const revize = ts.tip === 'revizyon';
@@ -17869,8 +17905,13 @@ function teklifMusteriYanitlariRender() {
     const tarih  = ts.tarih ? new Date(ts.tarih).toLocaleString('tr-TR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '';
     const eslesti = !!ts.eslesenTalepNo;
     const uygulaBtn = eslesti
-      ? `<button class="btn btn-primary btn-sm" onclick="otoOnayRevizeUygula('${ts.id}', ${revize}, '${esc(ts.eslesenTalepNo)}')" style="font-size:12px;">${revize ? '✏️ Revize İstendi İşaretle' : '✅ Kabul İşaretle'}</button>`
-      : `<button class="btn btn-primary btn-sm" onclick="teklifYanitUygula('${ts.id}', ${revize})" style="font-size:12px;">${revize ? '✏️ Revize İşaretle' : '✅ Kabul İşaretle'}</button>`;
+      ? `<button class="btn btn-primary btn-sm" onclick="otoOnayRevizeUygula('${ts.id}', ${revize}, '${esc(ts.eslesenTalepNo)}')" style="font-size:12px;">${revize ? '✏️ Revizyonu Uygula' : '✅ Kabul İşaretle'}</button>`
+      : `<button class="btn btn-primary btn-sm" onclick="teklifYanitUygula('${ts.id}', ${revize})" style="font-size:12px;">${revize ? '✏️ Revizyonu Uygula' : '✅ Kabul İşaretle'}</button>`;
+    const urunOnizleme = (revize && (ts.urunler || []).length) ? `
+      <div style="background:var(--bg3);border-radius:var(--radius);padding:7px 9px;margin:6px 0;">
+        <div style="font-size:10px;font-weight:600;color:var(--text3);margin-bottom:3px;">📦 Talebe işlenecek ürün değişiklikleri</div>
+        ${ts.urunler.map(u => `<div style="font-size:11px;color:var(--text2);">• ${esc(u.aciklama)}${u.kod ? ' (' + esc(u.kod) + ')' : ''} — <b>${esc(u.adet || '1')}</b> ${esc(u.birim || 'Adet')}</div>`).join('')}
+      </div>` : '';
     return `
       <div style="background:var(--bg2);border:1px solid ${renk};border-radius:var(--radius);padding:12px;">
         <div style="font-size:12px;font-weight:700;color:${renk};margin-bottom:4px;">${etiket}</div>
@@ -17878,11 +17919,12 @@ function teklifMusteriYanitlariRender() {
         <div style="font-size:11px;color:var(--text3);margin-top:2px;">${esc(ts.gonderen || '')} · ${tarih}</div>
         ${ts.ozet ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;font-style:italic;">${esc(ts.ozet)}</div>` : ''}
         ${ts.not ? `<div style="font-size:12px;color:var(--text2);background:var(--bg3);border-radius:var(--radius);padding:6px 9px;margin:6px 0;">📝 ${esc(ts.not)}</div>` : ''}
+        ${urunOnizleme}
         <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap;">
-          <span style="font-size:12px;color:var(--text3);">İlgili teklif:</span>
+          <span style="font-size:12px;color:var(--text3);">İlgili talep:</span>
           ${eslesti
             ? `<span class="badge badge-blue" style="font-size:11px;">${esc(ts.eslesenTalepNo)}</span>`
-            : `<select id="tkl-teklif-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:200px;">${teklifOpsiyon(ts.eslesenTalepNo, ts.musteri)}</select><span style="font-size:11px;color:var(--amber);">⚠ eşleşme yok — seçin</span>`}
+            : `<select id="tkl-teklif-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:200px;">${teklifOpsiyon(ts.eslesenTalepNo, ts.musteri)}</select><span style="font-size:11px;color:var(--amber);">⚠ eşleşme yok — talep seçin</span>`}
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
           <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
@@ -17910,10 +17952,10 @@ function otoTalepTaslakRender() {
   const musteriOpsiyon = (secili) => '<option value="">— Müşteri seç —</option>' +
     MUSTERILER.map(m => `<option value="${esc(m.firma)}"${m.firma === secili ? ' selected' : ''}>${m.firma}</option>`).join('');
   const teklifOpsiyon = (secili, musteri) => {
-    const aday = TALEPLER.filter(x => x.musteriTeklifGonderildi || x.durum === 'Müşteriye İletildi');
+    const aday = otoAdayTalepler();
     const sirali = aday.filter(x => x.musteri === musteri).concat(aday.filter(x => x.musteri !== musteri));
-    return '<option value="">— İlgili teklif seç —</option>' +
-      sirali.map(x => `<option value="${esc(x.no)}"${x.no === secili ? ' selected' : ''}>${x.no} · ${x.musteri}</option>`).join('');
+    return '<option value="">— İlgili talep seç —</option>' +
+      sirali.map(x => `<option value="${esc(x.no)}"${x.no === secili ? ' selected' : ''}>${esc(x.no)} · ${esc(x.musteri)}${otoTalepTeklifGitti(x) ? ' · teklif gönderildi' : ' · çalışılıyor'}</option>`).join('');
   };
   const basligi = (ts, tarih) => `
     <div style="font-size:13px;font-weight:600;">${ts.konu || '(konu yok)'}</div>
@@ -17936,16 +17978,22 @@ function otoTalepTaslakRender() {
           <div style="font-size:12px;font-weight:700;color:${renk};margin-bottom:8px;">${etiket}</div>
           ${basligi(ts, tarih)}
           ${ts.not ? `<div style="font-size:12px;color:var(--text2);background:var(--bg2);border-radius:var(--radius);padding:8px 10px;margin:8px 0;">📝 ${ts.not}</div>` : ''}
+          ${(revize && (ts.urunler || []).length) ? `
+            <div style="background:var(--bg2);border-radius:var(--radius);padding:8px 10px;margin:8px 0;">
+              <div style="font-size:11px;font-weight:600;color:var(--text3);margin-bottom:4px;">📦 Talebe işlenecek ürün değişiklikleri (varsa adet güncellenir, yenisi eklenir — silme yok)</div>
+              ${ts.urunler.map(u => `<div style="font-size:12px;color:var(--text2);">• ${esc(u.aciklama)}${u.kod ? ' <span style="color:var(--text3);">(' + esc(u.kod) + ')</span>' : ''} — <b>${esc(u.adet || '1')}</b> ${esc(u.birim || 'Adet')}</div>`).join('')}
+            </div>` : ''}
           <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap;">
-            <span style="font-size:12px;color:var(--text3);">İlgili teklif:</span>
+            <span style="font-size:12px;color:var(--text3);">İlgili talep:</span>
             <select id="ott-teklif-${ts.id}" style="font-size:12px;padding:5px 8px;min-width:220px;">${teklifOpsiyon(ts.eslesenTalepNo, ts.musteri)}</select>
-            ${ts.eslesenTalepNo ? '' : '<span style="font-size:11px;color:var(--amber);">⚠ Eşleşen teklif bulunamadı — seçin</span>'}
+            ${ts.eslesenTalepNo ? '' : '<span style="font-size:11px;color:var(--amber);">⚠ Eşleşen talep bulunamadı — seçin</span>'}
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
             <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
             <button class="btn btn-sm" onclick="otoTaslakYeniTalepYap('${ts.id}')" style="font-size:12px;color:var(--accent2);border-color:rgba(79,142,247,0.35);" title="AI yanlış sınıflamışsa: revizyon/onay değil, düzenlenebilir YENİ talebe çevir">↩ Yeni Talep Olarak Al</button>
+            ${(revize && ts.mailId) ? `<button class="btn btn-sm" onclick="otoRevizyonUrunOku('${ts.id}')" style="font-size:12px;" title="Mail ve eklerinden eklenen/adedi değişen ürünleri yeniden okut">🔄 Ürün Değişikliklerini Oku</button>` : ''}
             ${revize
-              ? `<button class="btn btn-primary btn-sm" onclick="otoRevizeUygula('${ts.id}')" style="font-size:12px;">✏️ Revize İstendi İşaretle</button>`
+              ? `<button class="btn btn-primary btn-sm" onclick="otoRevizeUygula('${ts.id}')" style="font-size:12px;" title="Ürün değişikliklerini talebe işler; teklif gönderilmişse ayrıca 'revize istendi' olarak işaretlenir">✏️ Revizyonu Uygula</button>`
               : `<button class="btn btn-primary btn-sm" onclick="otoOnayUygula('${ts.id}')" style="font-size:12px;">✅ Kabul İşaretle</button>`}
           </div>
         </div>`;
@@ -18071,20 +18119,74 @@ async function otoTalepMailGoster(taslakId) {
   }
 }
 
-// Onay/revizyon taslağını ilgili teklife uygula
+// urun/miktar özet alanlarını urunler listesinden yeniden türet (talep oluşturmadaki biçimle aynı)
+function talepUrunOzetGuncelle(t) {
+  const u = (t && Array.isArray(t.urunler)) ? t.urunler : [];
+  if (!u.length) return;
+  t.urun = u.length === 1
+    ? `${u[0].aciklama}${u[0].kod ? ' (' + u[0].kod + ')' : ''}`
+    : `${u[0].aciklama} +${u.length - 1} ürün daha`;
+  t.miktar = u.length === 1
+    ? `${u[0].adet} ${u[0].birim}`
+    : `${u.reduce((s, x) => s + (parseInt(x.adet) || 1), 0)} kalem toplam`;
+}
+
+// Revizyon mailinden çıkan ürünleri mevcut talebin listesine BİRLEŞTİR (kullanıcı kararı 2026-07-27):
+// yeni ürün EKLENİR, aynı ürünün adedi GÜNCELLENİR, SİLME YAPILMAZ.
+// Yeni kalemler listenin SONUNA eklenir — tedarikçi fiyatları ürün indeksine bağlı
+// (urunFiyatlari 'fiyat_<idx>'), araya ekleme mevcut fiyatları kaydırırdı.
+function talepUrunBirlestir(t, yeniUrunler) {
+  const sonuc = { eklenen: 0, guncellenen: 0 };
+  if (!t || !Array.isArray(yeniUrunler) || !yeniUrunler.length) return sonuc;
+  if (!Array.isArray(t.urunler)) t.urunler = [];
+  const nrm = s => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
+  yeniUrunler.forEach(u => {
+    const aciklama = String(u?.aciklama || '').trim();
+    const kod = String(u?.kod || '').trim();
+    if (!aciklama && !kod) return;
+    const mevcut = t.urunler.find(x =>
+      (kod && nrm(x.kod) && nrm(x.kod) === nrm(kod)) ||
+      (aciklama && nrm(x.aciklama) === nrm(aciklama)));
+    if (mevcut) {
+      const yeniAdet = String(u.adet || '').trim();
+      let degisti = false;
+      if (yeniAdet && yeniAdet !== String(mevcut.adet || '')) { mevcut.adet = yeniAdet; degisti = true; }
+      if (!mevcut.kod && kod) { mevcut.kod = kod; degisti = true; }
+      if (degisti) sonuc.guncellenen++;
+    } else {
+      t.urunler.push({ aciklama, kod, adet: String(u.adet || '1'), birim: String(u.birim || 'Adet') });
+      sonuc.eklenen++;
+    }
+  });
+  if (sonuc.eklenen || sonuc.guncellenen) talepUrunOzetGuncelle(t);
+  return sonuc;
+}
+
+// Onay/revizyon taslağını ilgili talebe uygula.
+// Revizyon, teklif GÖNDERİLMEMİŞ (üzerinde çalışılan) talepler için de gelir — o durumda
+// teklifDurumu'na dokunulmaz (aksi halde ilk gönderim "revize gönderimi" sanılır), yalnız
+// ürünler birleştirilir ve not düşülür.
 function otoOnayRevizeUygula(taslakId, revize, noOverride) {
   const cfg = otoTalepCfg();
   const ix = cfg.taslaklar.findIndex(x => x.id === taslakId);
   if (ix < 0) return;
   const ts = cfg.taslaklar[ix];
   const no = (noOverride || document.getElementById('ott-teklif-' + taslakId)?.value || ts.eslesenTalepNo || '').trim();
-  if (!no) { showToast('⚠ Lütfen ilgili teklifi seçin.'); return; }
+  if (!no) { showToast('⚠ Lütfen ilgili talebi seçin.'); return; }
   const t = TALEPLER.find(x => x.no === no);
-  if (!t) { showToast('⚠ Teklif bulunamadı: ' + no); return; }
+  if (!t) { showToast('⚠ Talep bulunamadı: ' + no); return; }
+  let birlesim = { eklenen: 0, guncellenen: 0 };
+  const teklifGitti = otoTalepTeklifGitti(t);
   if (revize) {
-    t.teklifDurumu = 'revize';
+    birlesim = talepUrunBirlestir(t, ts.urunler);
     t.teklifRevizeNot = ts.not || '';
     t.teklifRevizeTarih = new Date().toISOString();
+    const degisimNot = (birlesim.eklenen || birlesim.guncellenen)
+      ? ` (${birlesim.eklenen} ürün eklendi, ${birlesim.guncellenen} ürün güncellendi)` : '';
+    t.not = (t.not ? t.not + '\n' : '') +
+      '✏️ ' + new Date().toLocaleDateString('tr-TR') + ' müşteri revizyonu' + degisimNot +
+      (ts.not ? ': ' + ts.not : '') + ' — "' + (ts.konu || '') + '"';
+    if (teklifGitti) t.teklifDurumu = 'revize';   // yalnız gönderilmiş teklifte "revize istendi"
     fiyatOnayiniGecersizKil(t); // revizyon → fiyat tekrar admin onayına düşsün
   } else {
     t.teklifDurumu = 'kabul';
@@ -18093,10 +18195,20 @@ function otoOnayRevizeUygula(taslakId, revize, noOverride) {
   cfg.taslaklar.splice(ix, 1);
   veriKaydet(); otoTalepDurumKaydet();
   if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
+  if (typeof renderTalepler === 'function') renderTalepler();
   otoTalepTaslakRender(); otoTalepDurumGuncelle();
-  showToast(revize
-    ? `✏️ #${no} için revize istendi olarak işaretlendi.`
-    : `✅ #${no} teklifi kabul olarak işaretlendi. Teklifler ekranından sipariş oluşturabilirsiniz.`);
+  if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
+  if (!revize) {
+    showToast(`✅ #${no} teklifi kabul olarak işaretlendi. Teklifler ekranından sipariş oluşturabilirsiniz.`);
+  } else if (birlesim.eklenen || birlesim.guncellenen) {
+    showToast(`✏️ #${no} revize edildi — ${birlesim.eklenen} ürün eklendi, ${birlesim.guncellenen} ürün güncellendi.`);
+    // RFQ çıkmışsa tedarikçiler ESKİ listeyi fiyatlandırdı → değişen kalemler için tekrar sorulmalı
+    if (t.durum !== 'Yeni' || teklifGitti) showToast('⚠ Bu talep için tedarikçi süreci başlamıştı — değişen kalemleri tedarikçilere tekrar sorun.');
+  } else {
+    showToast(teklifGitti
+      ? `✏️ #${no} için revize istendi olarak işaretlendi.`
+      : `✏️ #${no} talebine revizyon notu işlendi (ürün değişikliği algılanmadı).`);
+  }
 }
 function otoOnayUygula(taslakId)   { otoOnayRevizeUygula(taslakId, false); }
 function otoRevizeUygula(taslakId) { otoOnayRevizeUygula(taslakId, true); }
@@ -18201,6 +18313,34 @@ async function otoTaslakYeniTalepYap(taslakId) {
   }
 }
 
+// Revizyon kartında ürün değişikliği çıkarılamamışsa (ör. bu özellikten önce oluşmuş taslak,
+// ya da ürünler yalnız ekte) maili yeniden okut — çıkanlar uygulanınca talebe birleştirilir.
+async function otoRevizyonUrunOku(taslakId) {
+  const cfg = otoTalepCfg();
+  const ts = cfg.taslaklar.find(x => x.id === taslakId);
+  if (!ts) return;
+  if (!(ts.mailId && typeof msGraphToken !== 'undefined' && msGraphToken)) { showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
+  showToast('🤖 Mail ve ekinden ürün değişiklikleri okunuyor…');
+  try {
+    const { icerik, pdfler } = await otoMailIcerikEkCek(ts);
+    const r = await maildenTalepCikar(icerik, pdfler, 'revizyon');
+    if (r && !r._err && Array.isArray(r.urunler)) {
+      const urunler = r.urunler
+        .map(u => ({ aciklama: String(u.aciklama || '').trim(), kod: String(u.kod || '').trim(), adet: String(u.adet || '1'), birim: String(u.birim || 'Adet') }))
+        .filter(u => u.aciklama || u.kod);
+      ts.urunler = urunler;
+      if (r.not && !ts.not) ts.not = r.not;
+      otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
+      if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
+      showToast(urunler.length
+        ? '✅ ' + urunler.length + ' ürün değişikliği okundu — kontrol edip Revizyonu Uygula.'
+        : 'Mailde ürün/adet değişikliği bulunamadı (yalnız fiyat/koşul isteği olabilir).');
+      return;
+    }
+    showToast('⚠ Ürün değişikliği okunamadı.');
+  } catch (e) { console.warn('revizyon urun oku:', e); showToast('⚠ Ürün değişikliği okunamadı.'); }
+}
+
 // Ters yön: AI'ın "yeni talep" sandığı ama aslında mevcut bir teklife revizyon olan
 // maili revizyon kartına çevir → kullanıcı ilgili teklifi seçip "Revize İstendi İşaretle".
 function otoTaslakRevizyonYap(taslakId) {
@@ -18208,8 +18348,11 @@ function otoTaslakRevizyonYap(taslakId) {
   const ts = cfg.taslaklar.find(x => x.id === taslakId);
   if (!ts) return;
   ts.tip = 'revizyon';
+  // Talep olarak çıkarılan ürünler taslakta kalır → uygulanınca mevcut talebe birleştirilir
+  if (!ts.eslesenTalepNo) ts.eslesenTalepNo = otoEslesenTalepBul(ts.teklifNo, ts.musteri);
   otoTalepDurumKaydet(); otoTalepTaslakRender(); otoTalepDurumGuncelle();
-  showToast('Taslak “Revizyon” olarak işaretlendi — ilgili teklifi seçip Revize İstendi İşaretle.');
+  if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
+  showToast('Taslak “Revizyon” olarak işaretlendi — ilgili talebi seçip Revizyonu Uygula.');
 }
 
 const _ottOnayMesgul = new Set(); // çift-tık/yarış koruması: aynı taslak için eşzamanlı onayı engelle
