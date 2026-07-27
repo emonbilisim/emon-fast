@@ -17509,12 +17509,13 @@ function mailGovdeKirp(text, maxChars) {
   return s;
 }
 
-// Kayıtlı müşterilerin tüm yetkili mail adresleri (küçük harf) → Set
+// Kayıtlı müşterilerin tüm yetkili mail adresleri (küçük harf) → Set. Kendi (şirket içi)
+// adreslerimiz HARİÇ — bir müşteri kartına sehven iç adres girilirse iç yazışma o müşteriye bağlanırdı.
 function musteriMailSet() {
   const s = new Set();
   MUSTERILER.forEach(m => (m.yetkililer || []).forEach(y => {
     const adr = (y.mail || '').trim().toLowerCase();
-    if (adr) s.add(adr);
+    if (adr && !icMailMi(adr)) s.add(adr);
   }));
   return s;
 }
@@ -17533,23 +17534,69 @@ function _mailDomain(mail) {
   return i >= 0 ? adr.slice(i + 1) : '';
 }
 
+// Kendi (şirket içi) mail domainlerimiz: aktif M365 hesabı + kayıtlı kullanıcılar.
+// İÇ YAZIŞMA ASLA "müşteri maili" sayılmaz — bir müşteri kartına sehven @kendi-domain adresi
+// girilirse (ör. test kaydı) TÜM iç mailler o müşteriye bağlanırdı. İletilen (FW) iç mailler
+// yine taranır; müşteri gövdedeki ASIL talep sahibinden bulunur (bkz. otoTalepTara).
+function _kendiDomainler() {
+  const s = new Set();
+  const ekle = mail => { const d = _mailDomain(mail); if (d && !_GENEL_MAIL_DOMAINLERI.has(d)) s.add(d); };
+  ekle(aktifKullanici?.msAccount); ekle(aktifKullanici?.email);
+  (typeof KULLANICILAR !== 'undefined' ? KULLANICILAR : []).forEach(k => { ekle(k.msAccount); ekle(k.email); });
+  return s;
+}
+function icMailMi(mail) {
+  const d = _mailDomain(mail);
+  return !!d && _kendiDomainler().has(d);
+}
+
+// İletilmiş mail mi — konu ön eki (FW/FWD/İLT) ya da gövdede alıntılanmış mail başlığı.
+// Yanıtlar (RE/YNT) iletme sayılmaz.
+function iletilmisMailMi(m) {
+  const konu = String(m?.subject || '').trim().toLocaleLowerCase('tr');
+  if (/^(fw|fwd|ilt|iletilen|yönlendirilen)\s*:/.test(konu)) return true;
+  const g = String(m?.bodyPreview || '');
+  return /(^|\n|\s)(from|gönderen|kimden)\s*:/i.test(g) && /(subject|konu)\s*:/i.test(g);
+}
+
+// Firma adından müşteri bul (AI'ın iletilen mailde algıladığı ad için). Yanlış eşleşmeyi
+// önlemek için: normalize edilmiş ad birebir eşleşmeli ya da 4+ karakterlik çekirdek ad içermeli.
+function musteriBulByAd(ad) {
+  const nrm = s => String(s == null ? '' : s).toLocaleLowerCase('tr')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  const cekirdek = s => nrm(s)
+    .replace(/\b(a ş|aş|as|ltd|şti|sti|limited|anonim|şirketi|sirketi|san|sanayi|tic|ticaret|inş|insaat|inşaat|adi|ortaklığı|ortakligi|ticari|işletmesi|isletmesi|ve|group|grup)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  const q = nrm(ad), qc = cekirdek(ad);
+  if (q.length < 3) return '';
+  const tam = MUSTERILER.find(m => nrm(m.firma) === q || (qc.length >= 3 && cekirdek(m.firma) === qc));
+  if (tam) return tam.firma;
+  if (qc.length >= 4) {
+    const kismi = MUSTERILER.find(m => { const c = cekirdek(m.firma); return c.length >= 4 && (c.includes(qc) || qc.includes(c)); });
+    if (kismi) return kismi.firma;
+  }
+  return '';
+}
+
 // Kayıtlı müşterilerin yetkili maillerinden çıkarılan KURUMSAL domainler → firma (genel sağlayıcılar hariç).
 // Amaç: yeni bir yetkili (ör. firmanın 4. kişisi) henüz kayıtlı/senkron değilse bile, aynı kurumsal
 // domainden gelen mail müşteriye bağlanabilsin. yetkililer merge'de ATOMİK olduğundan (bkz. _kayitBirlestir),
 // yeni eklenen yetkili bir cihaza gecikmeli düşebiliyor; domain eşleşmesi bu boşluğu kapatır.
 function musteriDomainMap() {
   const map = new Map(); // domain -> firma (ilk eşleşen)
+  const kendi = _kendiDomainler();
   MUSTERILER.forEach(m => (m.yetkililer || []).forEach(y => {
     const d = _mailDomain(y.mail);
-    if (d && !_GENEL_MAIL_DOMAINLERI.has(d) && !map.has(d)) map.set(d, m.firma);
+    if (d && !_GENEL_MAIL_DOMAINLERI.has(d) && !kendi.has(d) && !map.has(d)) map.set(d, m.firma);
   }));
   return map;
 }
 
 // Bir mail adresine sahip müşterinin firma adını bul. Önce tam adres, sonra (genel olmayan) domain.
+// Kendi iç adreslerimiz hiçbir zaman müşteriye eşleşmez.
 function musteriBulByMail(mail) {
   const adr = (mail || '').trim().toLowerCase();
-  if (!adr) return '';
+  if (!adr || icMailMi(adr)) return '';
   const m = MUSTERILER.find(x => (x.yetkililer || []).some(y => (y.mail || '').trim().toLowerCase() === adr));
   if (m) return m.firma;
   const d = _mailDomain(adr);
@@ -17564,6 +17611,13 @@ function musteriBulByMail(mail) {
 async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) return { _err: 'no-key' };
   try {
+    // İç iletme (FW) kuralı: talebi eden gerçek firma gövdedeki alıntıda olur; kendi
+    // domainlerimizi AI'ya bildirip "müşteri" olarak seçmesini engelleriz.
+    const _kendi = [..._kendiDomainler()].join(', ') || '(bilinmiyor)';
+    const _fwKural =
+      '- Bu mail bir İÇ İLETME (FW) olabilir: maili ileten iş arkadaşımız değil, ALINTILANAN yazışmadaki ASIL TALEP SAHİBİ müşteridir. ' +
+      'Talebi eden firmanın adını musteriAdi, o kişinin e-posta adresini musteriMail, adını musteriKisi alanına yaz. ' +
+      'Bizim şirketimizin domainleri: ' + _kendi + ' — bu domaindeki kişileri/imzaları MÜŞTERİ OLARAK YAZMA. Emin değilsen bu alanları boş bırak.\n';
     let promptMetin =
       'Aşağıdaki, bir MÜŞTERİDEN gelen e-postayı ve (varsa) eklerini incele ve TÜRÜNÜ (tip) belirle.\n\n' +
       'TÜRLER:\n' +
@@ -17579,20 +17633,22 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
       '- Müşterinin kendi talep/referans numarası varsa musteriNo alanına yaz.\n' +
       '- onay/revizyon ise: müşterinin asıl söylediğini (neyi onayladığı / hangi değişikliği istediği) not alanına kısaca yaz.\n' +
       '- Mailde "son teklif tarihi/zamanı/saati", "tekliflerinizi … kadar gönderin", "deadline" gibi bir SON TEKLİF ZAMANI bilgisi varsa: sonTeklifTarih (YYYY-MM-DD) ve sonTeklifSaat (HH:MM) alanlarını doldur. Yoksa boş bırak. Türkçe tarih ifadelerini (30 Mayıs 2026 / 30.05.2026 / 30/05/2026) ISO formata çevir. Saat verilmemişse sonTeklifSaat\'i boş bırak.\n' +
-      '- ozet: tek cümlelik kısa Türkçe özet.\n\n' +
+      '- ozet: tek cümlelik kısa Türkçe özet.\n' +
+      _fwKural + '\n' +
       'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON ile cevap ver (markdown/açıklama yok):\n' +
-      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":""}';
+      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":"","musteriAdi":"","musteriMail":"","musteriKisi":""}';
 
     // "Yeni Talep Olarak Al" dönüşümü: tip'i tartışma, mail+eklerden TÜM ürünleri çıkar.
     if (zorlaTalep) {
       promptMetin =
         'Aşağıdaki müşteri e-postası ve (varsa) ekleri bir TEKLİF TALEBİ olarak işlenecek. tip HER ZAMAN "talep".\n' +
         'Mailden VE EKLERİNDEN (PDF/Excel dökümü metni) İSTENEN TÜM ürün kalemlerini çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet"). Fiyatlandırılacak her satırı ayrı kalem yap.\n' +
-        'Müşterinin kendi talep/referans numarası varsa musteriNo. Son teklif zamanı varsa sonTeklifTarih (YYYY-MM-DD) / sonTeklifSaat (HH:MM). ozet: tek cümlelik kısa Türkçe özet.\n\n' +
+        'Müşterinin kendi talep/referans numarası varsa musteriNo. Son teklif zamanı varsa sonTeklifTarih (YYYY-MM-DD) / sonTeklifSaat (HH:MM). ozet: tek cümlelik kısa Türkçe özet.\n' +
+        _fwKural + '\n' +
         'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
         'SADECE şu JSON (markdown yok):\n' +
-        '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":""}';
+        '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":"","musteriAdi":"","musteriMail":"","musteriKisi":""}';
     }
 
     // Revizyon kartında "Ürünleri Mailden Oku": tip tartışılmaz, yalnız DEĞİŞEN kalemler istenir
@@ -17655,9 +17711,12 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     const domainMap = musteriDomainMap();
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
-      // AI'ya gitmeden önce: kayıtlı müşteri (tam adres VEYA kurumsal domain) + işlenmemiş + ucuz heuristik
-      const musteriMi = from && (mailSet.has(from) || domainMap.has(_mailDomain(from)));
-      return musteriMi && !haricMailIdler.has(m.id) && maildenAdayMi(m);
+      if (!from || haricMailIdler.has(m.id) || !maildenAdayMi(m)) return false;
+      // İç yazışma: yalnız İLETİLMİŞ (FW) olanlar aday — iş arkadaşı müşteri talebini iletmiş olabilir.
+      // Müşteri, gövdedeki asıl talep sahibinden bulunur; iç domain müşteriye ASLA eşleşmez.
+      if (icMailMi(from)) return iletilmisMailMi(m);
+      // Dış mail: kayıtlı müşteri (tam adres VEYA kurumsal domain)
+      return mailSet.has(from) || domainMap.has(_mailDomain(from));
     }).slice(0, 10); // çağrı başına en fazla 10 mail (maliyet/limit koruması)
 
     if (adaylar.length === 0) {
@@ -17704,10 +17763,21 @@ async function otoTalepTara(sessiz = false, zorla = false) {
 
       const tip = sonuc && sonuc.tip;
       const from = m.from?.emailAddress?.address || '';
+      // Müşteri: önce gönderen adresi (dış mail). İç iletmede gönderen iş arkadaşımızdır →
+      // AI'ın gövdeden çıkardığı ASIL talep sahibinin adresi, sonra firma adı denenir.
+      const _oneriMail = String(sonuc?.musteriMail || '').trim().toLowerCase();
+      const oneriMusteriMail = (_oneriMail.includes('@') && !icMailMi(_oneriMail)) ? _oneriMail : '';
+      const oneriMusteriAd   = String(sonuc?.musteriAdi || '').trim();
+      const musteriAdi = musteriBulByMail(from) || musteriBulByMail(oneriMusteriMail) || musteriBulByAd(oneriMusteriAd) || '';
       const ortak = {
         id: 'OTT-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
         mailId: m.id,
-        musteri: musteriBulByMail(from) || '',
+        musteri: musteriAdi,
+        // İletilen mailde gövdeden algılanan asıl talep sahibi (kayıtlı olmayabilir) —
+        // teklif alıcısı ve "müşteri seç" uyarısında gösterilir.
+        oneriMusteriAd, oneriMusteriMail,
+        oneriMusteriKisi: String(sonuc?.musteriKisi || '').trim(),
+        icIletme: icMailMi(from),
         gonderen: from,
         gonderenAd: m.from?.emailAddress?.name || from,
         // Orijinal mailin CC alıcıları — müşteriye teklif gönderilirken CC önerisi olarak kullanılır.
@@ -18000,7 +18070,13 @@ function otoTalepTaslakRender() {
     }
 
     // ── Yeni talep kartı (düzenlenebilir) ──
-    const eslesmeUyari = ts.musteri ? '' : '<span style="font-size:11px;color:var(--amber);margin-left:6px;">⚠ Gönderen bir müşteriyle eşleşmedi — seçin</span>';
+    // İç iletmede (FW) gönderen iş arkadaşımızdır; asıl talep sahibi gövdeden algılanır.
+    const oneriEtiket = [ts.oneriMusteriAd, ts.oneriMusteriKisi, ts.oneriMusteriMail].filter(Boolean).map(esc).join(' · ');
+    const eslesmeUyari = ts.musteri
+      ? (ts.icIletme && oneriEtiket ? `<span style="font-size:11px;color:var(--text3);margin-left:6px;">🔁 İletilen mail · talep sahibi: ${oneriEtiket}</span>` : '')
+      : (oneriEtiket
+          ? `<span style="font-size:11px;color:var(--amber);margin-left:6px;">⚠ Kayıtlı müşteri bulunamadı — mailden algılanan: <b>${oneriEtiket}</b> · müşteri seçin ya da kaydedin</span>`
+          : '<span style="font-size:11px;color:var(--amber);margin-left:6px;">⚠ Gönderen bir müşteriyle eşleşmedi — seçin</span>');
     const urunRows = (ts.urunler || []).map((u, i) => `
       <div style="display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;align-items:center;margin-bottom:5px;" data-urun-row="${i}">
         <input type="text" id="ott-${ts.id}-${i}-aciklama" value="${esc(u.aciklama)}" placeholder="Ürün açıklaması" style="padding:5px 8px;font-size:12px;">
@@ -18417,14 +18493,17 @@ async function otoTalepOnayla(taslakId) {
     sonTeklifTarih: stzInpTarih || stz.tarih,
     sonTeklifSaat:  stzInpSaat  || stz.saat,
     musteriNo: ts.musteriNo || '',
-    not: (ts.not ? ts.not + '\n' : '') + '📥 Gelen mailden otomatik oluşturuldu — "' + (ts.konu || '') + '" (' + (ts.gonderen || '') + ')',
+    not: (ts.not ? ts.not + '\n' : '') + '📥 Gelen mailden otomatik oluşturuldu — "' + (ts.konu || '') + '" (' + (ts.gonderen || '') + ')' +
+      (ts.icIletme ? '\n🔁 İç iletme — asıl talep sahibi: ' + [ts.oneriMusteriAd, ts.oneriMusteriKisi, ts.oneriMusteriMail].filter(Boolean).join(' · ') : ''),
     oncelik: 'Normal',
     portalTalebi: false,
     _kaynak: 'oto-mail',
     mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
     cc: Array.isArray(ts.cc) ? ts.cc : [],  // gelen mailin CC'leri — teklifte CC önerisi
-    gonderenMail: (ts.gonderen || '').toLowerCase(),  // talebi gönderen kişi — teklif To önceliği
-    gonderenAd: ts.gonderenAd || '',
+    // Teklif To önceliği: iç iletmede gönderen iş arkadaşımız olduğu için gövdeden
+    // algılanan ASIL talep sahibi tercih edilir; yoksa mailin göndereni.
+    gonderenMail: ((ts.icIletme && ts.oneriMusteriMail) || ts.gonderen || '').toLowerCase(),
+    gonderenAd: ((ts.icIletme && ts.oneriMusteriMail) ? (ts.oneriMusteriKisi || '') : '') || ts.gonderenAd || '',
     satici: (_ottSahipK?.id != null) ? _ottSahipK.id : aktifKullanici?.id, // geriye dönük (eski cihaz-yerel kimlik)
     saticiEmail: _ottSahipEmail, // KALICI kimlik — vekâleten ise müşterinin izindeki asıl sorumlusu
   });
