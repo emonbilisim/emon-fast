@@ -17704,11 +17704,29 @@ async function otoTalepTara(sessiz = false, zorla = false) {
   try {
     await msTokenYenile(aktifKullanici.msAccount).catch(() => {});
 
+    // Zaman pencereli + sayfalı okuma. Eskiden yalnız EN YENİ 100 maile bakılıyordu; yoğun
+    // kutuda (ya da uygulama bir süre kapalı kaldığında) araya giren talep mailleri bu
+    // pencereden düşüp hiç incelenmiyordu. Artık son taramadan (ilk taramada 14 gün) beri
+    // gelen TÜM mailler, en fazla 5 sayfa (500 mail) olacak şekilde okunur.
+    const gunOnce = n => new Date(Date.now() - n * 86400000).toISOString();
+    const basla = cfg.sonTarama
+      ? new Date(new Date(cfg.sonTarama).getTime() - 2 * 86400000).toISOString() // 2 gün geri: gecikmeli/taşınan mailler
+      : gunOnce(14);
     let mesajlar = [];
-    const resp = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$top=100&$orderby=receivedDateTime%20desc&$select=id,subject,from,ccRecipients,receivedDateTime,bodyPreview,hasAttachments',
-      { headers: { Authorization: 'Bearer ' + msGraphToken } });
-    if (!resp.ok) { if (!sessiz) showToast('⚠ Gelen kutusu okunamadı: ' + resp.status); return; }
-    mesajlar = (await resp.json()).value || [];
+    let url = GRAPH_API + '/me/mailFolders/inbox/messages'
+      + '?$filter=' + encodeURIComponent('receivedDateTime ge ' + basla)
+      + '&$top=100&$orderby=receivedDateTime%20desc'
+      + '&$select=id,subject,from,ccRecipients,receivedDateTime,bodyPreview,hasAttachments';
+    for (let sayfa = 0; sayfa < 5 && url; sayfa++) {
+      const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + msGraphToken } });
+      if (!resp.ok) {
+        if (sayfa === 0) { if (!sessiz) showToast('⚠ Gelen kutusu okunamadı: ' + resp.status); return; }
+        break; // sonraki sayfa alınamadı — eldeki maillerle devam
+      }
+      const d = await resp.json();
+      mesajlar = mesajlar.concat(d.value || []);
+      url = d['@odata.nextLink'] || '';
+    }
 
     // Hariç tut: daha önce analiz edilen + bekleyen taslağı olan + zaten talebe dönüşmüş mailler
     const haricMailIdler = new Set([
@@ -17720,8 +17738,9 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     // aynı kurumsal domainden gelen mail de müşteri sayılır. Genel sağlayıcılar (gmail vb.) hariç.
     const domainMap = musteriDomainMap();
     // Teşhis sayaçları — "mail geldi ama talep çıkmadı" şikâyetinde hangi adımda elendiğini gösterir
-    const rapor = { bakilan: mesajlar.length, zatenIslenmis: 0, musteriDegil: 0, icDuz: 0, sistemMaili: 0,
-                    incelenen: 0, taslak: 0, digerSayildi: 0, aiHata: 0, atlananlar: [], limit: false };
+    const rapor = { bakilan: mesajlar.length, pencere: basla.slice(0, 10), zatenIslenmis: 0, musteriDegil: 0,
+                    icDuz: 0, sistemMaili: 0, incelenen: 0, taslak: 0, digerSayildi: 0, aiHata: 0,
+                    atlananlar: [], limit: 0 };
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
       if (!from) return false;
@@ -17740,7 +17759,10 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       return false;
     });
     rapor.aday = adaylar.length;
-    if (adaylar.length > 10) { rapor.limit = true; adaylar.length = 10; } // çağrı başına en fazla 10 mail (maliyet/limit koruması)
+    // Maliyet koruması: arka plan taramasında 10, kullanıcı "Şimdi Tara" dediğinde 25 mail
+    // AI'ya gider (birikmiş kutuyu elle tarayınca sonuç aynı çağrıda gelsin).
+    const aiLimit = sessiz ? 10 : 25;
+    if (adaylar.length > aiLimit) { rapor.limit = aiLimit; adaylar.length = aiLimit; }
     cfg.sonRapor = rapor;
 
     if (adaylar.length === 0) {
@@ -17886,7 +17908,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
 function otoTalepRaporMetni(r) {
   if (!r) return 'rapor yok';
   const p = [];
-  p.push(`${r.bakilan} mail bakıldı`);
+  p.push(`${r.bakilan} mail bakıldı${r.pencere ? ' (' + r.pencere + ' sonrası)' : ''}`);
   if (r.zatenIslenmis) p.push(`${r.zatenIslenmis} zaten işlenmiş`);
   if (r.musteriDegil)  p.push(`${r.musteriDegil} kayıtlı müşteri değil`);
   if (r.icDuz)         p.push(`${r.icDuz} iç yazışma (iletilmemiş)`);
@@ -17894,7 +17916,7 @@ function otoTalepRaporMetni(r) {
   if (r.incelenen)     p.push(`${r.incelenen} AI'ya gönderildi`);
   if (r.digerSayildi)  p.push(`${r.digerSayildi} "talep değil" sayıldı`);
   if (r.aiHata)        p.push(`${r.aiHata} AI hatası (tekrar denenecek)`);
-  if (r.limit)         p.push('⚠ 10 mail sınırına takıldı');
+  if (r.limit)         p.push(`⚠ ${r.limit} mail sınırına takıldı (${r.aday} aday vardı) — tekrar tarayın`);
   return p.join(' · ');
 }
 
