@@ -2462,7 +2462,8 @@
   <div class="modal" style="width:min(96vw,820px);max-height:90vh;overflow-y:auto;">
     <div class="modal-title">📥 Gelen Maillerden Talep Taslakları</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">AI'nın gelen müşteri maillerinden çıkardığı taslaklar. Kontrol edip düzenleyin, ardından <b>Talep Oluştur</b> ile gerçek talebe dönüştürün. Yanlış olanları <b>Yoksay</b> ile kaldırın.</div>
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <button class="btn btn-sm" onclick="otoTalepIsaretleriTemizle()" style="font-size:12px;" title="Daha önce 'talep değil' diye işaretlenmiş mailleri yeniden taranabilir yap (son 90 gün)">♻️ İşaretleri Temizle</button>
       <button class="btn btn-primary btn-sm" id="oto-talep-tara-btn-modal" onclick="otoTalepTara(false)" style="font-size:12px;">🔄 Şimdi Tara</button>
     </div>
     <div id="oto-talep-taslak-liste"></div>
@@ -17537,7 +17538,9 @@ const _GENEL_MAIL_DOMAINLERI = new Set([
 ]);
 
 function _mailDomain(mail) {
-  const adr = (mail || '').trim().toLowerCase();
+  // String olmayan girdiye (ör. MSAL hesap NESNESİ) karşı dayanıklı: eskiden .trim()
+  // patlıyor ve çağıran tarama sessizce ölüyordu.
+  const adr = (typeof mail === 'string' ? mail : '').trim().toLowerCase();
   const i = adr.lastIndexOf('@');
   return i >= 0 ? adr.slice(i + 1) : '';
 }
@@ -17546,11 +17549,14 @@ function _mailDomain(mail) {
 // İÇ YAZIŞMA ASLA "müşteri maili" sayılmaz — bir müşteri kartına sehven @kendi-domain adresi
 // girilirse (ör. test kaydı) TÜM iç mailler o müşteriye bağlanırdı. İletilen (FW) iç mailler
 // yine taranır; müşteri gövdedeki ASIL talep sahibinden bulunur (bkz. otoTalepTara).
+// DİKKAT: msAccount bir MSAL hesap NESNESİdir (string değil) — e-posta .username'dedir (bkz. satır ~9911).
 function _kendiDomainler() {
   const s = new Set();
   const ekle = mail => { const d = _mailDomain(mail); if (d && !_GENEL_MAIL_DOMAINLERI.has(d)) s.add(d); };
-  ekle(aktifKullanici?.msAccount); ekle(aktifKullanici?.email);
-  (typeof KULLANICILAR !== 'undefined' ? KULLANICILAR : []).forEach(k => { ekle(k.msAccount); ekle(k.email); });
+  try {
+    ekle(aktifKullanici?.msAccount?.username); ekle(aktifKullanici?.email);
+    (typeof KULLANICILAR !== 'undefined' ? KULLANICILAR : []).forEach(k => { ekle(k?.msAccount?.username); ekle(k?.email); });
+  } catch (e) { console.warn('_kendiDomainler:', e); } // hiçbir koşulda taramayı düşürme
   return s;
 }
 function icMailMi(mail) {
@@ -17694,14 +17700,18 @@ async function otoTalepTara(sessiz = false, zorla = false) {
   if (!cfg.aktif && !zorla) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
   if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
-  const mailSet = musteriMailSet();
-  if (mailSet.size === 0) { if (!sessiz) showToast('⚠ Kayıtlı müşteri e-postası yok.'); return; }
 
   const btn = document.getElementById('oto-talep-tara-btn');
   if (btn) { btn.disabled = true; btn.dataset.eski = btn.textContent; btn.textContent = '⏳ Taranıyor...'; }
   if (!sessiz) showToast('📥 Gelen kutusu taranıyor...');
 
+  // NOT: hazırlık adımları da try İÇİNDE olmalı. Bir zamanlar musteriMailSet() burada,
+  // try'ın DIŞINDAYDI; içindeki bir TypeError taramayı hiçbir iz bırakmadan düşürüyordu
+  // (kullanıcıya "hiçbir şey algılamıyor" olarak yansıdı).
   try {
+    const mailSet = musteriMailSet();
+    if (mailSet.size === 0) { if (!sessiz) showToast('⚠ Kayıtlı müşteri e-postası yok.'); return; }
+
     await msTokenYenile(aktifKullanici.msAccount).catch(() => {});
 
     // Zaman pencereli + sayfalı okuma. Eskiden yalnız EN YENİ 100 maile bakılıyordu; yoğun
@@ -17904,7 +17914,13 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       otoTalepModalAc(); // taslak çıkmasa da raporu göster (neden bulunmadığı orada yazıyor)
     }
   } catch (e) {
-    if (!sessiz) showToast('⚠ Tarama hatası: ' + (e.message || 'bilinmeyen'));
+    // Arka plan taraması da dâhil HER hata iz bıraksın — sessiz çökme bir kez
+    // "sistem hiçbir şey algılamıyor" olarak günlerce fark edilmeden kaldı.
+    console.error('[oto-talep] tarama hatası:', e);
+    const c = otoTalepCfg();
+    c.sonRapor = { ...(c.sonRapor || {}), hata: (e && e.message) || String(e) };
+    otoTalepDurumGuncelle();
+    if (!sessiz) showToast('⚠ Tarama hatası: ' + ((e && e.message) || 'bilinmeyen'));
   } finally {
     const b = document.getElementById('oto-talep-tara-btn');
     if (b) { b.disabled = false; if (b.dataset.eski) b.textContent = b.dataset.eski; }
@@ -17915,6 +17931,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
 // şikâyetinde hangi adımda elendiğini gösterir.
 function otoTalepRaporMetni(r) {
   if (!r) return 'rapor yok';
+  if (r.hata) return '⛔ tarama hata verdi: ' + r.hata;
   const p = [];
   p.push(`${r.bakilan} mail bakıldı${r.pencere ? ' (' + r.pencere + ' sonrası)' : ''}`);
   if (r.zatenIslenmis) p.push(`${r.zatenIslenmis} zaten işlenmiş`);
