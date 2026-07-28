@@ -17708,16 +17708,20 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     // kutuda (ya da uygulama bir süre kapalı kaldığında) araya giren talep mailleri bu
     // pencereden düşüp hiç incelenmiyordu. Artık son taramadan (ilk taramada 14 gün) beri
     // gelen TÜM mailler, en fazla 5 sayfa (500 mail) olacak şekilde okunur.
+    // GENİŞ tarama (ilk tarama ya da "işaretleri temizle" sonrası): 90 gün geriye bak —
+    // aksi halde geçmişte yutulmuş maillerin işaretini silmek işe yaramaz, dar pencere
+    // onları hiç getirmez.
     const gunOnce = n => new Date(Date.now() - n * 86400000).toISOString();
-    const basla = cfg.sonTarama
+    const basla = (cfg.sonTarama && !cfg.genisTarama)
       ? new Date(new Date(cfg.sonTarama).getTime() - 2 * 86400000).toISOString() // 2 gün geri: gecikmeli/taşınan mailler
-      : gunOnce(14);
+      : gunOnce(90);
     let mesajlar = [];
     let url = GRAPH_API + '/me/mailFolders/inbox/messages'
       + '?$filter=' + encodeURIComponent('receivedDateTime ge ' + basla)
       + '&$top=100&$orderby=receivedDateTime%20desc'
       + '&$select=id,subject,from,ccRecipients,receivedDateTime,bodyPreview,hasAttachments';
-    for (let sayfa = 0; sayfa < 5 && url; sayfa++) {
+    const maxSayfa = (cfg.sonTarama && !cfg.genisTarama) ? 5 : 10; // geniş taramada 1000 maile kadar
+    for (let sayfa = 0; sayfa < maxSayfa && url; sayfa++) {
       const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + msGraphToken } });
       if (!resp.ok) {
         if (sayfa === 0) { if (!sessiz) showToast('⚠ Gelen kutusu okunamadı: ' + resp.status); return; }
@@ -17767,8 +17771,9 @@ async function otoTalepTara(sessiz = false, zorla = false) {
 
     if (adaylar.length === 0) {
       cfg.sonTarama = new Date().toISOString();
+      cfg.genisTarama = false;
       otoTalepDurumKaydet(); otoTalepDurumGuncelle();
-      if (!sessiz) showToast('✅ İncelenecek yeni mail yok — ' + otoTalepRaporMetni(rapor));
+      if (!sessiz) { showToast('✅ İncelenecek yeni mail yok — ' + otoTalepRaporMetni(rapor)); otoTalepModalAc(); }
       return;
     }
 
@@ -17885,6 +17890,9 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       }
     }
     rapor.taslak = yeniTaslak;
+    // Geniş tarama, birikmiş aday bitene kadar sürsün (sınıra takıldıysa bir sonraki
+    // tarama da geniş pencereyle çalışır).
+    if (!rapor.limit) cfg.genisTarama = false;
 
     if (cfg.islenenMailIdler.length > 500) cfg.islenenMailIdler = cfg.islenenMailIdler.slice(-500);
     cfg.sonTarama = new Date().toISOString();
@@ -17893,7 +17901,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     console.info('[oto-talep] tarama raporu:', rapor);
     if (!sessiz) {
       showToast(yeniTaslak > 0 ? `✅ ${yeniTaslak} yeni taslak talep oluşturuldu.` : '✅ Tarama bitti — ' + otoTalepRaporMetni(rapor));
-      if (yeniTaslak > 0) otoTalepModalAc();
+      otoTalepModalAc(); // taslak çıkmasa da raporu göster (neden bulunmadığı orada yazıyor)
     }
   } catch (e) {
     if (!sessiz) showToast('⚠ Tarama hatası: ' + (e.message || 'bilinmeyen'));
@@ -17942,8 +17950,12 @@ function otoTalepIsaretleriTemizle() {
   const n = (cfg.islenenMailIdler || []).length;
   cfg.islenenMailIdler = [];
   cfg.aiHataSayac = {};
+  // Dar pencere (son tarama − 2 gün) geçmişteki mailleri hiç getirmez → işaret silmek
+  // tek başına işe yaramaz. Sonraki tarama 90 güne kadar GENİŞ bakacak şekilde işaretle.
+  cfg.genisTarama = true;
+  cfg.sonTarama = null; // sunucuya da yazılır: sayfa yenilense bile geniş pencere korunur
   otoTalepDurumKaydet(); otoTalepDurumGuncelle();
-  showToast(`♻️ ${n} mail işareti temizlendi — "Şimdi Tara" ile yeniden incelenecek.`);
+  showToast(`♻️ ${n} mail işareti temizlendi — "Şimdi Tara" son 90 günü yeniden inceleyecek.`);
 }
 
 // ── Ayarlar ekranı toggle + durum ──
@@ -18127,7 +18139,18 @@ function otoTalepTaslakRender() {
   const liste = document.getElementById('oto-talep-taslak-liste');
   if (!liste) return;
   if (cfg.taslaklar.length === 0) {
-    liste.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);"><div style="font-size:28px;margin-bottom:10px;">📭</div><div style="font-size:14px;">Bekleyen taslak yok.</div><div style="font-size:12px;margin-top:6px;">"Şimdi Tara" ile kayıtlı müşterilerden gelen yeni mailleri kontrol edin.</div></div>';
+    // Boş ekranda son tarama raporunu göster — "taradım ama hiçbir şey gelmedi" durumunda
+    // hangi adımda elendiğini burada görmek gerekiyor.
+    const r = cfg.sonRapor;
+    const escR = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const raporHtml = r ? `
+      <div style="max-width:560px;margin:14px auto 0;text-align:left;background:var(--bg3);border-radius:var(--radius);padding:10px 12px;font-size:11px;color:var(--text2);">
+        <div><b>Son tarama:</b> ${escR(otoTalepRaporMetni(r))}</div>
+        ${(r.atlananlar || []).length ? '<div style="margin-top:6px;color:var(--text3);">Atlanan mailler:' +
+          r.atlananlar.map(a => `<div>• ${escR(a.from)} — “${escR(a.konu)}”${a.neden ? ' <i>(' + escR(a.neden) + ')</i>' : ' <i>(kayıtlı müşteri değil)</i>'}</div>`).join('') + '</div>' : ''}
+        <div style="margin-top:6px;color:var(--text3);">Beklediğiniz bir mail listede yoksa: göndereni müşteri kartına yetkili olarak ekleyin, ya da Ayarlar'dan <b>♻️ İşlenmiş Mail İşaretlerini Temizle</b> deyip tekrar tarayın.</div>
+      </div>` : '';
+    liste.innerHTML = '<div style="text-align:center;padding:32px 12px;color:var(--text3);"><div style="font-size:28px;margin-bottom:10px;">📭</div><div style="font-size:14px;">Bekleyen taslak yok.</div><div style="font-size:12px;margin-top:6px;">"Şimdi Tara" ile kayıtlı müşterilerden gelen yeni mailleri kontrol edin.</div>' + raporHtml + '</div>';
     return;
   }
   const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
