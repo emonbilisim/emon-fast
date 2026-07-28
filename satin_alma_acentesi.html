@@ -2050,7 +2050,12 @@
             </label>
             <span id="oto-talep-durum" style="font-size:11px;color:var(--text3);"></span>
           </div>
-          <div style="font-size:11px;color:var(--text3);margin-top:8px;">ℹ Otomatik tarama yalnızca uygulama açıkken çalışır. Talepler ve Teklifler ekranlarındaki <b>🔄 Güncelle</b> ile anlık tarama yapabilirsiniz.</div>
+          <div id="oto-talep-rapor" style="font-size:11px;color:var(--text2);margin-top:8px;background:var(--bg3);border-radius:var(--radius);padding:8px 10px;display:none;"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn btn-sm" onclick="otoTalepIsaretleriTemizle()" style="font-size:11px;" title="Daha önce 'talep değil' diye işaretlenmiş mailleri yeniden taranabilir yap">♻️ İşlenmiş Mail İşaretlerini Temizle</button>
+            <span style="font-size:11px;color:var(--text3);">Bir talep maili atlandıysa bunu kullanın: işaretler silinir, sonraki taramada yeniden incelenir.</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:8px;">ℹ Otomatik tarama yalnızca uygulama açıkken çalışır. Talepler ve Teklifler ekranlarındaki <b>🔄 Güncelle</b> ile anlık tarama yapabilirsiniz. Yalnızca <b>Gelen Kutusu</b> taranır — kurallarla alt klasöre düşen mailler görülmez.</div>
         </div>
       </div>
 
@@ -17499,7 +17504,10 @@ function mailGovdeKirp(text, maxChars) {
     const mm = s.match(re);
     if (mm && mm.index != null && mm.index < kesIdx) kesIdx = mm.index;
   }
-  s = s.slice(0, kesIdx).trim();
+  // İLETİLEN mail / tek satırlık yanıt: kesme noktasından önce kayda değer metin yoksa
+  // ASIL İÇERİK alıntının içindedir — kırpma, yoksa AI'ya boş gövde gider ve mail
+  // "talep değil" sayılıp yutulur.
+  if (kesIdx >= 200) s = s.slice(0, kesIdx).trim();
 
   // Disclaimer / yasal uyarı bloğu
   const disclaimerIdx = s.search(/(BU E-?POSTA|This e-?mail|DISCLAIMER|YASAL UYARI|Confidentiality Notice|gizlidir ve sadece|may contain confidential)/i);
@@ -17670,8 +17678,10 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
     contentBlocks.push({ type: 'text', text: promptMetin });
 
     const sistem = 'Sen Türkçe konuşan bir satın alma asistanısın. Gelen müşteri mailini analiz edip SADECE geçerli düz JSON dön. Açıklama, markdown veya ```json bloğu kullanma.';
-    // Haiku-first, PDF'te Sonnet fallback (maliyet ↓); output küçük → max_tokens 500
-    return await _claudeAiCagirAkilli(sistem, contentBlocks, zorlaTalep ? 1500 : 500, !!(pdfler && pdfler.length));
+    // Haiku-first, PDF'te Sonnet fallback (maliyet ↓). max_tokens ÜST SINIR: yalnız üretilen
+    // token ücretlendirilir. 500'de çok kalemli mailler kesiliyor, JSON bozuluyordu → yanıt
+    // okunamayınca mail sessizce "talep değil" sayılıyordu; bol pay bırakıyoruz.
+    return await _claudeAiCagirAkilli(sistem, contentBlocks, 2000, !!(pdfler && pdfler.length));
   } catch (e) {
     console.warn('Talep parse hatasi:', e);
     return { _err: 'network' };
@@ -17709,20 +17719,34 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     // Kurumsal domain haritası — tam adres kayıtlı değilse (ör. henüz senkron olmamış yeni yetkili)
     // aynı kurumsal domainden gelen mail de müşteri sayılır. Genel sağlayıcılar (gmail vb.) hariç.
     const domainMap = musteriDomainMap();
+    // Teşhis sayaçları — "mail geldi ama talep çıkmadı" şikâyetinde hangi adımda elendiğini gösterir
+    const rapor = { bakilan: mesajlar.length, zatenIslenmis: 0, musteriDegil: 0, icDuz: 0, sistemMaili: 0,
+                    incelenen: 0, taslak: 0, digerSayildi: 0, aiHata: 0, atlananlar: [], limit: false };
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
-      if (!from || haricMailIdler.has(m.id) || !maildenAdayMi(m)) return false;
+      if (!from) return false;
+      if (haricMailIdler.has(m.id)) { rapor.zatenIslenmis++; return false; }
+      if (!maildenAdayMi(m)) { rapor.sistemMaili++; return false; }
       // İç yazışma: yalnız İLETİLMİŞ (FW) olanlar aday — iş arkadaşı müşteri talebini iletmiş olabilir.
       // Müşteri, gövdedeki asıl talep sahibinden bulunur; iç domain müşteriye ASLA eşleşmez.
-      if (icMailMi(from)) return iletilmisMailMi(m);
+      if (icMailMi(from)) {
+        if (iletilmisMailMi(m)) return true;
+        rapor.icDuz++; return false;
+      }
       // Dış mail: kayıtlı müşteri (tam adres VEYA kurumsal domain)
-      return mailSet.has(from) || domainMap.has(_mailDomain(from));
-    }).slice(0, 10); // çağrı başına en fazla 10 mail (maliyet/limit koruması)
+      if (mailSet.has(from) || domainMap.has(_mailDomain(from))) return true;
+      rapor.musteriDegil++;
+      if (rapor.atlananlar.length < 8) rapor.atlananlar.push({ from, konu: (m.subject || '').slice(0, 60) });
+      return false;
+    });
+    rapor.aday = adaylar.length;
+    if (adaylar.length > 10) { rapor.limit = true; adaylar.length = 10; } // çağrı başına en fazla 10 mail (maliyet/limit koruması)
+    cfg.sonRapor = rapor;
 
     if (adaylar.length === 0) {
       cfg.sonTarama = new Date().toISOString();
       otoTalepDurumKaydet(); otoTalepDurumGuncelle();
-      if (!sessiz) showToast('✅ Kayıtlı müşterilerden yeni mail yok.');
+      if (!sessiz) showToast('✅ İncelenecek yeni mail yok — ' + otoTalepRaporMetni(rapor));
       return;
     }
 
@@ -17758,8 +17782,20 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       }
 
       const icerik = 'KONU: ' + (m.subject || '') + '\n\n' + govde + (ekMetin ? ('\n\n--- EKLER ---' + ekMetin) : '');
+      rapor.incelenen++;
       const sonuc = await maildenTalepCikar(icerik, pdfler);
-      if (sonuc && sonuc._err) continue; // geçici hata → işaretleme, sonraki taramada tekrar denenir
+      // Geçici hata VE yanıtın hiç okunamaması (null: kesik/bozuk JSON) → İŞARETLEME, tekrar denenecek.
+      // Eskiden null "talep değil" sayılıp mail kalıcı yutuluyordu; talep mailleri sessizce kayboluyordu.
+      if (!sonuc || sonuc._err) {
+        rapor.aiHata++;
+        cfg.aiHataSayac = cfg.aiHataSayac || {};
+        const n = (cfg.aiHataSayac[m.id] || 0) + 1;
+        cfg.aiHataSayac[m.id] = n;
+        console.warn('[oto-talep] AI yanıtı alınamadı (deneme ' + n + '/3):', m.subject, sonuc?._err || 'parse-null');
+        if (n >= 3) { cfg.islenenMailIdler.push(m.id); delete cfg.aiHataSayac[m.id]; } // 3 denemeden sonra bırak
+        continue;
+      }
+      if (cfg.aiHataSayac) delete cfg.aiHataSayac[m.id];
 
       const tip = sonuc && sonuc.tip;
       const from = m.from?.emailAddress?.address || '';
@@ -17810,21 +17846,31 @@ async function otoTalepTara(sessiz = false, zorla = false) {
           : [];
         cfg.taslaklar.unshift({ ...ortak, tip, urunler: revUrunler, eslesenTalepNo: otoEslesenTalepBul(ortak.teklifNo, ortak.musteri) });
         yeniTaslak++;
+      } else if (tip === 'talep') {
+        // Talep sınıflandı ama ürün çıkmadı (ör. ürünler yalnızca ekte/görselde) → yine de taslak
+        // üret; kullanıcı ürünleri elle girsin ya da "Ürünleri Mailden Oku" ile yeniden denesin.
+        // Aksi halde gerçek bir talep maili "diğer" sayılıp kalıcı olarak yutuluyordu.
+        cfg.taslaklar.unshift({ ...ortak, tip: 'talep', urunler: [{ aciklama: '', kod: '', adet: '1', birim: 'Adet' }], urunCikmadi: true });
+        yeniTaslak++;
       } else {
         // TASLAK ÜRETMEYEN mail (talep/onay/revizyon değil) → tekrar AI'ya gitmesin diye işaretle.
         // Taslak ÜRETEN mailler İŞARETLENMEZ: bekleyen taslak (taslaklar.mailId) ya da oluşan
         // talebin mailId'si zaten tekrar taranmasını engeller. Böylece talep girişi yarım
         // kalır / taslak kaybolursa mail "işlenmiş" sanılıp yutulmaz, sonraki taramada yeniden algılanır.
         cfg.islenenMailIdler.push(m.id);
+        rapor.digerSayildi++;
+        if (rapor.atlananlar.length < 8) rapor.atlananlar.push({ from: from, konu: (m.subject || '').slice(0, 60), neden: 'AI "talep değil" dedi' });
       }
     }
+    rapor.taslak = yeniTaslak;
 
     if (cfg.islenenMailIdler.length > 500) cfg.islenenMailIdler = cfg.islenenMailIdler.slice(-500);
     cfg.sonTarama = new Date().toISOString();
     otoTalepDurumKaydet(); otoTalepDurumGuncelle();
 
+    console.info('[oto-talep] tarama raporu:', rapor);
     if (!sessiz) {
-      showToast(yeniTaslak > 0 ? `✅ ${yeniTaslak} yeni taslak talep oluşturuldu.` : '✅ Tarama bitti — talep maili bulunamadı.');
+      showToast(yeniTaslak > 0 ? `✅ ${yeniTaslak} yeni taslak talep oluşturuldu.` : '✅ Tarama bitti — ' + otoTalepRaporMetni(rapor));
       if (yeniTaslak > 0) otoTalepModalAc();
     }
   } catch (e) {
@@ -17833,6 +17879,49 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     const b = document.getElementById('oto-talep-tara-btn');
     if (b) { b.disabled = false; if (b.dataset.eski) b.textContent = b.dataset.eski; }
   }
+}
+
+// Tarama raporunu tek satırlık okunur özete çevir — "mail geldi ama talep açılmadı"
+// şikâyetinde hangi adımda elendiğini gösterir.
+function otoTalepRaporMetni(r) {
+  if (!r) return 'rapor yok';
+  const p = [];
+  p.push(`${r.bakilan} mail bakıldı`);
+  if (r.zatenIslenmis) p.push(`${r.zatenIslenmis} zaten işlenmiş`);
+  if (r.musteriDegil)  p.push(`${r.musteriDegil} kayıtlı müşteri değil`);
+  if (r.icDuz)         p.push(`${r.icDuz} iç yazışma (iletilmemiş)`);
+  if (r.sistemMaili)   p.push(`${r.sistemMaili} sistem/otomatik mail`);
+  if (r.incelenen)     p.push(`${r.incelenen} AI'ya gönderildi`);
+  if (r.digerSayildi)  p.push(`${r.digerSayildi} "talep değil" sayıldı`);
+  if (r.aiHata)        p.push(`${r.aiHata} AI hatası (tekrar denenecek)`);
+  if (r.limit)         p.push('⚠ 10 mail sınırına takıldı');
+  return p.join(' · ');
+}
+
+// Ayarlar panelinde son tarama raporunu göster (atlanan maillerin göndereni/konusu dâhil)
+function otoTalepRaporGuncelle() {
+  const el = document.getElementById('oto-talep-rapor');
+  if (!el) return;
+  const r = otoTalepCfg().sonRapor;
+  if (!r) { el.style.display = 'none'; return; }
+  const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const atl = (r.atlananlar || []).length
+    ? '<div style="margin-top:6px;color:var(--text3);">Atlananlar: ' +
+      r.atlananlar.map(a => `<div>• ${esc(a.from)} — “${esc(a.konu)}”${a.neden ? ' <i>(' + esc(a.neden) + ')</i>' : ' <i>(kayıtlı müşteri değil)</i>'}</div>`).join('') + '</div>'
+    : '';
+  el.innerHTML = '<b>Son tarama:</b> ' + esc(otoTalepRaporMetni(r)) + atl;
+  el.style.display = 'block';
+}
+
+// "Talep değil" işaretlerini sil → yutulmuş mailler sonraki taramada yeniden incelenir.
+// Bekleyen taslağı/talebi olan mailler zaten mailId ile korunuyor, tekrar oluşmaz.
+function otoTalepIsaretleriTemizle() {
+  const cfg = otoTalepCfg();
+  const n = (cfg.islenenMailIdler || []).length;
+  cfg.islenenMailIdler = [];
+  cfg.aiHataSayac = {};
+  otoTalepDurumKaydet(); otoTalepDurumGuncelle();
+  showToast(`♻️ ${n} mail işareti temizlendi — "Şimdi Tara" ile yeniden incelenecek.`);
 }
 
 // ── Ayarlar ekranı toggle + durum ──
@@ -17860,6 +17949,7 @@ function otoTalepDurumGuncelle() {
   }
   const rozet = document.getElementById('oto-talep-taslak-rozet');
   if (rozet) rozet.textContent = cfg.taslaklar.length;
+  otoTalepRaporGuncelle();
   otoTalepHatirlatGuncelle();
 }
 
@@ -18104,10 +18194,12 @@ function otoTalepTaslakRender() {
         <div style="display:grid;grid-template-columns:1fr 110px 64px 90px 28px;gap:6px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">
           <div>Ürün</div><div>Kod</div><div>Adet</div><div>Birim</div><div></div>
         </div>
+        ${ts.urunCikmadi ? '<div style="font-size:11px;color:var(--amber);background:var(--bg2);border-radius:var(--radius);padding:6px 9px;margin-bottom:6px;">⚠ Mail talep gibi görünüyor ama ürün satırı okunamadı (ürünler ekte/görselde olabilir). Satırları elle girin ya da <b>🔄 Ürünleri Mailden Oku</b> ile yeniden deneyin.</div>' : ''}
         <div id="ott-urunler-${ts.id}">${urunRows}</div>
         <button class="btn btn-sm" onclick="otoTalepUrunEkle('${ts.id}')" style="font-size:11px;margin-top:6px;">+ Satır Ekle</button>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;">
           <button class="btn btn-sm" onclick="otoTalepSil('${ts.id}')" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 Yoksay</button>
+          ${ts.mailId ? `<button class="btn btn-sm" onclick="otoTaslakYeniTalepYap('${ts.id}')" style="font-size:12px;" title="Mail ve eklerinden ürün kalemlerini AI ile yeniden okut">🔄 Ürünleri Mailden Oku</button>` : ''}
           <button class="btn btn-sm" onclick="otoTaslakRevizyonYap('${ts.id}')" style="font-size:12px;color:var(--accent2);border-color:rgba(79,142,247,0.35);" title="AI yanlış sınıflamışsa: yeni talep değil, mevcut teklife revizyon/onay olarak işaretle">✏️ Revizyon Olarak Al</button>
           <button class="btn btn-primary btn-sm" onclick="otoTalepOnayla('${ts.id}')" style="font-size:12px;">✅ Talep Oluştur</button>
         </div>
@@ -18371,6 +18463,7 @@ async function otoTaslakYeniTalepYap(taslakId) {
           .filter(u => u.aciklama || u.kod);
         if (urunler.length) {
           ts.urunler = urunler;
+          delete ts.urunCikmadi;
           if (r.musteriNo && !ts.musteriNo) ts.musteriNo = r.musteriNo;
           if (r.sonTeklifTarih && !ts.sonTeklifTarih) ts.sonTeklifTarih = r.sonTeklifTarih;
           if (r.sonTeklifSaat && !ts.sonTeklifSaat) ts.sonTeklifSaat = r.sonTeklifSaat;
