@@ -3550,6 +3550,43 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
   </div>
 </div>
 
+<!-- MODAL: Tedarikçi Mailine Zincir Yanıt (aynı mail üzerinden ek soru/cevap) -->
+<div class="modal-overlay" id="modal-tedMailCevap">
+  <div class="modal" style="width:min(96vw,640px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">↩️ Tedarikçinin Mailini Yanıtla</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">
+      Tedarikçinin RFQ yanıtına <b>aynı mail zincirinde</b> cevap verin (Outlook'ta kendi mailinin altında görünür).
+      Örn. tedarikçi "kablo kaç metre?" diye sorduysa cevabınızı buradan yazın.
+    </div>
+    <div id="ted-cevap-baslik" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:12px;color:var(--text2);line-height:1.7;margin-bottom:12px;"></div>
+    <div class="form-group">
+      <label class="form-label">Alıcı *</label>
+      <input type="text" id="ted-cevap-alici" placeholder="tedarikci@firma.com" style="font-size:13px;">
+    </div>
+    <div class="form-group">
+      <label class="form-label">CC (opsiyonel)</label>
+      <input type="text" id="ted-cevap-cc" placeholder="ali@firma.com, veli@firma.com" style="font-size:13px;">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Cevabınız / Ek Bilgi *</label>
+      <textarea id="ted-cevap-metin" rows="6" placeholder="Örn:&#10;- Kablo 25 metre olacak, tek parça olması gerekiyor.&#10;- Renk: siyah, CAT6 U/UTP yeterli.&#10;- Bu bilgiye göre birim fiyat ve teslim süresi verebilir misiniz?" style="min-height:130px;font-size:13px;"></textarea>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:6px;cursor:pointer;">
+      <input type="checkbox" id="ted-cevap-urunler" style="width:15px;height:15px;accent-color:var(--accent);">
+      Talep ürün listesini de mailin içine ekle
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);margin-bottom:10px;cursor:pointer;">
+      <input type="checkbox" id="ted-cevap-tumu" style="width:15px;height:15px;accent-color:var(--accent);">
+      Tümünü yanıtla (orijinal maildeki diğer alıcılar da CC'lensin)
+    </label>
+    <div id="ted-cevap-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin-bottom:10px;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('tedMailCevap')">İptal</button>
+      <button class="btn btn-primary" id="ted-cevap-gonder-btn" onclick="tedMailCevapGonder()">📨 Yanıt Olarak Gönder</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Onay Bekleyenler -->
 <div class="modal-overlay" id="modal-onayBekleyenler">
   <div class="modal" style="width:min(96vw,680px);max-height:90vh;overflow-y:auto;">
@@ -8220,8 +8257,14 @@ function renderRfqDurumu() {
     const durumBg   = stoksuz ? 'var(--bg2)' : (donus ? 'rgba(62,207,142,0.12)' : 'rgba(251,191,36,0.12)');
     const durumYazi = stoksuz ? '✕ Stok Yok' : (donus ? '✓ Yanıt Geldi' : '⏳ Bekleniyor');
 
+    // Tedarikçinin gelen yanıt maili (tarama sırasında iliştirildi) + bizim soru geçmişi
+    const cevapMail = t.rfqCevapMailleri?.[firma];
+    const sorular   = (t.tedarikciSorular || []).filter(s => s.firma === firma);
+    const sonSoru   = sorular.length ? sorular[sorular.length - 1] : null;
+
     html += `
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);${stoksuz?'opacity:0.7;':''}">
+      <div style="padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);${stoksuz?'opacity:0.7;':''}">
+      <div style="display:flex;align-items:center;gap:10px;">
         <div style="width:10px;height:10px;border-radius:50%;background:${durumRenk};flex-shrink:0;"></div>
         <div style="flex:1;font-size:13px;font-weight:500;${stoksuz?'text-decoration:line-through;color:var(--text3);':''}">${firma}</div>
         ${fiyatBilgisi ? '' : ''}
@@ -8230,7 +8273,13 @@ function renderRfqDurumu() {
           ${durumYazi}
         </div>
         ${(!donus && !stoksuz) ? '<button class="btn btn-sm" onclick="rfqTekrarGonder(\'' + firmaEsc + '\')" style="font-size:11px;padding:3px 8px;">📧 Hatırlat</button>' : ''}
+        ${!stoksuz ? '<button class="btn btn-sm" onclick="tedMailCevaplaFirma(\'' + firmaEsc + '\')" title="' + (cevapMail ? 'Tedarikçinin mailine AYNI ZİNCİRDE cevap yaz' : 'Tedarikçiye soru/ek bilgi yaz — yanıt maili aranır, bulunursa zincire eklenir') + '" style="font-size:11px;padding:3px 8px;color:var(--accent2);border-color:rgba(79,142,247,0.35);">↩️ Cevapla</button>' : ''}
         <button class="btn btn-sm" onclick="rfqStokYokToggle('${firmaEsc}')" title="${stoksuz?'Tekrar aktif et':'Stok yok olarak işaretle — RFQ\'dan çıkar'}" style="font-size:11px;padding:3px 8px;${stoksuz?'':'color:var(--text3);'}">${stoksuz ? '↩ Aktif Et' : '🚫 Stok Yok'}</button>
+      </div>
+      ${sonSoru ? `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);font-size:11px;color:var(--text3);line-height:1.6;">
+        💬 <strong style="color:var(--text2);">${sorular.length} mesaj gönderildi</strong> · son: ${new Date(sonSoru.tarih).toLocaleString('tr-TR')}${sonSoru.kullanici ? ' · ' + sonSoru.kullanici : ''}${sonSoru.zincir ? ' · <span style="color:var(--green);">aynı zincirde</span>' : ' · <span style="color:var(--amber);">yeni mail olarak</span>'}
+        <div style="color:var(--text2);white-space:pre-wrap;margin-top:3px;">${String(sonSoru.metin||'').substring(0,180).replace(/&/g,'&amp;').replace(/</g,'&lt;')}${(sonSoru.metin||'').length>180?'…':''}</div>
+      </div>` : ''}
       </div>`;
   });
   html += '</div>';
@@ -8581,6 +8630,8 @@ function teklifleriKarsilastir() {
     html += '<th style="text-align:center;padding:9px 12px;border-bottom:2px solid var(--border);font-size:12px;color:var(--text);min-width:110px;">'
       + '<div>' + tk.tedarikci + '</div>'
       + '<button onclick="revizeTalebiGonderTed(\'' + tedMail + '\',\'' + tedAdi + '\')" style="margin-top:4px;background:none;border:1px solid rgba(251,191,36,0.4);border-radius:4px;padding:2px 7px;font-size:10px;color:var(--amber);cursor:pointer;">✏️ Revize</button>'
+      // Tedarikçinin yanıt mailine AYNI ZİNCİRDE ek soru/cevap
+      + '<button onclick="tedMailCevaplaFirma(\'' + tedAdi + '\')" title="Tedarikçinin mailine aynı zincirde cevap yaz" style="margin-top:4px;margin-left:4px;background:none;border:1px solid rgba(79,142,247,0.4);border-radius:4px;padding:2px 7px;font-size:10px;color:var(--accent2);cursor:pointer;">↩️ Cevapla</button>'
       + '</th>';
   });
   html += '<th style="text-align:center;padding:9px 12px;border-bottom:2px solid var(--border);font-size:12px;color:var(--green);min-width:130px;">✓ En İyi Fiyat</th>';
@@ -16389,7 +16440,7 @@ async function outlookTumMaillerGoster() {
       for (const { mail: rfqMail, firma } of rfqMailler) {
         try {
           const resp = await fetch(
-            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="from:${rfqMail}"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId`,
+            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="from:${rfqMail}"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId,internetMessageId`,
             { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
           );
           if (resp.ok) {
@@ -16409,7 +16460,7 @@ async function outlookTumMaillerGoster() {
       if (tumMailler.length === 0 && t.no) {
         try {
           const resp = await fetch(
-            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId`,
+            `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId,internetMessageId`,
             { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
           );
           if (resp.ok) {
@@ -16426,7 +16477,7 @@ async function outlookTumMaillerGoster() {
       // RFQ gönderilmemişse sadece talep no ile ara
       try {
         const resp = await fetch(
-          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId`,
+          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId,internetMessageId`,
           { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } }
         );
         if (resp.ok) {
@@ -16478,6 +16529,7 @@ async function outlookTumMaillerGoster() {
       </div>`;
 
     const liste = document.getElementById('outlook-mail-listesi');
+    let _cevapKaydiDegisti = false;   // tedarikçi yanıtlarının mail kimliği talebe iliştirildi mi
 
     tumMailler.forEach((mail, i) => {
       const tarih = new Date(mail.receivedDateTime).toLocaleDateString('tr-TR', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -16488,6 +16540,10 @@ async function outlookTumMaillerGoster() {
       for (const [firma, f] of Object.entries(firmaMap)) {
         if (f.mailler.some(m => gonderen.toLowerCase() === m.toLowerCase())) { eslesen = firma; break; }
       }
+
+      // Tedarikçinin EN YENİ yanıt mailini talebe iliştir — bu modal kapandıktan sonra
+      // da (RFQ Durumu / karşılaştırma tablosundan) aynı zincire cevap yazılabilsin.
+      if (eslesen && tedCevapMailKaydet(t, eslesen, mail)) _cevapKaydiDegisti = true;
 
       // Bu mail daha önce eklendi mi?
       const zatenEklendi = mevcutMailler.has(gonderen.toLowerCase()) ||
@@ -16533,6 +16589,8 @@ async function outlookTumMaillerGoster() {
         + '</div>'
         + (mail.hasAttachments ? '<button class="btn btn-sm" onclick="mailEkleriniGoster(' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.3);">📎 Ekler</button>' : '')
         + '<button class="btn btn-sm" onclick="mailIceriginiGoster(' + i + ')" style="font-size:11px;flex-shrink:0;">📄 Tam</button>'
+        // Tedarikçi soru sorduysa (ör. "kablo kaç metre?") AYNI MAİL ZİNCİRİNDE cevap ver
+        + '<button class="btn btn-sm" onclick="tedMailCevapla(' + i + ')" title="Bu mailin zincirinde cevap yaz — tedarikçi kendi sorusunun altında görür" style="font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.35);">↩️ Cevapla</button>'
         + (!zatenEklendi ? '<button class="btn btn-sm btn-primary" onclick="aiMaildenFiyatDoldur(' + i + ')" style="font-size:11px;flex-shrink:0;">🤖 AI' + (mail.hasAttachments ? ' (📎 dahil)' : '') + '</button>' : '')
         + (!zatenEklendi ? '<button class="btn btn-sm" onclick="revizeTalebiGonder(\'' + (mail.from?.emailAddress?.address||'') + '\',' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--amber);border-color:rgba(251,191,36,0.4);">✏️ Revize</button>' : '')
         + '</div>'
@@ -16563,6 +16621,8 @@ async function outlookTumMaillerGoster() {
         + '</div>';
       liste.appendChild(div);
     });
+
+    if (_cevapKaydiDegisti) { veriKaydet(); try { renderRfqDurumu(); } catch {} }
   } catch (e) {
     icerik.innerHTML = `<div style="padding:20px;color:var(--red);">Hata: ${e.message}</div>`;
   }
@@ -16805,6 +16865,369 @@ function mailAlintiyiAt(text) {
   const kes = Math.min.apply(null, idx);
   const ust = t.slice(0, kes).trim();
   return ust.length >= 15 ? ust : t;
+}
+
+// ═══════════════════════════════════════
+// TEDARİKÇİ MAİLİNE ZİNCİR YANIT (aynı mail üzerinden ek soru/cevap)
+// ═══════════════════════════════════════
+// Tedarikçi RFQ'ya soruyla dönebilir ("kablo kaç metre?"). Cevabımız YENİ mail
+// olarak değil, tedarikçinin KENDİ MAİLİNİN ZİNCİRİNDE gitmeli: Graph createReply
+// taslağı In-Reply-To/References başlıklarını ve alıntılanan gövdeyi kendisi kurar
+// → tedarikçi Outlook'ta kendi sorusunun altında bağlamı görür.
+// Not: Graph mail id'leri POSTA KUTUSUNA ÖZELdir — bir kullanıcının taramasında
+// bulunan id başka kullanıcıda 404 verir. Bu yüzden internetMessageId de saklanır
+// ve gerekirse yanıtlayanın kendi kutusunda o id ile mail yeniden bulunur.
+
+function _msKutuAdresi() {
+  return String(aktifKullanici?.msAccount?.username || aktifKullanici?.email || '').toLowerCase();
+}
+
+// Taramada bulunan tedarikçi yanıtını talebe iliştir (modal kapandıktan/sayfa
+// yenilendikten sonra da "Cevapla" çalışsın). Yalnız DAHA YENİ mail üzerine yazar.
+// Dönüş: kayıt değiştiyse true (çağıran veriKaydet etsin).
+function tedCevapMailKaydet(t, firma, mail) {
+  if (!t || !firma || !mail?.id) return false;
+  if (!t.rfqCevapMailleri) t.rfqCevapMailleri = {};
+  const eski = t.rfqCevapMailleri[firma];
+  const yeniTarih = new Date(mail.receivedDateTime || 0).getTime() || 0;
+  if (eski && eski.id === mail.id && eski.kutu === _msKutuAdresi()) return false;
+  if (eski && (new Date(eski.tarih || 0).getTime() || 0) > yeniTarih) return false;
+  t.rfqCevapMailleri[firma] = {
+    id: mail.id,
+    imid: mail.internetMessageId || '',
+    konu: mail.subject || '',
+    from: mail.from?.emailAddress?.address || '',
+    fromAd: mail.from?.emailAddress?.name || '',
+    tarih: mail.receivedDateTime || '',
+    onizleme: (mail.bodyPreview || '').substring(0, 400),
+    kutu: _msKutuAdresi(),
+  };
+  return true;
+}
+
+// Kayıttaki mail id'sini BU posta kutusunda geçerli id'ye çevir.
+async function _tedCevapMailIdCoz(kayit) {
+  if (!kayit) return '';
+  const kutu = _msKutuAdresi();
+  if (kayit.id && (!kayit.kutu || kayit.kutu === kutu)) return kayit.id;
+  if (kayit.imid) {
+    try {
+      const imid = String(kayit.imid).replace(/'/g, "''");
+      const r = await fetch(GRAPH_API + "/me/messages?$filter=internetMessageId eq '" + encodeURIComponent(imid) + "'&$select=id&$top=1",
+        { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
+      if (r.ok) { const d = await r.json(); if (d.value?.[0]?.id) return d.value[0].id; }
+    } catch {}
+  }
+  return kayit.id || ''; // son şans: dene; 404 olursa yeni mail'e düşer
+}
+
+// Kayıt yoksa tedarikçinin bu talebe ait son yanıtını gelen kutusunda ara.
+async function _tedSonYanitAra(mailAdresleri, talepNo) {
+  const noUp = String(talepNo || '').toUpperCase();
+  for (const adr of (mailAdresleri || [])) {
+    try {
+      const r = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$search="from:' + adr
+          + '"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,internetMessageId',
+        { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } });
+      if (!r.ok) continue;
+      const d = await r.json();
+      const uygun = (d.value || []).filter(m => !noUp
+        || ((m.subject || '') + ' ' + (m.bodyPreview || '')).toUpperCase().includes(noUp));
+      uygun.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+      if (uygun[0]) return uygun[0];
+    } catch {}
+  }
+  return null;
+}
+
+function _tedMailCevapModalDoldur(kayit, firma) {
+  window._tedMailCevap = Object.assign({}, kayit, { firma: firma || '' });
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const bas = document.getElementById('ted-cevap-baslik');
+  if (bas) {
+    bas.innerHTML = kayit.zincirYok
+      ? '<div style="color:var(--amber);">⚠ ' + esc(firma || 'Tedarikçi') + ' için gelen yanıt maili bulunamadı — mesajınız <b>yeni mail</b> olarak gidecek (zincire eklenemez).</div>'
+        + '<div style="margin-top:4px;">Konu: <b>' + esc(kayit.konu || '—') + '</b></div>'
+      : '<div><strong style="color:var(--text);">Yanıtlanan mail:</strong> ' + esc(kayit.konu || '(Konusuz)') + '</div>'
+        + '<div><strong style="color:var(--text);">Kimden:</strong> ' + esc(kayit.fromAd || kayit.from) + ' &lt;' + esc(kayit.from) + '&gt;'
+        + (firma ? ' <span class="badge badge-blue" style="font-size:10px;margin-left:4px;">' + esc(firma) + '</span>' : '') + '</div>'
+        + (kayit.tarih ? '<div><strong style="color:var(--text);">Tarih:</strong> ' + new Date(kayit.tarih).toLocaleString('tr-TR') + '</div>' : '')
+        + (kayit.onizleme ? '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);color:var(--text3);">' + esc(kayit.onizleme.substring(0, 220)) + '…</div>' : '');
+  }
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('ted-cevap-alici', kayit.from || '');
+  set('ted-cevap-cc', '');
+  set('ted-cevap-metin', '');
+  ['ted-cevap-tumu', 'ted-cevap-urunler'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
+  const tumuKutu = document.getElementById('ted-cevap-tumu');
+  if (tumuKutu) tumuKutu.disabled = !!kayit.zincirYok;
+  const h = document.getElementById('ted-cevap-hata'); if (h) h.style.display = 'none';
+  openModal('tedMailCevap');
+  setTimeout(() => document.getElementById('ted-cevap-metin')?.focus(), 80);
+}
+
+// Outlook yanıt listesindeki karttan → o mailin zincirine cevap
+function tedMailCevapla(mailIdx) {
+  const mail = window._outlookMailler?.[mailIdx];
+  if (!mail) { showToast('Mail bulunamadı — listeyi yenileyip tekrar deneyin.'); return; }
+  const gonderen = String(mail.from?.emailAddress?.address || '').toLowerCase();
+  const fm = window._firmaMap || rfqFirmaMap();
+  let firma = '';
+  for (const [f, v] of Object.entries(fm)) {
+    if ((v.mailler || []).some(m => String(m).toLowerCase() === gonderen)) { firma = f; break; }
+  }
+  const t = aktifTalep();
+  if (t && firma && tedCevapMailKaydet(t, firma, mail)) veriKaydet();
+  _tedMailCevapModalDoldur({
+    id: mail.id,
+    imid: mail.internetMessageId || '',
+    konu: mail.subject || '',
+    from: mail.from?.emailAddress?.address || '',
+    fromAd: mail.from?.emailAddress?.name || '',
+    tarih: mail.receivedDateTime || '',
+    onizleme: (mail.bodyPreview || '').substring(0, 400),
+    kutu: _msKutuAdresi(),
+  }, firma);
+}
+
+// Tedarikçi adından → kayıtlı (ya da canlı aranan) yanıt mailinin zincirine cevap
+async function tedMailCevaplaFirma(firma) {
+  const t = aktifTalep();
+  if (!t) { showToast('⛔ Açık talep bulunamadı — sayfayı yenileyip talebi tekrar açın.'); return; }
+  const fm = rfqFirmaMap();
+  const mailler = fm[firma]?.mailler || [];
+  let kayit = t.rfqCevapMailleri?.[firma];
+  const msVar = !!(aktifKullanici?.msAccount && msGraphToken);
+
+  if (!kayit && msVar) {
+    showToast('🔍 ' + firma + ' yanıtı Outlook\'ta aranıyor...');
+    try { await msTokenYenile(aktifKullanici.msAccount); } catch {}
+    const m = await _tedSonYanitAra(mailler, t.no);
+    if (m) { if (tedCevapMailKaydet(t, firma, m)) veriKaydet(); kayit = t.rfqCevapMailleri[firma]; }
+  }
+  if (kayit) { _tedMailCevapModalDoldur(kayit, firma); return; }
+
+  // Zincir kurulamıyor (mail bulunamadı / M365 yok) — hiç değilse yeni mail olarak sorulabilsin
+  if (!mailler.length) { showToast('⛔ ' + firma + ' için kayıtlı mail adresi yok — Tedarikçiler sayfasından ekleyin.'); return; }
+  _tedMailCevapModalDoldur({
+    id: '', imid: '', konu: '[' + (t.no || '') + '] ' + (t.urun || ''),
+    from: mailler[0], fromAd: firma, tarih: '', onizleme: '',
+    kutu: _msKutuAdresi(), zincirYok: true,
+  }, firma);
+}
+
+async function _taslakSil(id) {
+  try {
+    await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(id),
+      { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + msGraphToken } });
+  } catch {}
+}
+
+// createReply taslağı → gövdeye kendi metnimizi EN ÜSTE ekle → gönder.
+// Alıntılanan orijinal gövde KORUNUR (taslağı Graph hazırlıyor); message.body ile
+// tek adımda reply atarsak alıntı kaybolur, tedarikçi bağlamı göremez.
+async function _zincirYanitGonder({ mailId, replyAll, alicilar, ccler, fragment }) {
+  const H = { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' };
+  let draft = null;
+  try {
+    const cr = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(mailId)
+        + (replyAll ? '/createReplyAll' : '/createReply'), { method: 'POST', headers: H, body: '{}' });
+    if (!cr.ok) return { ok: false, status: cr.status, asama: 'createReply' };
+    draft = await cr.json();
+  } catch (e) { return { ok: false, status: 0, asama: 'createReply', hata: e.message }; }
+  if (!draft?.id) return { ok: false, status: 0, asama: 'createReply' };
+
+  const li = mailGovdeLogoInline(fragment);
+  let icerik;
+  try {
+    const doc = new DOMParser().parseFromString(draft.body?.content || '<html><body></body></html>', 'text/html');
+    const kutu = doc.createElement('div');
+    kutu.innerHTML = li.content;
+    doc.body.insertBefore(kutu, doc.body.firstChild);
+    icerik = '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  } catch { icerik = li.content + (draft.body?.content || ''); }
+
+  try {
+    const yama = { body: { contentType: 'HTML', content: icerik } };
+    if (alicilar?.length) yama.toRecipients = alicilar.map(a => ({ emailAddress: { address: a } }));
+    if (ccler?.length) {
+      // "Tümünü yanıtla" seçiliyse taslaktaki CC'leri KORU, elle yazılanları ekle
+      const mevcut = replyAll ? (draft.ccRecipients || []).map(r => r.emailAddress?.address).filter(Boolean) : [];
+      const birlesik = Array.from(new Set([...mevcut, ...ccler].map(a => String(a).toLowerCase())));
+      yama.ccRecipients = birlesik.map(a => ({ emailAddress: { address: a } }));
+    }
+    const pr = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(draft.id),
+      { method: 'PATCH', headers: H, body: JSON.stringify(yama) });
+    if (!pr.ok) { await _taslakSil(draft.id); return { ok: false, status: pr.status, asama: 'patch' }; }
+
+    // Gövdede cid: ile referans verilen logo → taslağa inline ek olarak yükle
+    for (const ek of (li.ekler || [])) {
+      try {
+        await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(draft.id) + '/attachments',
+          { method: 'POST', headers: H, body: JSON.stringify(ek) });
+      } catch {}
+    }
+
+    const sr = await fetch(GRAPH_API + '/me/messages/' + encodeURIComponent(draft.id) + '/send',
+      { method: 'POST', headers: H });
+    if (sr.ok || sr.status === 202) return { ok: true, status: sr.status };
+    await _taslakSil(draft.id);
+    return { ok: false, status: sr.status, asama: 'send' };
+  } catch (e) {
+    await _taslakSil(draft.id);
+    return { ok: false, status: 0, asama: 'gonder', hata: e.message };
+  }
+}
+
+async function tedMailCevapGonder() {
+  const k = window._tedMailCevap;
+  const hata = document.getElementById('ted-cevap-hata');
+  const uyar = msg => { if (hata) { hata.textContent = msg; hata.style.display = 'block'; } else showToast(msg); };
+  if (!k) { showToast('Mail bilgisi kayboldu — pencereyi kapatıp tekrar açın.'); return; }
+
+  const metin = (document.getElementById('ted-cevap-metin')?.value || '').trim();
+  if (!metin) { uyar('Tedarikçiye yazacağınız cevabı/ek bilgiyi girin.'); return; }
+  const ayir = s => String(s || '').split(/[,;\s]+/).map(x => x.trim()).filter(x => x.includes('@'));
+  const alicilar = ayir(document.getElementById('ted-cevap-alici')?.value);
+  const ccler    = ayir(document.getElementById('ted-cevap-cc')?.value);
+  if (!alicilar.length) { uyar('Geçerli bir alıcı e-posta adresi girin.'); return; }
+  if (hata) hata.style.display = 'none';
+
+  const t = aktifTalep();
+  const tumu = !!document.getElementById('ted-cevap-tumu')?.checked;
+  const urunEkle = !!document.getElementById('ted-cevap-urunler')?.checked;
+  const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Ürün listesi (opsiyonel) — tedarikçi hangi kaleme cevap verdiğini karıştırmasın
+  let urunTablo = '';
+  if (urunEkle && t) {
+    const urunler = (t.urunler && t.urunler.length > 0)
+      ? t.urunler : [{ aciklama: t.urun, adet: t.miktar || 1, birim: 'Adet', kod: '' }];
+    urunTablo = '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:14px 0;">'
+      + '<thead><tr style="background:#1565C0;color:#ffffff;">'
+      + '<th style="padding:7px 10px;border:1px solid #1565C0;width:34px;">#</th>'
+      + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:left;">Ürün / Açıklama</th>'
+      + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:left;width:110px;">Ürün Kodu</th>'
+      + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:center;width:90px;">Miktar</th>'
+      + '</tr></thead><tbody>'
+      + urunler.map((u, i) =>
+          '<tr style="background:' + (i % 2 === 0 ? '#f5f5f5' : '#ffffff') + ';">'
+          + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center;">' + (i + 1) + '</td>'
+          + '<td style="padding:6px 10px;border:1px solid #e0e0e0;">' + esc(u.aciklama) + '</td>'
+          + '<td style="padding:6px 10px;border:1px solid #e0e0e0;font-family:monospace;font-size:12px;">' + esc(u.kod || '—') + '</td>'
+          + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center;">' + esc(u.adet || 1) + ' ' + esc(u.birim || 'Adet') + '</td>'
+          + '</tr>').join('')
+      + '</tbody></table>';
+  }
+
+  const fragment = '<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;">'
+    + '<p>Sayın ' + esc(k.fromAd || 'İlgili') + ',</p>'
+    + (t?.no ? '<p style="font-size:12px;color:#757575;">Talep No: <strong>' + esc(t.no) + '</strong></p>' : '')
+    + '<div style="background:#f1f8ff;border-left:4px solid #1565C0;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;white-space:pre-wrap;font-size:13px;">'
+    + esc(metin) + '</div>'
+    + urunTablo
+    + '<p>Bu bilgiler doğrultusunda fiyat teklifinizi bekliyoruz. Başka bir sorunuz olursa bu mail üzerinden iletebilirsiniz.</p>'
+    + imzaHtml()
+    + '</div>';
+
+  const btn = document.getElementById('ted-cevap-gonder-btn');
+  const btnEski = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gönderiliyor...'; }
+  const btnGeri = () => { if (btn) { btn.disabled = false; btn.textContent = btnEski || '📨 Yanıt Olarak Gönder'; } };
+
+  const msVar = !!(aktifKullanici?.msAccount && msGraphToken);
+  const konuRe = /^(re|ynt|yan)\s*:/i.test(k.konu || '') ? (k.konu || '') : ('RE: ' + (k.konu || '[' + (t?.no || '') + '] ' + (t?.urun || '')));
+
+  // Microsoft girişi yok → mailto taslağı (zincir kurulamaz, kullanıcı bunu BİLSİN)
+  if (!msVar) {
+    const govde = 'Sayın ' + (k.fromAd || 'İlgili') + ',\n\n'
+      + (t?.no ? 'Talep No: ' + t.no + '\n\n' : '') + metin
+      + '\n\nBu bilgiler doğrultusunda fiyat teklifinizi bekliyoruz.' + imzaMetni();
+    window.open('mailto:' + alicilar.join(',') + (ccler.length ? '?cc=' + ccler.join(',') + '&' : '?')
+      + 'subject=' + encodeURIComponent(konuRe) + '&body=' + encodeURIComponent(govde));
+    btnGeri();
+    closeModal('tedMailCevap');
+    showToast('⚠ Microsoft 365 girişi yok — mail taslak olarak açıldı, YANIT ZİNCİRİNE eklenemedi.');
+    return;
+  }
+
+  try { await msTokenYenile(aktifKullanici.msAccount); } catch {}
+
+  let zincirde = false, sonHata = '';
+  if (!k.zincirYok) {
+    const mailId = await _tedCevapMailIdCoz(k);
+    if (mailId) {
+      const s = await _zincirYanitGonder({ mailId, replyAll: tumu, alicilar, ccler, fragment });
+      if (s.ok) zincirde = true;
+      else {
+        sonHata = (s.asama || '') + ' ' + (s.status || s.hata || '');
+        console.warn('Zincir yanıt kurulamadı:', s);
+      }
+    }
+  }
+
+  // Zincir kurulamadıysa mesaj KAYBOLMASIN: "RE:" konulu yeni mail olarak gönder
+  if (!zincirde) {
+    const alinti = k.konu || k.onizleme
+      ? '<div style="border-top:1px solid #cccccc;margin-top:20px;padding-top:10px;font-size:12px;color:#666666;">'
+        + '<div><b>Kimden:</b> ' + esc(k.fromAd || k.from) + ' &lt;' + esc(k.from) + '&gt;</div>'
+        + (k.tarih ? '<div><b>Tarih:</b> ' + new Date(k.tarih).toLocaleString('tr-TR') + '</div>' : '')
+        + (k.konu ? '<div><b>Konu:</b> ' + esc(k.konu) + '</div>' : '')
+        + (k.onizleme ? '<div style="margin-top:8px;white-space:pre-wrap;">' + esc(k.onizleme) + '</div>' : '')
+        + '</div>'
+      : '';
+    const li = mailGovdeLogoInline('<!DOCTYPE html><html><body style="margin:0;padding:20px;">'
+      + '<div style="max-width:700px;">' + fragment + alinti + '</div></body></html>');
+    try {
+      const resp = await fetch(GRAPH_API + '/me/sendMail', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: {
+            subject: konuRe,
+            body: { contentType: 'HTML', content: li.content },
+            toRecipients: alicilar.map(a => ({ emailAddress: { address: a } })),
+            ccRecipients: ccler.map(a => ({ emailAddress: { address: a } })),
+            attachments: li.ekler,
+          },
+          saveToSentItems: true,
+        })
+      });
+      if (!(resp.ok || resp.status === 202)) {
+        const txt = await resp.text().catch(() => '');
+        console.error('Tedarikçi cevabı gönderilemedi:', resp.status, txt);
+        btnGeri();
+        uyar('⚠ Mail gönderilemedi (Graph ' + resp.status + ')' + (sonHata ? ' · zincir: ' + sonHata : '') + '. Tekrar deneyin.');
+        return;
+      }
+    } catch (e) {
+      btnGeri();
+      uyar('⚠ Mail gönderilemedi: ' + (e.message || 'bağlantı hatası') + '. Tekrar deneyin.');
+      return;
+    }
+  }
+
+  // Ekip görsün: talebe soru geçmişi olarak yaz
+  if (t) {
+    if (!Array.isArray(t.tedarikciSorular)) t.tedarikciSorular = [];
+    t.tedarikciSorular.push({
+      firma: k.firma || '',
+      mail: alicilar.join(', '),
+      konu: konuRe,
+      metin,
+      tarih: new Date().toISOString(),
+      kullanici: aktifKullanici?.ad || aktifKullanici?.email || '',
+      zincir: zincirde,
+    });
+    await kaliciVeriKaydet('Tedarikçiye gönderilen soru');
+    try { renderRfqDurumu(); } catch {}
+  }
+
+  btnGeri();
+  closeModal('tedMailCevap');
+  showToast(zincirde
+    ? '↩️ ' + (k.firma ? k.firma + ' — ' : '') + 'tedarikçinin mailine YANIT olarak gönderildi (aynı zincir): ' + alicilar.join(', ')
+    : '📧 Yanıt zinciri kurulamadı — "' + konuRe + '" konulu YENİ mail olarak gönderildi: ' + alicilar.join(', '));
 }
 
 // Tek bir mail için AI ile fiyat çıkar
@@ -18793,6 +19216,10 @@ async function seciliOutlookTeklifleriEkle() {
 
     const tedAdi = eslesen || mail.from?.emailAddress?.name || gonderen;
     const notMail = 'Outlook — ' + tarihFmt(new Date(mail.receivedDateTime));
+
+    // Teklifin KAYNAK mailini teklif adıyla da iliştir: tedarikçi listesinde eşleşmeyen
+    // gönderenlerde (tedAdi = mail adı) "↩️ Cevapla" yine aynı zincire yazabilsin.
+    tedCevapMailKaydet(t, tedAdi, mail);
 
     // Ana teklif (talep edilen ürünler) — yalnız fiyat girilmişse
     if (fiyatlar.length) {
