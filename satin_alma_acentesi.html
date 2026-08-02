@@ -2088,6 +2088,20 @@
                 <span style="display:block;color:var(--text3);font-size:11px;margin-top:2px;">Kapalıyken yalnızca Panel'de listelenir, gönderimi siz onaylarsınız.</span></span>
             </label>
             <div id="oto-hatirlat-otogonder-panel" style="display:none;margin-top:10px;padding-left:24px;">
+              <!-- Kimler için geçerli: önce kendinizde deneyin, sonra ekibe yayın -->
+              <div style="margin-bottom:10px;">
+                <div style="font-size:12px;color:var(--text2);margin-bottom:5px;">Kimler için geçerli olsun?</div>
+                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text2);margin-right:14px;">
+                  <input type="radio" name="oto-hatirlat-kapsam" value="secili" onchange="otoHatirlatAyarGuncelle()" style="cursor:pointer;">
+                  Seçili kullanıcılar
+                </label>
+                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text2);">
+                  <input type="radio" name="oto-hatirlat-kapsam" value="hepsi" onchange="otoHatirlatAyarGuncelle()" style="cursor:pointer;">
+                  Tüm kullanıcılar
+                </label>
+                <div id="oto-hatirlat-kullanicilar" style="margin-top:7px;display:flex;flex-direction:column;gap:4px;"></div>
+                <div id="oto-hatirlat-kapsam-not" style="font-size:11px;color:var(--text3);margin-top:5px;"></div>
+              </div>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px;">
                 <input type="checkbox" id="oto-hatirlat-mesai" onchange="otoHatirlatAyarGuncelle()" style="width:16px;height:16px;cursor:pointer;">
                 <span style="font-size:12px;color:var(--text2);">Yalnızca mesai saatlerinde gönder</span>
@@ -14236,6 +14250,13 @@ function otoHatirlatCfg() {
   if (a.araliklar.length > 6) a.araliklar = a.araliklar.slice(0, 6);
   a.maksSayi = a.araliklar.length;              // maks = takvimdeki satır sayısı
   if (typeof a.otoGonder !== 'boolean') a.otoGonder = false;   // gerçekten otomatik gönder
+  // Otomatik gönderim KİMLER için geçerli: 'secili' (varsayılan, liste boşsa kimse) | 'hepsi'.
+  // Varsayılanı 'secili' tutmak bilinçli: admin anahtarı açtığında tüm ekibin kutusundan
+  // habersiz mail gitmesin — önce kendinde dener, sonra kullanıcı ekler.
+  if (a.otoGonderKapsam !== 'hepsi' && a.otoGonderKapsam !== 'secili') a.otoGonderKapsam = 'secili';
+  if (!Array.isArray(a.otoGonderKullanicilar)) a.otoGonderKullanicilar = [];
+  a.otoGonderKullanicilar = a.otoGonderKullanicilar
+    .map(e => String(e || '').trim().toLowerCase()).filter(Boolean);
   if (typeof a.mesaiSaatleri !== 'boolean') a.mesaiSaatleri = true;
   if (!(a.mesaiBas >= 0 && a.mesaiBas <= 23)) a.mesaiBas = 9;
   if (!(a.mesaiBit >= 1 && a.mesaiBit <= 24)) a.mesaiBit = 18;
@@ -14252,6 +14273,18 @@ function otoHatirlatSureFmt(saat) {
   const s = parseInt(saat, 10) || 0;
   if (s >= 24 && s % 24 === 0) return (s / 24) + ' gün';
   return s + ' saat';
+}
+
+// Otomatik gönderim BU kullanıcı için geçerli mi? (admin'in kapsam seçimi)
+// Kapsam dışındaki kullanıcıda hiçbir şey değişmez: hatırlatmalar Panel'de listelenir,
+// gönderimi kendisi tek tıkla yapar.
+function otoHatirlatOtoGonderBendeMi(cfg) {
+  cfg = cfg || otoHatirlatCfg();
+  if (!cfg.aktif || !cfg.otoGonder) return false;
+  if (cfg.otoGonderKapsam === 'hepsi') return true;
+  const mail = String(aktifKullanici?.email || '').toLowerCase();
+  if (!mail) return false;
+  return (cfg.otoGonderKullanicilar || []).includes(mail);
 }
 
 // Otomatik gönderim yalnız mesai içinde (hafta içi, seçilen saat aralığı).
@@ -14317,7 +14350,7 @@ const _otoHatirlatAliciUyarilan = new Set();  // alıcısı olmayan talepler iç
 
 async function otoHatirlatOtoGonderDene() {
   const cfg = otoHatirlatCfg();
-  if (!cfg.aktif || !cfg.otoGonder) return;
+  if (!otoHatirlatOtoGonderBendeMi(cfg)) return;   // aktif + otoGonder + kapsam kontrolü
   if (_otoHatirlatCalisiyor) return;
   if (Date.now() - _otoHatirlatSonTur < 55000) return;         // en sık dakikada bir tur
   if (!(aktifKullanici?.msAccount && msGraphToken)) return;     // sessiz gönderim ancak Graph ile olur
@@ -14405,7 +14438,7 @@ function hatirlatmaUyarilariGoster() {
 
   const cfg = otoHatirlatCfg();
   const simdi = Date.now();
-  const otoModu = !!cfg.otoGonder;
+  const otoModu = otoHatirlatOtoGonderBendeMi(cfg);   // kapsam dışındaki kullanıcıda eski (elle) akış
   icerik.innerHTML = adaylar.map(({ t, idx, sayi }) => {
     const gun = t.musteriTeklifTarih
       ? Math.floor((simdi - new Date(t.musteriTeklifTarih).getTime()) / 86400000) : null;
@@ -14517,23 +14550,81 @@ function otoHatirlatCfgKaydet(cfg) {
   hatirlatmaUyarilariGoster();
 }
 
+// Otomatik gönderimin geçerli olabileceği kullanıcılar (admin + satıcı, pasif olmayan)
+function otoHatirlatKapsamAdaylari() {
+  return KULLANICILAR.filter(k => k.durum !== 'pasif'
+    && (k.rol === 'admin' || k.rol === 'satici') && (k.email || '').trim());
+}
+
+function otoHatirlatKullanicilariCiz() {
+  const kap = document.getElementById('oto-hatirlat-kullanicilar');
+  const not = document.getElementById('oto-hatirlat-kapsam-not');
+  if (!kap) return;
+  const cfg = otoHatirlatCfg();
+  document.querySelectorAll('input[name="oto-hatirlat-kapsam"]').forEach(r => { r.checked = (r.value === cfg.otoGonderKapsam); });
+
+  if (cfg.otoGonderKapsam === 'hepsi') {
+    kap.innerHTML = '';
+    if (not) not.innerHTML = '<span style="color:var(--amber);">⚠ Tüm satıcıların kutusundan otomatik mail gidecek — ekibi bilgilendirin.</span>';
+    return;
+  }
+  const secili = cfg.otoGonderKullanicilar || [];
+  const adaylar = otoHatirlatKapsamAdaylari();
+  kap.innerHTML = adaylar.length ? adaylar.map(k => {
+    const e = String(k.email).toLowerCase();
+    return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:5px 9px;">'
+      + '<input type="checkbox" data-hatirlat-kul="' + e + '"' + (secili.includes(e) ? ' checked' : '')
+      + ' onchange="otoHatirlatKullaniciDegisti()" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent);">'
+      + '<span style="font-weight:500;">' + (k.ad || e) + '</span>'
+      + '<span style="color:var(--text3);font-size:11px;">' + e + (k.rol === 'admin' ? ' · admin' : '') + '</span>'
+      + '</label>';
+  }).join('') : '<div style="font-size:11px;color:var(--text3);">Uygun kullanıcı yok.</div>';
+
+  if (not) {
+    not.innerHTML = secili.length
+      ? 'Otomatik gönderim <b>' + secili.length + ' kullanıcı</b> için geçerli; diğerleri hatırlatmayı Panel\'den elle gönderir.'
+      : '<span style="color:var(--amber);">Hiç kullanıcı seçilmedi — otomatik gönderim kimse için çalışmaz (herkes elle gönderir).</span>';
+  }
+}
+
+function otoHatirlatKullaniciDegisti() {
+  const cfg = otoHatirlatCfg();
+  const secili = [];
+  document.querySelectorAll('[data-hatirlat-kul]').forEach(cb => { if (cb.checked) secili.push(cb.dataset.hatirlatKul); });
+  cfg.otoGonderKullanicilar = secili;
+  otoHatirlatCfgKaydet(cfg);
+}
+
 function otoHatirlatAyarGuncelle() {
   const cfg = otoHatirlatCfg();
   const oto  = document.getElementById('oto-hatirlat-otogonder');
   const mes  = document.getElementById('oto-hatirlat-mesai');
   const bas  = parseInt(document.getElementById('oto-hatirlat-mesai-bas')?.value, 10);
   const bit  = parseInt(document.getElementById('oto-hatirlat-mesai-bit')?.value, 10);
+  const kapsamEl = document.querySelector('input[name="oto-hatirlat-kapsam"]:checked');
   const oncekiOto = cfg.otoGonder;
   if (oto) cfg.otoGonder = !!oto.checked;
+  if (kapsamEl) cfg.otoGonderKapsam = kapsamEl.value === 'hepsi' ? 'hepsi' : 'secili';
   if (mes) cfg.mesaiSaatleri = !!mes.checked;
   if (bas >= 0 && bas <= 23) cfg.mesaiBas = bas;
   if (bit >= 1 && bit <= 24) cfg.mesaiBit = bit;
   if (cfg.mesaiBit <= cfg.mesaiBas) cfg.mesaiBit = Math.min(cfg.mesaiBas + 1, 24);
+
+  // Anahtar YENİ açıldıysa ve hiç kimse seçili değilse: güvenli varsayılan olarak
+  // yalnız ayarı açan kişiyi ekle (tüm ekibin kutusu habersiz devreye girmesin).
+  if (cfg.otoGonder && !oncekiOto && cfg.otoGonderKapsam === 'secili' && !cfg.otoGonderKullanicilar.length) {
+    const ben = String(aktifKullanici?.email || '').toLowerCase();
+    if (ben) cfg.otoGonderKullanicilar = [ben];
+  }
+
   otoHatirlatCfgKaydet(cfg);
   if (cfg.otoGonder && !oncekiOto) {
-    showToast(aktifKullanici?.msAccount && msGraphToken
-      ? '🤖 Otomatik gönderim AÇIK — süresi gelen hatırlatmalar sizin Outlook\'unuzdan otomatik gidecek.'
-      : '🤖 Otomatik gönderim AÇIK — ancak Microsoft 365 bağlı değil; bağlanana kadar mail gönderilmez.');
+    const bende = otoHatirlatOtoGonderBendeMi(cfg);
+    showToast(!bende
+      ? '🤖 Otomatik gönderim AÇIK — kapsamda olan kullanıcılar için çalışacak (siz kapsamda değilsiniz).'
+      : (aktifKullanici?.msAccount && msGraphToken
+          ? '🤖 Otomatik gönderim AÇIK — süresi gelen hatırlatmalar sizin Outlook\'unuzdan otomatik gidecek.'
+          : '🤖 Otomatik gönderim AÇIK — ancak Microsoft 365 bağlı değil; bağlanana kadar mail gönderilmez.'));
   }
 }
 
@@ -14550,6 +14641,7 @@ function otoHatirlatDurumGuncelle() {
   if (otoEl) otoEl.checked = !!cfg.otoGonder;
   const otoPanel = document.getElementById('oto-hatirlat-otogonder-panel');
   if (otoPanel) otoPanel.style.display = cfg.otoGonder ? 'block' : 'none';
+  otoHatirlatKullanicilariCiz();
   const mesEl = document.getElementById('oto-hatirlat-mesai');
   if (mesEl) mesEl.checked = !!cfg.mesaiSaatleri;
   const saatSecenek = (sel, deger, min, maks) => {
@@ -14571,11 +14663,15 @@ function otoHatirlatDurumGuncelle() {
     if (!cfg.aktif) { durum.textContent = ''; return; }
     const bekleyen = otoHatirlatAdaylari().length;
     const takvim = cfg.araliklar.map(otoHatirlatSureFmt).join(' → ');
+    const kapsamYazi = cfg.otoGonderKapsam === 'hepsi'
+      ? 'tüm kullanıcılar'
+      : (cfg.otoGonderKullanicilar.length + ' kullanıcı');
     durum.innerHTML = 'Takvim: <b>' + takvim + '</b> &nbsp;·&nbsp; Hatırlatma zamanı gelen: <b>' + bekleyen + '</b>'
       + (cfg.otoGonder
-          ? (aktifKullanici?.msAccount && msGraphToken
-              ? ' &nbsp;·&nbsp; <span style="color:var(--green);">🤖 otomatik gönderim etkin</span>'
-              : ' &nbsp;·&nbsp; <span style="color:var(--amber);">🤖 otomatik gönderim açık ama Microsoft 365 bağlı değil</span>')
+          ? ' &nbsp;·&nbsp; <span style="color:' + (otoHatirlatOtoGonderBendeMi(cfg) && !(aktifKullanici?.msAccount && msGraphToken) ? 'var(--amber)' : 'var(--green)') + ';">🤖 otomatik gönderim: ' + kapsamYazi + '</span>'
+            + (otoHatirlatOtoGonderBendeMi(cfg)
+                ? (aktifKullanici?.msAccount && msGraphToken ? ' (siz dahil)' : ' (siz dahil — Microsoft 365 bağlı değil, mail gitmez)')
+                : ' (siz kapsam dışısınız — elle gönderirsiniz)')
           : ' &nbsp;·&nbsp; gönderim elle onaylı');
   }
 }
