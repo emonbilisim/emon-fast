@@ -2064,35 +2064,47 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
           <div style="min-width:0;">
             <div style="font-size:13px;font-weight:500;">📧 Otomatik Teklif Hatırlatma</div>
-            <div style="font-size:12px;color:var(--text3);">Müşteriye teklif gönderildikten sonra yanıt gelmezse, hatırlatma <b>zamanı gelen teklifleri</b> Panel'de listeler. Gönderim tek tıkla, kendi Outlook'unuzdan.</div>
+            <div style="font-size:12px;color:var(--text3);">Müşteriye teklif gönderildikten sonra yanıt gelmezse hatırlatma yapar. Her hatırlatma için <b>ayrı bekleme süresi</b> tanımlayabilir, dilerseniz gönderimi <b>tamamen otomatiğe</b> alabilirsiniz.</div>
           </div>
           <label style="display:inline-flex;align-items:center;cursor:pointer;flex-shrink:0;">
             <input type="checkbox" id="oto-hatirlat-aktif" onchange="otoHatirlatToggle(this)" style="width:18px;height:18px;cursor:pointer;">
           </label>
         </div>
         <div id="oto-hatirlat-panel" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
-            <label style="font-size:12px;color:var(--text3);display:inline-flex;align-items:center;gap:6px;">Teklif sonrası:
-              <select id="oto-hatirlat-gecikme" onchange="otoHatirlatAyarGuncelle()" style="font-size:12px;padding:4px 6px;">
-                <option value="4">4 saat</option>
-                <option value="8">8 saat</option>
-                <option value="12">12 saat</option>
-                <option value="24">24 saat</option>
-                <option value="48">48 saat</option>
-                <option value="72">72 saat</option>
-              </select>
-            </label>
-            <label style="font-size:12px;color:var(--text3);display:inline-flex;align-items:center;gap:6px;">En çok:
-              <select id="oto-hatirlat-maks" onchange="otoHatirlatAyarGuncelle()" style="font-size:12px;padding:4px 6px;">
-                <option value="1">1 kez</option>
-                <option value="2">2 kez</option>
-                <option value="3">3 kez</option>
-                <option value="5">5 kez</option>
-              </select>
-            </label>
-            <span id="oto-hatirlat-durum" style="font-size:11px;color:var(--text3);"></span>
+
+          <!-- Hatırlatma takvimi: her tur için ayrı aralık -->
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:6px;">Hatırlatma takvimi</div>
+          <div id="oto-hatirlat-araliklar" style="display:flex;flex-direction:column;gap:6px;"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="otoHatirlatAralikEkle()" style="font-size:11px;">+ Hatırlatma ekle</button>
+            <span style="font-size:11px;color:var(--text3);">Her satır bir önceki adımdan sonra ne kadar bekleneceğini belirtir. En çok 6 hatırlatma.</span>
           </div>
-          <div style="font-size:11px;color:var(--text3);margin-top:8px;">ℹ Süre dolunca her tekrar aynı aralıkla gelir (kabul/red gelene dek, en çok seçilen sayı kadar). Yalnızca uygulama açıkken çalışır; gönderim manuel onaylıdır (tek tık).</div>
+
+          <!-- Gerçekten otomatik gönderim -->
+          <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="oto-hatirlat-otogonder" onchange="otoHatirlatAyarGuncelle()" style="width:16px;height:16px;margin-top:2px;cursor:pointer;flex-shrink:0;">
+              <span style="font-size:12px;color:var(--text2);"><b>Hatırlatma mailini sistem otomatik göndersin</b> (onay penceresi açılmaz)
+                <span style="display:block;color:var(--text3);font-size:11px;margin-top:2px;">Kapalıyken yalnızca Panel'de listelenir, gönderimi siz onaylarsınız.</span></span>
+            </label>
+            <div id="oto-hatirlat-otogonder-panel" style="display:none;margin-top:10px;padding-left:24px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px;">
+                <input type="checkbox" id="oto-hatirlat-mesai" onchange="otoHatirlatAyarGuncelle()" style="width:16px;height:16px;cursor:pointer;">
+                <span style="font-size:12px;color:var(--text2);">Yalnızca mesai saatlerinde gönder</span>
+                <select id="oto-hatirlat-mesai-bas" onchange="otoHatirlatAyarGuncelle()" style="font-size:12px;padding:3px 6px;"></select>
+                <span style="font-size:12px;color:var(--text3);">–</span>
+                <select id="oto-hatirlat-mesai-bit" onchange="otoHatirlatAyarGuncelle()" style="font-size:12px;padding:3px 6px;"></select>
+                <span style="font-size:11px;color:var(--text3);">(hafta içi)</span>
+              </label>
+              <div style="font-size:11px;color:var(--amber);line-height:1.6;">
+                ⚠ Mail <b>sizin Outlook hesabınızdan</b>, siz onaylamadan gider. Yalnızca <b>size ait</b> teklifler için çalışır;
+                aynı teklife iki cihazdan gönderilmesini sunucu kilidi engeller. Tur başına en çok 3 mail gönderilir.
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;font-size:11px;color:var(--text3);" id="oto-hatirlat-durum"></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px;">ℹ Kabul/red gelince hatırlatma durur. Yalnızca uygulama açıkken ve Microsoft 365 bağlıyken çalışır (7/24 için backend gerekir).</div>
         </div>
       </div>
     </div>
@@ -14038,10 +14050,7 @@ async function teklifHatirlatGonder(idx) {
     + urunler.map((u,i) => (i+1)+'. '+u.aciklama+' - '+u.adet+' '+u.birim).join('\n')
     + '\n\nSaygilarimizla,\n' + (iz.ad||'') + '\n' + (iz.firma||AYARLAR.sirket||'');
   window.open('mailto:' + mail + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(bodyText));
-  t.teklifSonHatirlatma = new Date().toISOString();
-  t.hatirlatmaSayisi = (t.hatirlatmaSayisi || 0) + 1;
-  veriKaydet();
-  if (typeof hatirlatmaUyarilariGoster === 'function') hatirlatmaUyarilariGoster();
+  teklifHatirlatSonrasi(t, mail, false);
   showToast('Hatirlatma maili hazirlandi.');
 }
 
@@ -14058,12 +14067,33 @@ async function teklifHatirlatGonderEt() {
   const gecersiz = [toMail, ...ccList].filter(a => !epRe.test(a));
   if (gecersiz.length) { showToast('⚠ Geçersiz e-posta: ' + gecersiz.join(', ')); return; }
 
+  const _gonderBtn = document.querySelector('#modal-teklifMailOnay .btn-primary');
+  if (_gonderBtn) { if (_gonderBtn.disabled) return; _gonderBtn.disabled = true; _gonderBtn.textContent = '⏳ Gönderiliyor...'; }
+  try {
+    const s = await teklifHatirlatMailiGonder(t, toMail, ccList);
+    if (s.ok) {
+      teklifHatirlatSonrasi(t, toMail, false);
+      renderMusteriTeklifleri();
+      closeModal('teklifMailOnay');
+      const ccNot = ccList.length ? ' (+' + ccList.length + ' CC)' : '';
+      showToast('Hatırlatma maili ' + toMail + ' adresine gönderildi!' + ccNot);
+      return;
+    }
+    showToast('⚠ Hatırlatma gönderilemedi' + (s.status ? ' (Graph ' + s.status + ')' : ': ' + (s.hata || 'bağlantı hatası')) + '. Tekrar deneyin.');
+  } finally {
+    if (_gonderBtn) { _gonderBtn.disabled = false; _gonderBtn.textContent = '📨 Gönder'; }
+  }
+}
+
+// Hatırlatma mailini Graph ile gönderir — manuel onay pop-up'ı ve OTOMATİK gönderim
+// ortak kullanır (gövde tek yerde üretilsin; ikisi ayrışıp farklı mail gitmesin).
+// Dönüş: { ok, status?, hata? }. Durum güncellemesi çağırana ait (teklifHatirlatSonrasi).
+async function teklifHatirlatMailiGonder(t, toMail, ccList) {
+  ccList = Array.isArray(ccList) ? ccList : [];
   const m = MUSTERILER.find(x => x.firma === t.musteri);
   const yetkili = teklifYetkiliBul(t);   // teklifi isteyen kişiye hitaben (yoksa ilk yetkili)
   const adSoyad = yetkili?.ad || 'Ilgili';
 
-  const _gonderBtn = document.querySelector('#modal-teklifMailOnay .btn-primary');
-  if (_gonderBtn) { if (_gonderBtn.disabled) return; _gonderBtn.disabled = true; _gonderBtn.textContent = '⏳ Gönderiliyor...'; }
   try {
   const teklifTarih = t.musteriTeklifTarih
     ? tarihUzun(new Date(t.musteriTeklifTarih))
@@ -14153,26 +14183,35 @@ async function teklifHatirlatGonderEt() {
       saveToSentItems: true
     })
   });
-  if (resp.ok || resp.status === 202) {
-    t.teklifSonHatirlatma = new Date().toISOString();
-    t.hatirlatmaSayisi = (t.hatirlatmaSayisi || 0) + 1;  // periyodik hatırlatma sayacı (maks sınır için)
-    veriKaydet(); renderMusteriTeklifleri();
-    if (typeof hatirlatmaUyarilariGoster === 'function') hatirlatmaUyarilariGoster();
-    closeModal('teklifMailOnay');
-    const ccNot = ccList.length ? ' (+' + ccList.length + ' CC)' : '';
-    showToast('Hatırlatma maili ' + toMail + ' adresine gönderildi!' + ccNot);
-    return;
-  }
-  const err = await resp.text();
+  if (resp.ok || resp.status === 202) return { ok: true, status: resp.status };
+  const err = await resp.text().catch(() => '');
   console.error('Hatirlatma mail hata:', resp.status, err);
-  showToast('⚠ Hatırlatma gönderilemedi (Graph ' + resp.status + '). Tekrar deneyin.');
+  return { ok: false, status: resp.status };
 
   } catch (e) {
     console.error('Hatirlatma maili hatasi:', e);
-    showToast('⚠ Hatırlatma gönderilemedi: ' + (e.message || 'bağlantı hatası') + '. Tekrar deneyin.');
-  } finally {
-    if (_gonderBtn) { _gonderBtn.disabled = false; _gonderBtn.textContent = '📨 Gönder'; }
+    return { ok: false, status: 0, hata: e.message || 'bağlantı hatası' };
   }
+}
+
+// Başarılı gönderim sonrası ortak durum güncellemesi (sayaç + zaman damgası + kayıt).
+// otomatik=true ise gönderim kullanıcı onayı olmadan yapıldı → kim/ne zaman gönderdiği
+// talepte iz bırakır (ekip "bu maili kim attı?" diye sormasın).
+function teklifHatirlatSonrasi(t, toMail, otomatik) {
+  t.teklifSonHatirlatma = new Date().toISOString();
+  t.hatirlatmaSayisi = (t.hatirlatmaSayisi || 0) + 1;  // periyodik hatırlatma sayacı (maks sınır için)
+  if (!Array.isArray(t.hatirlatmaLog)) t.hatirlatmaLog = [];
+  t.hatirlatmaLog.push({
+    tarih: t.teklifSonHatirlatma,
+    sira: t.hatirlatmaSayisi,
+    alici: toMail || '',
+    kullanici: aktifKullanici?.ad || aktifKullanici?.email || '',
+    otomatik: !!otomatik,
+  });
+  if (t.hatirlatmaLog.length > 20) t.hatirlatmaLog = t.hatirlatmaLog.slice(-20);
+  delete t.otoHatirlatKilit;
+  veriKaydet();
+  if (typeof hatirlatmaUyarilariGoster === 'function') hatirlatmaUyarilariGoster();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -14187,9 +14226,43 @@ function otoHatirlatCfg() {
   if (!AYARLAR.otoHatirlat || typeof AYARLAR.otoHatirlat !== 'object') AYARLAR.otoHatirlat = {};
   const a = AYARLAR.otoHatirlat;
   if (typeof a.aktif !== 'boolean') a.aktif = false;
-  if (!(a.gecikmeSaat > 0)) a.gecikmeSaat = 24; // teklif sonrası ilk hatırlatma + tekrar aralığı (saat)
+  if (!(a.gecikmeSaat > 0)) a.gecikmeSaat = 24; // ESKİ alan — tek/sabit aralık (geriye uyum)
   if (!(a.maksSayi > 0)) a.maksSayi = 3;        // en çok kaç hatırlatma
+  // Tur başına AYRI aralık: [1. hatırlatma teklif sonrası X saat, 2. hatırlatma 1.'den Y saat, ...]
+  // Eski ayardan geçiş: sabit aralık × maks sayı kadar satır üret (davranış birebir korunur).
+  if (!Array.isArray(a.araliklar) || !a.araliklar.length || !a.araliklar.every(s => s > 0)) {
+    a.araliklar = Array.from({ length: a.maksSayi }, () => a.gecikmeSaat);
+  }
+  if (a.araliklar.length > 6) a.araliklar = a.araliklar.slice(0, 6);
+  a.maksSayi = a.araliklar.length;              // maks = takvimdeki satır sayısı
+  if (typeof a.otoGonder !== 'boolean') a.otoGonder = false;   // gerçekten otomatik gönder
+  if (typeof a.mesaiSaatleri !== 'boolean') a.mesaiSaatleri = true;
+  if (!(a.mesaiBas >= 0 && a.mesaiBas <= 23)) a.mesaiBas = 9;
+  if (!(a.mesaiBit >= 1 && a.mesaiBit <= 24)) a.mesaiBit = 18;
   return a;
+}
+
+// n. hatırlatma (0 tabanlı) için beklenecek saat
+function otoHatirlatAralik(cfg, sira) {
+  const arr = cfg.araliklar || [];
+  return arr[sira] || arr[arr.length - 1] || cfg.gecikmeSaat || 24;
+}
+
+function otoHatirlatSureFmt(saat) {
+  const s = parseInt(saat, 10) || 0;
+  if (s >= 24 && s % 24 === 0) return (s / 24) + ' gün';
+  return s + ' saat';
+}
+
+// Otomatik gönderim yalnız mesai içinde (hafta içi, seçilen saat aralığı).
+// Müşteriye gece 03:00'te hatırlatma maili gitmesin.
+function otoHatirlatMesaiIcindeMi(cfg) {
+  if (!cfg.mesaiSaatleri) return true;
+  const d = new Date();
+  const gun = d.getDay();                 // 0 Pazar, 6 Cumartesi
+  if (gun === 0 || gun === 6) return false;
+  const s = d.getHours();
+  return s >= cfg.mesaiBas && s < cfg.mesaiBit;
 }
 
 // Hatırlatma zamanı gelmiş teklifler (yalnız aktif kullanıcıya ait, açık teklifler).
@@ -14207,14 +14280,117 @@ function otoHatirlatAdaylari() {
     if (!acikTeklif.includes(t.teklifDurumu)) return; // kabul/red/revize-istendi → dur
     if (kapaliDurum.includes(t.durum)) return;
     const sayi = t.hatirlatmaSayisi || 0;
-    if (sayi >= cfg.maksSayi) return;                 // üst sınır dolduysa dur
+    if (sayi >= (cfg.araliklar || []).length) return; // takvim bitti → dur
     const referans = t.teklifSonHatirlatma || t.musteriTeklifTarih;
     if (!referans) return;
-    const dueMs = new Date(referans).getTime() + cfg.gecikmeSaat * 3600000;
+    // Bu turun kendi aralığı: 1. hatırlatma teklif tarihinden, sonrakiler bir önceki
+    // hatırlatmadan sayılır (referans zaten son hatırlatma / teklif tarihi).
+    const saat = otoHatirlatAralik(cfg, sayi);
+    const dueMs = new Date(referans).getTime() + saat * 3600000;
     if (simdi < dueMs) return;                         // süre dolmadı
-    out.push({ t, idx, sayi, dueMs });
+    out.push({ t, idx, sayi, dueMs, saat });
   });
   return out.sort((a, b) => a.dueMs - b.dueMs);
+}
+
+// Otomatik gönderim SAHİPLİK kontrolü — talepBenim admin'e "hepsi" der; otomatik
+// gönderimde bu, admin'in kutusundan BAŞKASININ tekliflerine mail atması demek olur.
+// Burada yalnızca gerçek sorumlu satıcı (sahipsiz talepte admin) kabul edilir.
+function otoHatirlatBenimMi(t) {
+  const mail = String(aktifKullanici?.email || '').toLowerCase();
+  if (t.saticiEmail) return String(t.saticiEmail).toLowerCase() === mail;
+  if (t.satici != null && t.satici !== '') return t.satici === aktifKullanici?.id;
+  return aktifKullanici?.rol === 'admin';   // sahipsiz talep → admin üstlenir
+}
+
+// ── GERÇEK OTOMATİK GÖNDERİM ───────────────────────────────────────────────
+// Süresi gelen hatırlatmayı kullanıcı onayı OLMADAN, sorumlu satıcının kendi
+// Outlook'undan gönderir. Yalnızca uygulama açık + M365 bağlıyken çalışır.
+// ÇİFT GÖNDERİM KORUMASI: mail atılmadan ÖNCE talebe kilit yazılır ve sunucuya
+// yazıldığı DOĞRULANIR (kaliciVeriKaydet false dönerse gönderim yapılmaz) —
+// çevrimdışı/ikinci cihaz aynı hatırlatmayı ikinci kez atamaz.
+let _otoHatirlatCalisiyor = false;
+let _otoHatirlatSonTur = 0;
+const OTO_HATIRLAT_TUR_MAKS = 3;          // bir turda en çok kaç mail (birikmiş kuyruk patlamasın)
+const OTO_HATIRLAT_KILIT_MS = 10 * 60000; // başka cihazın kilidi bu süre sonra bayat sayılır
+const _otoHatirlatAliciUyarilan = new Set();  // alıcısı olmayan talepler için tek seferlik uyarı
+
+async function otoHatirlatOtoGonderDene() {
+  const cfg = otoHatirlatCfg();
+  if (!cfg.aktif || !cfg.otoGonder) return;
+  if (_otoHatirlatCalisiyor) return;
+  if (Date.now() - _otoHatirlatSonTur < 55000) return;         // en sık dakikada bir tur
+  if (!(aktifKullanici?.msAccount && msGraphToken)) return;     // sessiz gönderim ancak Graph ile olur
+  if (!otoHatirlatMesaiIcindeMi(cfg)) return;
+
+  const adaylar = otoHatirlatAdaylari().filter(a => otoHatirlatBenimMi(a.t));
+  if (!adaylar.length) return;
+
+  _otoHatirlatCalisiyor = true;
+  _otoHatirlatSonTur = Date.now();
+  try {
+    for (const aday of adaylar.slice(0, OTO_HATIRLAT_TUR_MAKS)) {
+      await _otoHatirlatTekGonder(aday.t);
+    }
+  } catch (e) {
+    console.error('Otomatik hatırlatma turu hatası:', e);
+  } finally {
+    _otoHatirlatCalisiyor = false;
+  }
+}
+
+async function _otoHatirlatTekGonder(t) {
+  const kimlik = String(aktifKullanici?.email || aktifKullanici?.id || 'bilinmeyen').toLowerCase();
+
+  // Alıcı: teklifi isteyen yetkili (manuel gönderimdeki mantığın aynısı)
+  const yetkili = teklifYetkiliBul(t);
+  const toMail = (yetkili?.mail || '').trim();
+  if (!toMail) {
+    // Sessizce sonsuz denemeye girme: oturumda bir kez uyar, aday listede kalsın (elle gönderilir).
+    // Uyarı izi TALEBE yazılmaz — paylaşımlı veriye gereksiz alan eklemesin.
+    if (!_otoHatirlatAliciUyarilan.has(t.no)) {
+      _otoHatirlatAliciUyarilan.add(t.no);
+      showToast('⚠ ' + t.no + ': müşteri e-postası yok — otomatik hatırlatma gönderilemedi, Panel\'den elle gönderin.');
+    }
+    return;
+  }
+
+  // Kendi adreslerimiz CC'den çıkar (onay pop-up'ındaki davranışın aynısı)
+  const benim = [aktifKullanici?.msAccount?.username, aktifKullanici?.email]
+    .map(s => (typeof s === 'string' ? s : '').toLowerCase()).filter(Boolean);
+  const ccList = [...new Set((Array.isArray(t.cc) ? t.cc : [])
+    .map(a => (a || '').trim().toLowerCase()).filter(Boolean)
+    .filter(a => a !== toMail.toLowerCase() && !benim.includes(a)))];
+
+  // ── Kilit: aynı hatırlatmayı başka cihaz/kullanıcı gönderiyor olabilir
+  const kilit = t.otoHatirlatKilit;
+  if (kilit && kilit.kim !== kimlik && (Date.now() - new Date(kilit.ts || 0).getTime()) < OTO_HATIRLAT_KILIT_MS) return;
+  const oncekiKilit = t.otoHatirlatKilit;
+  t.otoHatirlatKilit = { kim: kimlik, ts: new Date().toISOString(), sira: (t.hatirlatmaSayisi || 0) + 1 };
+  const kilitYazildi = await kaliciVeriKaydet('Otomatik hatırlatma kilidi');
+  if (!kilitYazildi) {
+    // Sunucuya yazamadık → başka cihaz da "sıra bende" sanabilir; GÖNDERME.
+    if (oncekiKilit) t.otoHatirlatKilit = oncekiKilit; else delete t.otoHatirlatKilit;
+    console.warn('Otomatik hatırlatma: kilit sunucuya yazılamadı, gönderim ertelendi -', t.no);
+    return;
+  }
+
+  const s = await teklifHatirlatMailiGonder(t, toMail, ccList);
+  if (s.ok) {
+    teklifHatirlatSonrasi(t, toMail, true);       // sayaç + log + kilidi temizler
+    await kaliciVeriKaydet('Otomatik hatırlatma');
+    try { renderMusteriTeklifleri(); } catch {}
+    const ccNot = ccList.length ? ' (+' + ccList.length + ' CC)' : '';
+    showToast('🤖 Otomatik hatırlatma gönderildi: ' + t.no + ' → ' + toMail + ccNot
+      + ' (' + (t.hatirlatmaSayisi) + '. hatırlatma)');
+    return;
+  }
+  // Başarısız: kilidi bırak ki bir sonraki turda (ya da başka cihazda) tekrar denensin
+  delete t.otoHatirlatKilit;
+  veriKaydet();
+  console.error('Otomatik hatırlatma gönderilemedi:', t.no, s);
+  showToast('⚠ ' + t.no + ' otomatik hatırlatması gönderilemedi'
+    + (s.status ? ' (Graph ' + s.status + ')' : '') + ' — Panel\'den elle gönderebilirsiniz.');
 }
 
 // Süresi gelen teklifleri panel kartında listeler + yeni gelenlerde tek seferlik bildirir.
@@ -14229,31 +14405,46 @@ function hatirlatmaUyarilariGoster() {
 
   const cfg = otoHatirlatCfg();
   const simdi = Date.now();
+  const otoModu = !!cfg.otoGonder;
   icerik.innerHTML = adaylar.map(({ t, idx, sayi }) => {
     const gun = t.musteriTeklifTarih
       ? Math.floor((simdi - new Date(t.musteriTeklifTarih).getTime()) / 86400000) : null;
     const sure = (gun != null && gun > 0) ? gun + ' gündür yanıt yok' : 'Yanıt bekliyor';
     const sayac = sayi > 0 ? ' · ' + sayi + '/' + cfg.maksSayi + ' hatırlatıldı' : ' · ilk hatırlatma';
     const musteri = (t.musteri || '—').replace(/</g, '&lt;');
+    // Otomatik modda bu satır bende mi (benim Outlook'umdan mı gidecek)?
+    const otoBende = otoModu && otoHatirlatBenimMi(t);
+    const otoNot = otoBende
+      ? '<div style="font-size:11px;color:var(--accent2);margin-top:2px;">🤖 otomatik gönderilecek'
+        + (!(aktifKullanici?.msAccount && msGraphToken) ? ' — <span style="color:var(--amber);">Microsoft 365 bağlı değil, bekliyor</span>'
+           : (!otoHatirlatMesaiIcindeMi(cfg) ? ' — <span style="color:var(--amber);">mesai saati dışında, bekliyor</span>' : ''))
+        + '</div>'
+      : '';
     return '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.18);border-radius:8px;">'
       + '<div style="flex:1;min-width:0;">'
       + '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">#' + t.no + ' · ' + musteri + '</div>'
       + '<div style="font-size:12px;color:var(--text3);">' + sure + sayac + '</div>'
+      + otoNot
       + '</div>'
       + '<button class="btn btn-sm" onclick="talepDetayAc(' + idx + ')" style="flex-shrink:0;">Detay</button>'
-      + '<button class="btn btn-sm btn-primary" onclick="teklifHatirlatGonder(' + idx + ')" style="flex-shrink:0;">📧 Hatırlat</button>'
+      + '<button class="btn btn-sm btn-primary" onclick="teklifHatirlatGonder(' + idx + ')" style="flex-shrink:0;" title="' + (otoBende ? 'Otomatik gönderimi beklemeden şimdi gönder' : 'Hatırlatma mailini gönder') + '">📧 ' + (otoBende ? 'Şimdi' : 'Hatırlat') + '</button>'
       + '</div>';
   }).join('');
 
   // Yeni süresi gelenler için tek seferlik bildirim (sayfa fark etmeksizin 60sn'de bir çalışır).
   const yeni = adaylar.map(a => a.t.no).filter(no => !_hatirlatBildirilen.has(no));
-  if (yeni.length) {
+  if (yeni.length && !otoModu) {
     yeni.forEach(no => _hatirlatBildirilen.add(no));
     showToast('📧 ' + adaylar.length + ' teklif hatırlatma zamanı geldi — Panel\'den gönderebilirsiniz.');
+  } else if (yeni.length) {
+    yeni.forEach(no => _hatirlatBildirilen.add(no));
   }
+
+  // Otomatik gönderim açıksa turu tetikle (kendi hız sınırı + kilidi var)
+  otoHatirlatOtoGonderDene();
 }
 
-// ── Ayarlar: otomatik hatırlatma toggle + durum ──
+// ── Ayarlar: otomatik hatırlatma toggle + takvim + durum ──
 function otoHatirlatToggle(cb) {
   const cfg = otoHatirlatCfg();
   cfg.aktif = !!cb.checked;
@@ -14261,19 +14452,89 @@ function otoHatirlatToggle(cb) {
   otoHatirlatDurumGuncelle();
   hatirlatmaUyarilariGoster();
   showToast(cfg.aktif
-    ? '📧 Otomatik teklif hatırlatma: AÇIK (teklif sonrası ' + cfg.gecikmeSaat + ' saat, maks ' + cfg.maksSayi + ')'
+    ? '📧 Otomatik teklif hatırlatma: AÇIK (' + cfg.araliklar.map(otoHatirlatSureFmt).join(' → ') + ')'
     : 'Otomatik teklif hatırlatma: KAPALI');
+}
+
+// Hatırlatma takvimi satırlarını çizer: her tur için ayrı süre + birim.
+function otoHatirlatAraliklariCiz() {
+  const kap = document.getElementById('oto-hatirlat-araliklar');
+  if (!kap) return;
+  const cfg = otoHatirlatCfg();
+  kap.innerHTML = cfg.araliklar.map((saat, i) => {
+    const gunMu = saat >= 24 && saat % 24 === 0;
+    const deger = gunMu ? saat / 24 : saat;
+    const oncesi = i === 0 ? 'teklif gönderiminden' : (i + '. hatırlatmadan');
+    return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:7px 10px;">'
+      + '<span style="font-size:12px;font-weight:600;color:var(--text2);min-width:104px;">' + (i + 1) + '. hatırlatma</span>'
+      + '<span style="font-size:12px;color:var(--text3);">' + oncesi + '</span>'
+      + '<input type="number" min="1" max="365" value="' + deger + '" data-hatirlat-idx="' + i + '"'
+      + ' onchange="otoHatirlatAralikDegisti(' + i + ')" style="width:74px;font-size:12px;padding:3px 6px;text-align:right;">'
+      + '<select data-hatirlat-birim="' + i + '" onchange="otoHatirlatAralikDegisti(' + i + ')" style="font-size:12px;padding:3px 6px;">'
+      +   '<option value="saat"' + (gunMu ? '' : ' selected') + '>saat</option>'
+      +   '<option value="gun"'  + (gunMu ? ' selected' : '') + '>gün</option>'
+      + '</select>'
+      + '<span style="font-size:12px;color:var(--text3);">sonra</span>'
+      + (cfg.araliklar.length > 1
+          ? '<button class="btn btn-sm" onclick="otoHatirlatAralikSil(' + i + ')" title="Bu hatırlatmayı kaldır" style="margin-left:auto;font-size:11px;padding:2px 8px;color:var(--red);border-color:rgba(240,96,96,0.35);">🗑</button>'
+          : '')
+      + '</div>';
+  }).join('');
+}
+
+function otoHatirlatAralikDegisti(i) {
+  const cfg = otoHatirlatCfg();
+  const sayiEl  = document.querySelector('[data-hatirlat-idx="' + i + '"]');
+  const birimEl = document.querySelector('[data-hatirlat-birim="' + i + '"]');
+  const n = parseInt(sayiEl?.value, 10);
+  if (!(n > 0)) { otoHatirlatAraliklariCiz(); return; }   // geçersiz giriş → eski değere dön
+  const saat = (birimEl?.value === 'gun') ? n * 24 : n;
+  cfg.araliklar[i] = saat;
+  otoHatirlatCfgKaydet(cfg);
+}
+
+function otoHatirlatAralikEkle() {
+  const cfg = otoHatirlatCfg();
+  if (cfg.araliklar.length >= 6) { showToast('En çok 6 hatırlatma tanımlayabilirsiniz.'); return; }
+  // Yeni adım genelde bir öncekinden daha uzun beklenir → son aralığın 2 katı (en çok 7 gün)
+  const son = cfg.araliklar[cfg.araliklar.length - 1] || 24;
+  cfg.araliklar.push(Math.min(son * 2, 168));
+  otoHatirlatCfgKaydet(cfg);
+}
+
+function otoHatirlatAralikSil(i) {
+  const cfg = otoHatirlatCfg();
+  if (cfg.araliklar.length <= 1) return;
+  cfg.araliklar.splice(i, 1);
+  otoHatirlatCfgKaydet(cfg);
+}
+
+function otoHatirlatCfgKaydet(cfg) {
+  cfg.maksSayi = cfg.araliklar.length;
+  cfg.gecikmeSaat = cfg.araliklar[0];   // eski alanı da tutarlı tut (geriye uyum)
+  veriKaydet();
+  otoHatirlatDurumGuncelle();
+  hatirlatmaUyarilariGoster();
 }
 
 function otoHatirlatAyarGuncelle() {
   const cfg = otoHatirlatCfg();
-  const g = parseInt(document.getElementById('oto-hatirlat-gecikme')?.value, 10);
-  const n = parseInt(document.getElementById('oto-hatirlat-maks')?.value, 10);
-  if (g > 0) cfg.gecikmeSaat = g;
-  if (n > 0) cfg.maksSayi = n;
-  veriKaydet();
-  otoHatirlatDurumGuncelle();
-  hatirlatmaUyarilariGoster();
+  const oto  = document.getElementById('oto-hatirlat-otogonder');
+  const mes  = document.getElementById('oto-hatirlat-mesai');
+  const bas  = parseInt(document.getElementById('oto-hatirlat-mesai-bas')?.value, 10);
+  const bit  = parseInt(document.getElementById('oto-hatirlat-mesai-bit')?.value, 10);
+  const oncekiOto = cfg.otoGonder;
+  if (oto) cfg.otoGonder = !!oto.checked;
+  if (mes) cfg.mesaiSaatleri = !!mes.checked;
+  if (bas >= 0 && bas <= 23) cfg.mesaiBas = bas;
+  if (bit >= 1 && bit <= 24) cfg.mesaiBit = bit;
+  if (cfg.mesaiBit <= cfg.mesaiBas) cfg.mesaiBit = Math.min(cfg.mesaiBas + 1, 24);
+  otoHatirlatCfgKaydet(cfg);
+  if (cfg.otoGonder && !oncekiOto) {
+    showToast(aktifKullanici?.msAccount && msGraphToken
+      ? '🤖 Otomatik gönderim AÇIK — süresi gelen hatırlatmalar sizin Outlook\'unuzdan otomatik gidecek.'
+      : '🤖 Otomatik gönderim AÇIK — ancak Microsoft 365 bağlı değil; bağlanana kadar mail gönderilmez.');
+  }
 }
 
 function otoHatirlatDurumGuncelle() {
@@ -14282,14 +14543,40 @@ function otoHatirlatDurumGuncelle() {
   if (cb) cb.checked = !!cfg.aktif;
   const panel = document.getElementById('oto-hatirlat-panel');
   if (panel) panel.style.display = cfg.aktif ? 'block' : 'none';
-  const gEl = document.getElementById('oto-hatirlat-gecikme');
-  if (gEl) gEl.value = String(cfg.gecikmeSaat);
-  const nEl = document.getElementById('oto-hatirlat-maks');
-  if (nEl) nEl.value = String(cfg.maksSayi);
+
+  otoHatirlatAraliklariCiz();
+
+  const otoEl = document.getElementById('oto-hatirlat-otogonder');
+  if (otoEl) otoEl.checked = !!cfg.otoGonder;
+  const otoPanel = document.getElementById('oto-hatirlat-otogonder-panel');
+  if (otoPanel) otoPanel.style.display = cfg.otoGonder ? 'block' : 'none';
+  const mesEl = document.getElementById('oto-hatirlat-mesai');
+  if (mesEl) mesEl.checked = !!cfg.mesaiSaatleri;
+  const saatSecenek = (sel, deger, min, maks) => {
+    if (!sel) return;
+    sel.innerHTML = '';
+    for (let s = min; s <= maks; s++) {
+      const o = document.createElement('option');
+      o.value = String(s);
+      o.textContent = String(s).padStart(2, '0') + ':00';
+      if (s === deger) o.selected = true;
+      sel.appendChild(o);
+    }
+  };
+  saatSecenek(document.getElementById('oto-hatirlat-mesai-bas'), cfg.mesaiBas, 0, 23);
+  saatSecenek(document.getElementById('oto-hatirlat-mesai-bit'), cfg.mesaiBit, 1, 24);
+
   const durum = document.getElementById('oto-hatirlat-durum');
   if (durum) {
+    if (!cfg.aktif) { durum.textContent = ''; return; }
     const bekleyen = otoHatirlatAdaylari().length;
-    durum.textContent = cfg.aktif ? ('Hatırlatma zamanı gelen: ' + bekleyen) : '';
+    const takvim = cfg.araliklar.map(otoHatirlatSureFmt).join(' → ');
+    durum.innerHTML = 'Takvim: <b>' + takvim + '</b> &nbsp;·&nbsp; Hatırlatma zamanı gelen: <b>' + bekleyen + '</b>'
+      + (cfg.otoGonder
+          ? (aktifKullanici?.msAccount && msGraphToken
+              ? ' &nbsp;·&nbsp; <span style="color:var(--green);">🤖 otomatik gönderim etkin</span>'
+              : ' &nbsp;·&nbsp; <span style="color:var(--amber);">🤖 otomatik gönderim açık ama Microsoft 365 bağlı değil</span>')
+          : ' &nbsp;·&nbsp; gönderim elle onaylı');
   }
 }
 
