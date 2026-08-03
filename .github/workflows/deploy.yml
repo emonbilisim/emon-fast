@@ -874,3 +874,31 @@ jobs:
               cp "$f.bak.$ts" "$f"; nginx -t && systemctl reload nginx
               echo "GERI ALINDI: onceki nginx.conf yuklendi"
             fi
+
+      - name: WireGuard peer ekle (client6, client7)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            CONF=/etc/wireguard/wg0.conf
+            if ! command -v wg >/dev/null 2>&1; then echo "ATLANDI: wireguard kurulu degil"; exit 0; fi
+            if [ ! -f "$CONF" ]; then echo "ATLANDI: $CONF yok"; exit 0; fi
+            ts=$(date +%s); cp "$CONF" "$CONF.bak.$ts"
+            degisti=0
+            peer_ekle() {
+              AD="$1"; PUB="$2"; IP="$3"
+              if grep -qF "$PUB" "$CONF"; then echo "ZATEN-VAR: $AD ($IP)"; return; fi
+              if grep -qE "AllowedIPs[[:space:]]*=[[:space:]]*$IP/32" "$CONF"; then
+                echo "HATA: $IP zaten baska bir peer'de kullaniliyor — $AD EKLENMEDI"; return
+              fi
+              printf '\n[Peer]\n# %s\nPublicKey = %s\nAllowedIPs = %s/32\n' "$AD" "$PUB" "$IP" >> "$CONF"
+              wg set wg0 peer "$PUB" allowed-ips "$IP/32" && echo "EKLENDI (canli): $AD -> $IP" || echo "EKLENDI (yalniz conf, wg0 kapali): $AD -> $IP"
+              degisti=1
+            }
+            peer_ekle client6 "QtzXZ7bIiaLNd6VfYc/Q+vy6giiDlhNyE9dMeuOF6ws=" 10.0.0.7
+            peer_ekle client7 "ZqSev3n5bbNuXCzRdhAdX/HwXbr1/AjMT1rTa3QUGVg=" 10.0.0.8
+            [ "$degisti" = "0" ] && rm -f "$CONF.bak.$ts"
+            echo "--- wg0 peer / allowed-ips ---"
+            wg show wg0 allowed-ips 2>/dev/null || echo "(wg0 arayuzu su an kapali)"
