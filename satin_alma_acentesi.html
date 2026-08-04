@@ -7323,6 +7323,115 @@ function rfqFirmaMap() {
   return m;
 }
 
+// ── TEDARİKÇİ MAİL EŞLEŞTİRME (tam adres → kurumsal domain) ──
+// Neden: RFQ'ya yanıt veren kişi kayıtlı olmayabilir — asıl yetkili yıllık izinde olduğu
+// için yerine bir meslektaşı döndüğünde mail "tanınmayan gönderen" oluyordu: firma etiketi
+// çıkmıyor, teklif firma yerine KİŞİ adına kaydediliyor, "↩️ Cevapla" zincire bağlanamıyordu.
+// Müşteri tarafında aynı boşluk musteriDomainMap()/musteriBulByMail() ile kapatılmıştı;
+// bunlar onun tedarikçi karşılığıdır ve aynı güvenlik kurallarını kullanır.
+// NOT: _mailDomain / _GENEL_MAIL_DOMAINLERI / _kendiDomainler bu dosyada AŞAĞIDA tanımlı
+// (~18340). Aynı <script> bloğu olduğu ve bu fonksiyonlar yalnız kullanıcı etkileşiminde
+// çağrıldığı için sorun değil — sakın "tanımsız" sanıp taşımayın.
+
+// Tedarikçilerin kayıtlı maillerinden çıkarılan KURUMSAL domainler → firma.
+// Genel sağlayıcılar (gmail vb.) ve kendi domainlerimiz HARİÇ: aksi halde gmail'den gelen
+// alakasız her mail rastgele bir tedarikçiye yapışırdı.
+// Aynı domain 2+ FARKLI firmada geçiyorsa o domain eşleştirmeden ÇIKARILIR — yanlış firmaya
+// bağlamak, boş bırakmaktan kötüdür (fiyat karşılaştırması sessizce şaşar).
+function tedarikciDomainMap(firmaMap) {
+  const fm = firmaMap || rfqFirmaMap();
+  const kendi = _kendiDomainler();
+  const map = new Map();       // domain -> firma
+  const cakisan = new Set();   // 2+ firmada geçen domain
+  Object.values(fm).forEach(f => (f.mailler || []).forEach(mail => {
+    const d = _mailDomain(mail);
+    if (!d || _GENEL_MAIL_DOMAINLERI.has(d) || kendi.has(d)) return;
+    const mevcut = map.get(d);
+    if (mevcut === undefined) map.set(d, f.firma);
+    else if (mevcut !== f.firma) cakisan.add(d);
+  }));
+  cakisan.forEach(d => map.delete(d));
+  return map;
+}
+
+// Gönderen adresinden tedarikçi firmasını bul. Önce TAM adres, sonra kurumsal domain.
+// Dönüş: { firma, domainIle } — domainIle=true ise adres kayıtlı DEĞİL, yalnız domain tuttu;
+// çağıran bunu kullanıcıya göstermeli ki yanlış eşleşme gözden kaçmasın.
+function tedEslesmeBul(mail, firmaMap) {
+  const adr = (typeof mail === 'string' ? mail : '').trim().toLowerCase();
+  const bos = { firma: '', domainIle: false };
+  if (!adr) return bos;
+  const fm = firmaMap || rfqFirmaMap();
+  for (const [firma, f] of Object.entries(fm)) {
+    if ((f.mailler || []).some(m => String(m).trim().toLowerCase() === adr)) return { firma, domainIle: false };
+  }
+  const d = _mailDomain(adr);
+  if (!d) return bos;
+  const firma = tedarikciDomainMap(fm).get(d) || '';
+  return firma ? { firma, domainIle: true } : bos;
+}
+
+// Yalnız firma adı gerektiğinde kısa yol.
+function tedarikciBulByMail(mail, firmaMap) {
+  return tedEslesmeBul(mail, firmaMap).firma;
+}
+
+function _htmlKacir(s) {
+  return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+}
+
+// Domain ile eşleşen yeni kişiyi tedarikçi kartına "ek ilgili kişi" (r[7]) olarak ekle —
+// bir dahaki sefere TAM ADRES eşleşsin, domain tahminine gerek kalmasın.
+// Satıcı rolü kartı doğrudan değiştiremez (bkz. tedarikciGuncelle) → admin onayına gider.
+async function tedKisiEkleHizli(mailIdx) {
+  const mail = window._outlookMailler?.[mailIdx];
+  if (!mail) { showToast('Mail bulunamadı — listeyi yenileyip tekrar deneyin.'); return; }
+  const gonderen = String(mail.from?.emailAddress?.address || '').trim();
+  const gonderenAd = String(mail.from?.emailAddress?.name || '').trim() || gonderen;
+  if (!gonderen) { showToast('⛔ Gönderen adresi okunamadı.'); return; }
+
+  const firma = tedarikciBulByMail(gonderen, window._firmaMap || rfqFirmaMap());
+  if (!firma) { showToast('⛔ Bu adres için eşleşen tedarikçi bulunamadı.'); return; }
+
+  const idx = TEDARIKCILER.findIndex(r => (r[0] || '') === firma);
+  if (idx < 0) { showToast('⛔ "' + firma + '" tedarikçi kaydı bulunamadı.'); return; }
+
+  const adrLower = gonderen.toLowerCase();
+  const eski = TEDARIKCILER[idx];
+  const mevcutEkler = Array.isArray(eski[7]) ? eski[7] : [];
+  if ((eski[4] || '').trim().toLowerCase() === adrLower
+      || mevcutEkler.some(k => (k.mail || '').trim().toLowerCase() === adrLower)) {
+    showToast('ℹ️ ' + gonderen + ' zaten "' + firma + '" kartında kayıtlı.');
+    return;
+  }
+
+  const yeniSatir = JSON.parse(JSON.stringify(eski));
+  yeniSatir[7] = mevcutEkler.concat([{ ad: gonderenAd.toUpperCase(), tel: '', mail: gonderen }]);
+
+  if (aktifKullanici?.rol === 'satici') {
+    ONAY_BEKLEYENLER.tedarikciler.push({
+      _id: _onayYeniId(),
+      _tip: 'duzenle',
+      idx,
+      eskiSatir: JSON.parse(JSON.stringify(eski)),
+      satir: yeniSatir,
+      _onayDurumu: 'bekliyor',
+      _onayTarih: new Date().toISOString(),
+      _onayKullanici: aktifKullanici.ad,
+    });
+    onayBekleyenleriKaydet();
+    showToast('🔁 ' + gonderenAd + ' → "' + firma + '" ek kişi olarak admin onayına gönderildi.');
+    return;
+  }
+
+  TEDARIKCILER[idx] = yeniSatir;
+  kaliciVeriKaydet('Tedarikçi ek kişi (mail eşleşmesi)');
+  try { filterTedarikciler(); } catch {}
+  showToast('✅ ' + gonderenAd + ' → "' + firma + '" kartına ek kişi olarak eklendi.');
+  // Liste yeniden çizilsin: artık TAM ADRES eşleşiyor, "domain ile bağlandı" uyarısı kalkar.
+  try { await outlookTumMaillerGoster(); } catch {}
+}
+
 function rfqEslesmeSkoruHesapla(firma, urunler) {
   if (!urunler || urunler.length === 0) return 0;
   const firmaMetni = firma.urunler.join(' ').toUpperCase();
@@ -16839,8 +16948,13 @@ async function outlookTumMaillerGoster() {
         } catch {}
       }
 
-      // Hiç bulunamazsa — talep no ile geniş arama
-      if (tumMailler.length === 0 && t.no) {
+      // Talep no ile geniş arama — HER ZAMAN çalışır (eskiden yalnız hiç mail bulunamazsa).
+      // Neden: yukarıdaki tarama sadece KAYITLI adreslerden gelen maili görür. Asıl yetkili
+      // izinde olup yerine başka biri döndüyse o mail yalnız bu geniş aramada bulunur; ama
+      // "tumMailler.length === 0" koşulu, aynı RFQ'ya başka bir tedarikçi çoktan yanıt
+      // verdiğinde bu aramayı hiç tetiklemiyor → yeni kişinin maili görünmez oluyordu.
+      // Yanlış talebe bağlanma riski yok: talepNoEslesir() TAM TOKEN eşleşmesi arıyor.
+      if (t.no) {
         try {
           const resp = await fetch(
             `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$search="${encodeURIComponent(t.no)}"&$top=20&$select=id,subject,from,receivedDateTime,bodyPreview,hasAttachments,parentFolderId,internetMessageId`,
@@ -16919,10 +17033,9 @@ async function outlookTumMaillerGoster() {
       const gonderen = mail.from?.emailAddress?.address || '';
       const gonderenAd = mail.from?.emailAddress?.name || gonderen;
 
-      let eslesen = '';
-      for (const [firma, f] of Object.entries(firmaMap)) {
-        if (f.mailler.some(m => gonderen.toLowerCase() === m.toLowerCase())) { eslesen = firma; break; }
-      }
+      // Tam adres kayıtlı değilse kurumsal domain ile eşleş (izindeki yetkilinin yerine
+      // yazan yeni kişi) — domainIle=true olduğunda kartta uyarı gösterilir.
+      const { firma: eslesen, domainIle: eslesenDomainIle } = tedEslesmeBul(gonderen, firmaMap);
 
       // Tedarikçinin EN YENİ yanıt mailini talebe iliştir — bu modal kapandıktan sonra
       // da (RFQ Durumu / karşılaştırma tablosundan) aynı zincire cevap yazılabilsin.
@@ -16963,12 +17076,23 @@ async function outlookTumMaillerGoster() {
         + '<div style="flex:1;min-width:0;">'
         + '<div style="font-size:13px;font-weight:500;' + (zatenEklendi ? 'text-decoration:line-through;color:var(--text3);' : '') + '">'
         + (mail.subject||'(Konusuz)')
-        + (eslesen ? '<span class="badge badge-blue" style="font-size:10px;margin-left:4px;">'+eslesen+'</span>' : '')
+        + (eslesen ? '<span class="badge ' + (eslesenDomainIle ? 'badge-amber' : 'badge-blue') + '" style="font-size:10px;margin-left:4px;">'+eslesen+'</span>' : '')
         + (zatenEklendi ? '<span style="font-size:10px;color:var(--amber);margin-left:6px;">✓ Zaten eklendi</span>' : '')
         + '</div>'
         + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">📨 ' + gonderenAd + ' &nbsp;·&nbsp; 🕐 ' + tarih
         + (mail.hasAttachments ? ' &nbsp;·&nbsp; <span style="color:var(--accent2);">📎 Ek var</span>' : '')
         + '</div>'
+        // Adres kayıtlı değil, yalnız kurumsal domain tuttu (ör. yetkili izinde → yerine
+        // yazan kişi). Eşleşmeyi otomatik kabul ediyoruz ama SESSİZ yapmıyoruz: yanlışsa
+        // kullanıcı kutucuğu kaldırabilsin, doğruysa adresi tedarikçi kartına ekleyebilsin.
+        + (eslesenDomainIle
+            ? '<div style="font-size:11px;color:var(--amber);margin-top:3px;">⚠ Bu gönderen <b>'
+              + _htmlKacir(gonderen) + '</b> tedarikçi kartında kayıtlı değil — <b>@'
+              + _htmlKacir(_mailDomain(gonderen)) + '</b> domaini üzerinden <b>' + _htmlKacir(eslesen)
+              + '</b> firmasına bağlandı.'
+              + ' <button class="btn btn-sm" onclick="tedKisiEkleHizli(' + i + ')" style="font-size:10px;padding:1px 7px;margin-left:4px;color:var(--amber);border-color:rgba(251,191,36,0.4);">+ Kişiyi karta ekle</button>'
+              + '</div>'
+            : '')
         + '</div>'
         + (mail.hasAttachments ? '<button class="btn btn-sm" onclick="mailEkleriniGoster(' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.3);">📎 Ekler</button>' : '')
         + '<button class="btn btn-sm" onclick="mailIceriginiGoster(' + i + ')" style="font-size:11px;flex-shrink:0;">📄 Tam</button>'
@@ -17305,19 +17429,40 @@ async function _tedCevapMailIdCoz(kayit) {
 }
 
 // Kayıt yoksa tedarikçinin bu talebe ait son yanıtını gelen kutusunda ara.
-async function _tedSonYanitAra(mailAdresleri, talepNo) {
+// firma verilirse: kayıtlı adreslerde bulunamazsa talep no ile geniş arama yapılır ve
+// gönderen KURUMSAL DOMAIN üzerinden o firmaya bağlanıyorsa kabul edilir — asıl yetkili
+// izindeyken yerine yazan kişinin zincirine de "↩️ Cevapla" çalışsın.
+async function _tedSonYanitAra(mailAdresleri, talepNo, firma) {
   const noUp = String(talepNo || '').toUpperCase();
+  const noEslesir = m => !noUp
+    || ((m.subject || '') + ' ' + (m.bodyPreview || '')).toUpperCase().includes(noUp);
+  const SELECT = '&$select=id,subject,from,receivedDateTime,bodyPreview,internetMessageId';
+  const H = { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' };
+
   for (const adr of (mailAdresleri || [])) {
     try {
       const r = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$search="from:' + adr
-          + '"&$top=10&$select=id,subject,from,receivedDateTime,bodyPreview,internetMessageId',
-        { headers: { 'Authorization': 'Bearer ' + msGraphToken, 'ConsistencyLevel': 'eventual' } });
+          + '"&$top=10' + SELECT, { headers: H });
       if (!r.ok) continue;
       const d = await r.json();
-      const uygun = (d.value || []).filter(m => !noUp
-        || ((m.subject || '') + ' ' + (m.bodyPreview || '')).toUpperCase().includes(noUp));
+      const uygun = (d.value || []).filter(noEslesir);
       uygun.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
       if (uygun[0]) return uygun[0];
+    } catch {}
+  }
+
+  // Kayıtlı adreslerde yok — talep no ile ara, domain üzerinden aynı firmaya bağlananı al.
+  if (firma && noUp) {
+    try {
+      const r = await fetch(GRAPH_API + '/me/mailFolders/inbox/messages?$search="'
+          + encodeURIComponent(noUp) + '"&$top=20' + SELECT, { headers: H });
+      if (r.ok) {
+        const d = await r.json();
+        const uygun = (d.value || []).filter(m => noEslesir(m)
+          && tedarikciBulByMail(m.from?.emailAddress?.address) === firma);
+        uygun.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+        if (uygun[0]) return uygun[0];
+      }
     } catch {}
   }
   return null;
@@ -17355,10 +17500,7 @@ function tedMailCevapla(mailIdx) {
   if (!mail) { showToast('Mail bulunamadı — listeyi yenileyip tekrar deneyin.'); return; }
   const gonderen = String(mail.from?.emailAddress?.address || '').toLowerCase();
   const fm = window._firmaMap || rfqFirmaMap();
-  let firma = '';
-  for (const [f, v] of Object.entries(fm)) {
-    if ((v.mailler || []).some(m => String(m).toLowerCase() === gonderen)) { firma = f; break; }
-  }
+  const firma = tedarikciBulByMail(gonderen, fm);   // tam adres → kurumsal domain
   const t = aktifTalep();
   if (t && firma && tedCevapMailKaydet(t, firma, mail)) veriKaydet();
   _tedMailCevapModalDoldur({
@@ -17385,7 +17527,7 @@ async function tedMailCevaplaFirma(firma) {
   if (!kayit && msVar) {
     showToast('🔍 ' + firma + ' yanıtı Outlook\'ta aranıyor...');
     try { await msTokenYenile(aktifKullanici.msAccount); } catch {}
-    const m = await _tedSonYanitAra(mailler, t.no);
+    const m = await _tedSonYanitAra(mailler, t.no, firma);
     if (m) { if (tedCevapMailKaydet(t, firma, m)) veriKaydet(); kayit = t.rfqCevapMailleri[firma]; }
   }
   if (kayit) { _tedMailCevapModalDoldur(kayit, firma); return; }
@@ -19547,10 +19689,9 @@ async function seciliOutlookTeklifleriEkle() {
     if (!mail) continue;
 
     const gonderen = mail.from?.emailAddress?.address || '';
-    let eslesen = '';
-    for (const [firma, f] of Object.entries(firmaMap)) {
-      if (f.mailler.some(m => gonderen.toLowerCase() === m.toLowerCase())) { eslesen = firma; break; }
-    }
+    // Tam adres → kurumsal domain. Domain de tutmazsa teklif KİŞİ adına kaydedilir
+    // (aşağıdaki tedAdi) ve karşılaştırma tablosunda ayrı bir tedarikçi gibi görünür.
+    const eslesen = tedarikciBulByMail(gonderen, firmaMap);
 
     // Her ürün için fiyat ve para birimi oku
     const urunFiyatlari = {};
