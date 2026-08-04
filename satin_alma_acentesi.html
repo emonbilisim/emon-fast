@@ -7405,6 +7405,17 @@ async function tedKisiEkleHizli(mailIdx) {
     return;
   }
 
+  // Aynı adres için bekleyen bir talep varsa ikincisini kuyruğa ATMA — buton kartta
+  // durmaya devam ettiği (onay gelene kadar domain eşleşmesi sürüyor) için kolayca
+  // iki kez tıklanıyor ve admin aynı değişikliği iki kez onaylamak zorunda kalıyordu.
+  const bekleyenVar = (ONAY_BEKLEYENLER?.tedarikciler || []).some(k => k._tip === 'duzenle'
+    && (k.satir?.[0] || '') === firma
+    && (Array.isArray(k.satir?.[7]) ? k.satir[7] : []).some(x => (x.mail || '').trim().toLowerCase() === adrLower));
+  if (bekleyenVar) {
+    showToast('ℹ️ ' + gonderen + ' için zaten admin onayı bekleyen bir talep var.');
+    return;
+  }
+
   const yeniSatir = JSON.parse(JSON.stringify(eski));
   yeniSatir[7] = mevcutEkler.concat([{ ad: gonderenAd.toUpperCase(), tel: '', mail: gonderen }]);
 
@@ -11432,6 +11443,17 @@ function onayModalAc() {
         }
         diff.push(..._objDiff(k.eskiSatir?.[5], k.satir?.[5], TED_ODEME_LABELS));
         diff.push(..._objDiff(k.eskiSatir?.[6], k.satir?.[6], TED_KARGO_LABELS));
+        // Ek ilgili kişiler (r[7]) — YALNIZ bu alanı değiştiren talepler (ör. RFQ yanıtındaki
+        // yeni kişiyi karta ekleme) diff'te hiç görünmüyor, "Değişiklik tespit edilmedi."
+        // yazıyordu → admin onaylamaya cesaret edemiyordu. Onayı uygulayan kod satırın
+        // TAMAMINI yazdığı için veri kaybı yoktu, görünürlük eksikti.
+        if (_canon(k.eskiSatir?.[7] || []) !== _canon(k.satir?.[7] || [])) {
+          const _ekOzet = ks => ((Array.isArray(ks) ? ks : [])
+            .map(x => _htmlKacir((x.ad || '—') + (x.mail ? ' <' + x.mail + '>' : ''))).join(', ') || '—');
+          diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">Ek ilgili kişiler:</span> '
+            + '<span style="text-decoration:line-through;color:var(--red);">' + _ekOzet(k.eskiSatir?.[7]) + '</span> → '
+            + '<span style="color:var(--green);">' + _ekOzet(k.satir?.[7]) + '</span></div>');
+        }
         ozet = '<div style="font-size:13px;font-weight:600;">🔁 Değişiklik Talebi — ' + (k.satir?.[0]||'—') + '</div>'
           + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">Talep eden: ' + (k._onayKullanici||'—') + ' · ' + tarihFmt(k._onayTarih) + '</div>'
           + '<div style="margin-top:6px;">' + (diff.length ? diff.join('') : '<span style="font-size:12px;color:var(--text3);">Değişiklik tespit edilmedi.</span>') + '</div>';
