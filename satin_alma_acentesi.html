@@ -4088,15 +4088,73 @@ function tedSiparisToplamTL(tk, urunler) {
   return toplam;
 }
 
+// ── TEDARİKÇİ KONDİSYONU (ödeme + kargo) — FİRMA GENELİ ──
+// TEDARIKCILER'de bir firma birden çok satır tutar (her ürün grubu/kişi için ayrı satır).
+// Ödeme ve kargo şartı ise satırın değil FİRMANIN özelliğidir: pazarlık firmayla yapılır ve
+// maliyet motoru da firma başına TEK şart uygular. Bu yüzden okuma tek yerden yapılır
+// (tedKondisyonSatiri), yazma da firmanın tüm satırlarına yayılır (tedarikciGuncelle).
+function tedKondisyonDolu(r) {
+  const o = r?.[5] || {}, k = r?.[6] || {};
+  return !!(o.havale || o.kkKomisyonsuz || o.kkKomisyonlu || o.vadeli
+         || (k.durum && k.durum !== 'belirsiz'));
+}
+// Firmanın geçerli kondisyon satırı.
+// DİKKAT: eskiden `find(r => r[5] || r[6])` kullanılıyordu. getOdeme/getKargo HER ZAMAN nesne
+// döndürdüğü için (kargo.durum en kötü 'belirsiz') bu test daima doğruydu → hep firmanın ilk
+// satırı seçiliyordu. Sonuç: başka bir satırın kargo/ödeme şartı güncellenince maliyet hiç
+// değişmiyor, "kargo şartı hesaplaması aynı kalıyor" oluyordu.
+function tedKondisyonSatiri(firma) {
+  const satirlar = TEDARIKCILER.filter(r => r[0] === firma);
+  return satirlar.find(tedKondisyonDolu) || satirlar[0] || null;
+}
+// Kondisyon değişti mi karşılaştırması için imza
+function tedKondisyonImza(r) {
+  return JSON.stringify([r?.[5] || {}, r?.[6] || {}]);
+}
+// Firmanın kondisyonu kaynakSatir'dan FARKLI olan satır sayısı (atlaIdx hariç)
+function tedKondisyonFarkliSayisi(firma, kaynakSatir, atlaIdx) {
+  const imza = tedKondisyonImza(kaynakSatir);
+  return TEDARIKCILER.filter((r, i) => i !== atlaIdx && r[0] === firma && tedKondisyonImza(r) !== imza).length;
+}
+// Kondisyonu firmanın tüm satırlarına yayar. Referans paylaşmamak için derin kopya —
+// satırlar tek JSON blob'unda senkronlanıyor, paylaşılan nesne sonradan hepsini birden oynatır.
+function tedKondisyonYay(firma, kaynakSatir, atlaIdx) {
+  const imza = tedKondisyonImza(kaynakSatir);
+  let n = 0;
+  TEDARIKCILER.forEach((r, i) => {
+    if (i === atlaIdx || r[0] !== firma || tedKondisyonImza(r) === imza) return;
+    const kopya = r.slice();
+    kopya[5] = JSON.parse(JSON.stringify(kaynakSatir[5] || {}));
+    kopya[6] = JSON.parse(JSON.stringify(kaynakSatir[6] || {}));
+    TEDARIKCILER[i] = kopya;
+    n++;
+  });
+  return n;
+}
+
+// Kondisyonu değişen firmanın hangi taleplerini etkilediği.
+// acik    → müşteriye teklif GİTMEMİŞ ve fiyat onayında kilitlenmemiş; yeni şartla hesaplanır.
+// kilitli → gönderilmiş / onay bekliyor / onaylanmış; DEĞİŞTİRİLMEZ ama listelenir —
+//           müşteriye bildirilmiş fiyat sessizce kaymamalı.
+function tedKondisyonEtkilenenTalepler(firma) {
+  const acik = [], kilitli = [];
+  TALEPLER.forEach(t => {
+    if (!t || t.durum === 'İptal' || t.durum === 'Tamamlandı') return;
+    if (!(talepTeklifleri[t.no] || []).some(tk => tk.tedarikci === firma)) return;
+    const onayda = t.fiyatOnayDurumu === 'bekliyor' || t.fiyatOnayDurumu === 'onaylandi';
+    (crmDonulduMu(t) || onayda ? kilitli : acik).push(t);
+  });
+  return { acik, kilitli };
+}
+
 // Tedarikçi için gerçek birim maliyet: ham fiyat + kargo payı + KK komisyonu
 // siparisToplamTL: bu tedarikçinin bu talepteki toplam sipariş tutarı (TL). Bedava
 // kargo eşiği için gerekli; verilmezse (null) eşik yok sayılır, kargo her zaman yansıtılır.
 function gercekMaliyetHesapla(tk, urunSayisi, siparisToplamTL) {
   if (!tk?.tedarikci) return { kargoPayTL: 0, kkOran: 0 };
 
-  // Aynı firma birden fazla satırda olabilir — kargo/ödeme bilgisi olan ilk satırı bul
-  const tedSatirlar = TEDARIKCILER.filter(r => r[0] === tk.tedarikci);
-  const ted = tedSatirlar.find(r => r[5] || r[6]) || tedSatirlar[0];
+  // Aynı firma birden fazla satırda olabilir — kondisyon firma geneli olarak çözülür
+  const ted = tedKondisyonSatiri(tk.tedarikci);
   if (!ted) return { kargoPayTL: 0, kkOran: 0 };
 
   const odeme = ted[5] || {};
@@ -4339,6 +4397,29 @@ function tedarikciEkle() {
     return;
   }
 
+  // Kondisyon firma geneli tutulur: aynı firmanın kayıtlı şartı farklıysa ayrışmaya izin verme,
+  // yoksa maliyet motoru hangi satırı seçerse onu uygular ve fark sessizce kaybolur.
+  const _farkliSayi = tedKondisyonFarkliSayisi(yeniSatir[0], yeniSatir, -1);
+  if (_farkliSayi) {
+    const _etk = tedKondisyonEtkilenenTalepler(yeniSatir[0]);
+    const yay = confirm('"' + yeniSatir[0] + '" için kayıtlı ödeme/kargo şartı farklı.\n\n'
+      + 'Tamam = yeni girdiğiniz şartlar firmanın ' + _farkliSayi + ' satırına da uygulansın'
+      + (_etk.acik.length ? '\n   → ' + _etk.acik.length + ' açık talebin maliyeti yeni şartla hesaplanır: '
+          + _etk.acik.map(t => t.no).join(', ') : '')
+      + (_etk.kilitli.length ? '\n   → ' + _etk.kilitli.length
+          + ' talep müşteriye gitmiş/onayda, DEĞİŞMEZ: ' + _etk.kilitli.map(t => t.no).join(', ') : '')
+      + '\n\nİptal = firmanın kayıtlı şartları korunsun (yeni satır onlara uydurulur)');
+    if (yay) {
+      tedKondisyonYay(yeniSatir[0], yeniSatir, -1);
+    } else {
+      const kaynak = tedKondisyonSatiri(yeniSatir[0]);
+      if (kaynak) {
+        yeniSatir[5] = JSON.parse(JSON.stringify(kaynak[5] || {}));
+        yeniSatir[6] = JSON.parse(JSON.stringify(kaynak[6] || {}));
+      }
+    }
+  }
+
   TEDARIKCILER.unshift(yeniSatir);
   // Formu sıfırla
   ['nt-firma','nt-urun','nt-kisi','nt-tel','nt-mail','nt-not','nt-komisyon','nt-vade-gun','nt-kargo-tutar','nt-kargo-not','nt-min-kargo','nt-bedava-limit'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
@@ -4413,10 +4494,63 @@ function tedarikciGuncelle() {
     return;
   }
 
+  // ── Ödeme/kargo şartı değiştiyse: firma geneline yay + etkilenen talepleri bildir ──
+  // Sessiz olmaz: yeni şart açık taleplerin satış fiyatını değiştirir, gönderilmiş
+  // tekliflere ise BİLEREK dokunulmaz. İkisini de kullanıcıya listeleyip onay isteriz.
+  const firma      = yeniSatir[0];
+  const eskiSatir  = TEDARIKCILER[idx];
+  const yeniImza   = tedKondisyonImza(yeniSatir);
+  const kondisyonDegisti = !!eskiSatir && tedKondisyonImza(eskiSatir) !== yeniImza;
+
+  const yayilacakSayi = kondisyonDegisti ? tedKondisyonFarkliSayisi(firma, yeniSatir, idx) : 0;
+  let etkilenen = { acik: [], kilitli: [] };
+
+  if (kondisyonDegisti) {
+    etkilenen = tedKondisyonEtkilenenTalepler(firma);
+    const talepSatir = t => '   ' + t.no + ' — ' + (t.musteri || '—');
+    const bloklar = [];
+    if (yayilacakSayi) {
+      bloklar.push('• "' + firma + '" firmasının diğer ' + yayilacakSayi
+        + ' satırındaki ödeme/kargo şartı da bu değere getirilecek (şart firma geneli tutulur).');
+    }
+    if (etkilenen.acik.length) {
+      bloklar.push('• Yeni şartla YENİDEN HESAPLANACAK — ' + etkilenen.acik.length + ' açık talep:\n'
+        + etkilenen.acik.map(talepSatir).join('\n'));
+    }
+    if (etkilenen.kilitli.length) {
+      bloklar.push('• DEĞİŞTİRİLMEYECEK — teklif müşteriye gitmiş ya da fiyat onayında ('
+        + etkilenen.kilitli.length + '):\n' + etkilenen.kilitli.map(talepSatir).join('\n')
+        + '\n   Bunların fiyatını güncellemek için talebi açıp onayı yeniden açın.');
+    }
+    if (bloklar.length && !confirm('Ödeme / kargo şartı değişti.\n\n' + bloklar.join('\n\n')
+        + '\n\nDevam edilsin mi?')) return;
+  }
+
   TEDARIKCILER[idx] = yeniSatir;
+  if (kondisyonDegisti) tedKondisyonYay(firma, yeniSatir, idx);
   closeModal('duzenleTedarikci');
   filterTedarikciler();
-  showToast('Tedarikçi bilgileri güncellendi!'); kaliciVeriKaydet('Tedarikçi değişikliği');
+  kaliciVeriKaydet('Tedarikçi değişikliği');
+
+  const tazelendi = kondisyonDegisti && tedKondisyonTazele(firma, etkilenen);
+  if (!tazelendi) {
+    showToast('Tedarikçi bilgileri güncellendi!'
+      + (etkilenen.acik.length ? ' ' + etkilenen.acik.length + ' açık talep yeni şartlarla hesaplanacak.' : ''));
+  }
+}
+
+// Talep detayı ekranda AÇIKKEN şart değişirse anında yeniden hesapla — aksi halde kullanıcı
+// eski kargo payını görmeye devam ediyor, talebi kapatıp açması gerekiyordu. Kilitli
+// (gönderilmiş/onaydaki) talepler kasten atlanır: ekrandaki fiyatları oynatmayız.
+function tedKondisyonTazele(firma, etkilenen) {
+  const sayfa = document.getElementById('page-talepDetay');
+  const t = TALEPLER[aktifTalepIdx];
+  if (!sayfa?.classList.contains('active') || !t) return false;
+  if (!etkilenen.acik.some(x => x.no === t.no)) return false;
+  renderTalepTeklifleri();   // teklifleriKarsilastir + renderRfqDurumu içeride çağrılıyor
+  satisHesaplaTablosu();
+  showToast('🔄 #' + t.no + ' — "' + firma + '" yeni şartlarıyla yeniden hesaplandı.');
+  return true;
 }
 
 // TEDARİKÇİ SİL
@@ -11633,12 +11767,22 @@ async function onayTedarikciKabul(i) {
       onayBekleyenleriKaydet(); onayModalAc();
       return;
     }
+    // Kondisyon (ödeme/kargo) değiştiyse firma geneline yay ve etkilenen açık talepleri bildir —
+    // tedarikciGuncelle ile aynı kural; onay yolundan geçince kaybolmasın.
+    const _kondDegisti = tedKondisyonImza(TEDARIKCILER[hedef]) !== tedKondisyonImza(kayit.satir);
     TEDARIKCILER[hedef] = kayit.satir;
+    let _yayilan = 0, _etkAcik = 0;
+    if (_kondDegisti) {
+      _yayilan = tedKondisyonYay(kayit.satir[0], kayit.satir, hedef);
+      _etkAcik = tedKondisyonEtkilenenTalepler(kayit.satir[0]).acik.length;
+    }
     onayTombstoneEkle(kayit);
     ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
     onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
     onayModalAc();
-    showToast('✅ Değişiklik onaylandı ve uygulandı!');
+    showToast('✅ Değişiklik onaylandı ve uygulandı!'
+      + (_yayilan ? ' Şart firmanın ' + _yayilan + ' satırına daha uygulandı.' : '')
+      + (_etkAcik ? ' ' + _etkAcik + ' açık talep yeni şartlarla hesaplanacak.' : ''));
     return;
   }
 
