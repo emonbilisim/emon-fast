@@ -2678,7 +2678,7 @@
       </div>
       <div class="grid2">
         <div class="form-group"><label class="form-label">Ödeme Şekli</label>
-          <select id="ym-odeme" onchange="document.getElementById('ym-vade-wrap').style.display=this.value==='Vadeli'?'':'none'">
+          <select id="ym-odeme" onchange="var v=this.value==='Vadeli';document.getElementById('ym-vade-wrap').style.display=v?'':'none';if(!v)document.getElementById('ym-vade').value='';">
             <option value="">Seçin...</option>
             <option value="Havale">Havale</option>
             <option value="KK Komisyonsuz">KK Komisyonsuz</option>
@@ -2686,7 +2686,7 @@
             <option value="Vadeli">Vadeli</option>
           </select>
         </div>
-        <div class="form-group" id="ym-vade-wrap" style="display:none;"><label class="form-label">Vade (gün)</label><input type="number" id="ym-vade" placeholder="30"></div>
+        <div class="form-group" id="ym-vade-wrap" style="display:none;"><label class="form-label">Vade (gün)</label><input type="number" id="ym-vade" placeholder="30" min="1"></div>
       </div>
       <div class="grid2">
         <div class="form-group"><label class="form-label">Müşteri Kaydı <span style="font-size:11px;color:var(--text3);font-weight:400;">(bilgi amaçlı)</span></label>
@@ -5704,7 +5704,14 @@ function odemeBadgeMusteri(odeme, ozelSartlar) {
   return b.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px;">${b.join('')}</div>` : '—';
 }
 function toggleMfKom() { document.getElementById('mf-kkkom-oran').disabled = !document.getElementById('mf-odeme-kkkom').checked; }
-function toggleMfVade() { document.getElementById('mf-vade-gun').disabled = !document.getElementById('mf-odeme-vadeli').checked; }
+function toggleMfVade() {
+  const acik = document.getElementById('mf-odeme-vadeli').checked;
+  const gun  = document.getElementById('mf-vade-gun');
+  gun.disabled = !acik;
+  // İşaret kaldırılınca değeri de temizle: disabled input'un .value'su okunmaya devam
+  // ettiği için aksi halde kayda vadeli:false + vadeGun:'30' tutarsız çifti giriyor.
+  if (!acik) gun.value = '';
+}
 function toggleMusteriVade() {}
 
 function yetkiliEkleRow(d) {
@@ -5976,6 +5983,17 @@ async function musteriKaydet() {
     || document.getElementById('mf-odeme-kkkom')?.checked
     || document.getElementById('mf-odeme-vadeli')?.checked;
   if (!odemeSecildi) { hata.textContent='En az bir ödeme şartı seçilmesi zorunludur (Havale, KK veya Vadeli).'; hata.style.display='block'; return; }
+  // Vadeli seçildiyse GÜN ADEDİ zorunlu: vadeGun boşken kayıt her yerde "Peşin" gibi
+  // davranıyor — okuyucuların hepsi (o.vadeli && o.vadeGun) kalıbını kullanıyor. Teklifte
+  // vade farkı (musOdeme.vade30) hesaplanmıyor, müşteri kartında/listede vade "—" çıkıyor.
+  const vadeliSecili = !!document.getElementById('mf-odeme-vadeli')?.checked;
+  const vadeGun = parseInt(document.getElementById('mf-vade-gun')?.value, 10);
+  if (vadeliSecili && !(vadeGun > 0)) {
+    hata.textContent='Vadeli ödeme seçildi — vade gün adedi girilmesi zorunludur (0’dan büyük).';
+    hata.style.display='block';
+    document.getElementById('mf-vade-gun')?.focus();
+    return;
+  }
   hata.style.display='none';
   const ozelSartlar=[];
   document.querySelectorAll('#mf-ozel-list input[type=text]').forEach(inp=>{ if(inp.value.trim()) ozelSartlar.push(inp.value.trim()); });
@@ -11131,6 +11149,14 @@ async function talepKaydet() {
     if (!ymFirma || !ymYetkili) {
       ymHata.textContent = 'Firma adı ve yetkili adı zorunludur.';
       ymHata.style.display = 'block';
+      return;
+    }
+    // Vadeli seçildiyse gün adedi zorunlu — bkz. musteriKaydet'teki aynı kural.
+    if (document.getElementById('ym-odeme').value === 'Vadeli'
+        && !(parseInt(document.getElementById('ym-vade').value, 10) > 0)) {
+      ymHata.textContent = 'Vadeli ödeme seçildi — vade gün adedi girilmesi zorunludur (0’dan büyük).';
+      ymHata.style.display = 'block';
+      document.getElementById('ym-vade')?.focus();
       return;
     }
     ymHata.style.display = 'none';
