@@ -12493,6 +12493,7 @@ async function fiyatOnayTalep() {
     satisBolumunuGuncelle();
     onayBekleyenBadgeGuncelle();
     showToast('🌙 Admin away modunda — talebiniz otomatik onaylandı!');
+    otoOnayBildirimGonder(t);   // admine bilgi maili (fire-and-forget, akışı bloklamaz)
     if (t.portalTalebi) portalArsivMailiGonder(t, _portalTablo, _portalToplam);
     return;
   }
@@ -16045,6 +16046,42 @@ async function onayTalepBildirimGonder(t) {
     const ok = await graphMailHtmlGonder([to], `[Fiyat Onayı] ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
     if (!ok) showToast('⚠ Admin\'e bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
   } catch (e) { console.error('onayTalepBildirimGonder hatası:', e); }
+}
+
+// Away modunda talep OTOMATİK onaylanınca → admine bilgi maili.
+// Manuel onayda admin zaten ekranda görüyor; otomatik onayda ise fiyat admin hiç görmeden
+// müşteriye gidebiliyor. Bu mail "onay iste" değil BİLGİLENDİRME: admin dönüşte neyin
+// kendiliğinden onaylandığını görsün, gerekirse onayı geri alsın.
+async function otoOnayBildirimGonder(t) {
+  try {
+    const to = onaylayanMailiCoz();
+    if (!to) { showToast('⚠ Otomatik onay bildirimi gidemedi — Ayarlar\'da onay e-postası tanımlı değil.'); return; }
+    const oT = t.fiyatOnayTalep || {};
+    const toplamStr = oT.adminSatisData?.toplamStr || oT.toplamStr || '—';
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;color:#b9770b;">🌙 Talep Otomatik Onaylandı</h2>
+        <p style="color:#666;margin:0 0 16px;">
+          <b>Away (uzakta) modu</b> açık olduğu için bu fiyat <b>sizin onayınız beklenmeden otomatik onaylandı</b>
+          ve satıcı müşteriye teklif gönderebilir. Bu mail bilgilendirme amaçlıdır — işlem yapmanız gerekmiyor.
+        </p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${t.no || '—'}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${t.musteri || '—'}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Satıcı</td><td>${oT.satici || '—'}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylanan Toplam</td><td style="font-weight:700;color:#b9770b;">${toplamStr}</td></tr>
+          ${oT.not ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Satıcı Notu</td><td>${oT.not}</td></tr>` : ''}
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Onay Tarihi</td><td>${oT.adminTarih ? new Date(oT.adminTarih).toLocaleString('tr-TR') : '—'}</td></tr>
+        </table>
+        <p style="font-size:12px;color:#888;margin:16px 0 0;">
+          Fiyatı gözden geçirmek isterseniz talebi açıp onayı geri alabilirsiniz.
+          Otomatik onayı kapatmak için Ayarlar’dan <b>Away modunu</b> kapatın.
+        </p>
+        ${talepLinkButonuHtml(t, '🔗 Talebi İncele')}
+      </div>`;
+    const ok = await graphMailHtmlGonder([to], `[Otomatik Onay] ${t.no || ''} — ${t.musteri || ''} (away modu)`, html);
+    if (!ok) showToast('⚠ Otomatik onay bildirimi gönderilemedi — Outlook (M365) bağlı değil olabilir.');
+  } catch (e) { console.error('otoOnayBildirimGonder hatası:', e); }
 }
 
 // Admin onaylayınca → talebi gönderen satıcının e-postasına "onaylandı" maili
