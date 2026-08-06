@@ -902,6 +902,8 @@
         <div style="font-size:12px;color:var(--text3);" id="td-alt"></div>
       </div>
       <div id="td-durum-badge"></div>
+      <button class="btn btn-sm" id="btn-karsilanamadi" onclick="karsilanamadiAc()" style="display:none;color:var(--red);border-color:rgba(240,96,96,0.3);"
+        title="Ürün tedarik edilemiyorsa: müşteriye bilgilendirme maili gönder ve talebi arşive al">🚫 Karşılanamadı</button>
     </div>
 
     <!-- Talep özeti -->
@@ -1317,6 +1319,65 @@
     </div>
   </div>
 
+  <!-- TALEP KARŞILANAMADI — müşteriye bilgi maili + arşive alma -->
+  <div class="modal-overlay" id="modal-karsilanamadi">
+    <div class="modal" style="width:min(92vw,600px);max-height:90vh;overflow-y:auto;">
+      <div class="modal-title">🚫 Talep Karşılanamadı</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;" id="kar-talep-bilgi"></div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+        Müşteriye <b>tedarik edilemediğine dair bilgilendirme maili</b> gönderilir ve talep
+        <b>“Karşılanamadı”</b> statüsüyle arşive alınır. Açık talep listelerinden çıkar.
+      </div>
+
+      <div id="kar-gonderildi-uyari" style="display:none;font-size:12px;color:var(--amber);padding:8px 10px;background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.25);border-radius:6px;margin-bottom:14px;">
+        ⚠ Bu talep için müşteriye <b>zaten teklif gönderilmiş</b>. Kapatmadan önce fiyat verdiğiniz teklifin geri çekildiğini müşterinin anlayacağından emin olun.
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Karşılanamama Nedeni <span style="color:var(--red);">*</span>
+          <span style="font-size:11px;color:var(--text3);font-weight:400;">(iç kayıt — müşteriye gitmez)</span></label>
+        <select id="kar-neden">
+          <option value="">Seçin...</option>
+          <option value="Ürün tedarik edilemiyor">Ürün tedarik edilemiyor</option>
+          <option value="Tedarikçilerden fiyat gelmedi">Tedarikçilerden fiyat gelmedi</option>
+          <option value="Stok yok / temin süresi belirsiz">Stok yok / temin süresi belirsiz</option>
+          <option value="Ürün üretimden kalktı">Ürün üretimden kalktı</option>
+          <option value="Termine yetişmiyor">Termine yetişmiyor</option>
+          <option value="Fiyat rekabetçi değil">Fiyat rekabetçi değil</option>
+          <option value="Diğer">Diğer</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">İç Not <span style="font-size:11px;color:var(--text3);font-weight:400;">(isteğe bağlı — yalnız bizde kalır)</span></label>
+        <input type="text" id="kar-ic-not" placeholder="örn. HP tarafında EOL, muadili de yok">
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:10px;border:1px solid var(--border2);border-radius:var(--radius);margin-bottom:14px;">
+        <input type="checkbox" id="kar-mail-cb" checked style="accent-color:var(--accent);width:15px;height:15px;" onchange="karsilanamadiMailToggle()">
+        📧 Müşteriye bilgilendirme maili gönder
+      </label>
+
+      <div id="kar-mail-alan">
+        <div class="form-group">
+          <label class="form-label">Alıcı <span style="font-size:11px;color:var(--text3);font-weight:400;">(<span id="kar-alici-ad">İlgili</span> adına)</span></label>
+          <input type="email" id="kar-mail-to" placeholder="musteri@firma.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Müşteriye Ek Cümle <span style="font-size:11px;color:var(--text3);font-weight:400;">(isteğe bağlı — mailde görünür)</span></label>
+          <input type="text" id="kar-musteri-not" placeholder="örn. Muadil bir ürün için görüşmek isterseniz memnuniyetle destek oluruz.">
+        </div>
+      </div>
+
+      <div id="kar-hata" style="display:none;color:var(--red);font-size:12px;padding:8px;background:rgba(240,96,96,0.1);border-radius:6px;margin-bottom:8px;"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('karsilanamadi')">Vazgeç</button>
+        <button class="btn btn-primary" id="kar-onay-btn" onclick="karsilanamadiOnayla()"
+          style="background:var(--red);border-color:var(--red);">🚫 Karşılanamadı Olarak Kapat</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-siparisOnayla">
     <div class="modal" style="width:min(90vw,640px);max-height:90vh;overflow-y:auto;">
       <div class="modal-title">✅ Siparişi Onayla</div>
@@ -1337,6 +1398,7 @@
         <option value="">Tüm Kapanan</option>
         <option value="Tamamlandı">✅ Tamamlandı</option>
         <option value="red">❌ Reddedildi</option>
+        <option value="Karşılanamadı">📵 Karşılanamadı</option>
         <option value="İptal">🚫 İptal</option>
       </select>
       <select id="arsiv-sure-filter" onchange="renderArsiv()" style="padding:8px 12px;font-size:13px;">
@@ -1349,7 +1411,7 @@
     </div>
 
     <!-- Özet kartlar -->
-    <div class="grid3" style="margin-bottom:20px;" id="arsiv-ozet-kartlar">
+    <div class="grid4" style="margin-bottom:20px;" id="arsiv-ozet-kartlar">
       <div style="background:rgba(62,207,142,0.08);border:1px solid rgba(62,207,142,0.25);border-radius:var(--radius);padding:14px;">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Tamamlanan</div>
         <div style="font-size:24px;font-weight:700;color:var(--green);" id="arsiv-k-tamamlandi">—</div>
@@ -1357,6 +1419,10 @@
       <div style="background:rgba(240,96,96,0.08);border:1px solid rgba(240,96,96,0.25);border-radius:var(--radius);padding:14px;">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Reddedilen Teklif</div>
         <div style="font-size:24px;font-weight:700;color:var(--red);" id="arsiv-k-red">—</div>
+      </div>
+      <div style="background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.25);border-radius:var(--radius);padding:14px;">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Karşılanamayan</div>
+        <div style="font-size:24px;font-weight:700;color:var(--amber);" id="arsiv-k-karsilanamadi">—</div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">İptal Edilen</div>
@@ -4139,7 +4205,7 @@ function tedKondisyonYay(firma, kaynakSatir, atlaIdx) {
 function tedKondisyonEtkilenenTalepler(firma) {
   const acik = [], kilitli = [];
   TALEPLER.forEach(t => {
-    if (!t || t.durum === 'İptal' || t.durum === 'Tamamlandı') return;
+    if (!t || talepKapaliMi(t)) return;
     if (!(talepTeklifleri[t.no] || []).some(tk => tk.tedarikci === firma)) return;
     const onayda = t.fiyatOnayDurumu === 'bekliyor' || t.fiyatOnayDurumu === 'onaylandi';
     (crmDonulduMu(t) || onayda ? kilitli : acik).push(t);
@@ -6975,9 +7041,16 @@ function taleplerDurumMigrate() {
 }
 
 function durumTalepBadge(d) {
-  const m = { 'Yeni':'badge-red','RFQ Gönderildi':'badge-amber','Teklifler Bekleniyor':'badge-blue','Teklif Hazır':'badge-green','Müşteriye İletildi':'badge-purple','Sipariş Verildi':'badge-blue','Tamamlandı':'badge-gray' };
+  const m = { 'Yeni':'badge-red','RFQ Gönderildi':'badge-amber','Teklifler Bekleniyor':'badge-blue','Teklif Hazır':'badge-green','Müşteriye İletildi':'badge-purple','Sipariş Verildi':'badge-blue','Tamamlandı':'badge-gray','Karşılanamadı':'badge-amber' };
   return `<span class="badge ${m[d]||'badge-gray'}">${d}</span>`;
 }
+
+// Süreci kapanmış talep statüleri — açık talep listelerinden, hatırlatmalardan ve
+// panel sayaçlarından düşerler, yalnız Arşiv'de görünürler.
+// ('Reddedildi' eski kayıtlar için korunuyor; yeni akış teklif reddini teklifDurumu='red'
+//  ile işaretliyor.)
+const TALEP_KAPALI_DURUMLAR = ['Tamamlandı','İptal','Reddedildi','Karşılanamadı'];
+function talepKapaliMi(t) { return !!t && TALEP_KAPALI_DURUMLAR.includes(t.durum); }
 function talepTarihFmt(iso) {
   if (!iso) return '—';
   const d = new Date(iso), bugun = new Date();
@@ -7071,11 +7144,13 @@ function renderTalepler() {
     if (!t.sonTeklifTarih) return Infinity;
     return new Date(t.sonTeklifTarih+'T'+(t.sonTeklifSaat||'17:00')) - new Date();
   };
-  const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','İptal'];
+  const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','Karşılanamadı','İptal'];
 
   // Satıcı izolasyonu + kapanmış işleri ele: Tamamlandı talepler yalnızca Arşiv'de gösterilir.
   // Müşteriye teklif gönderilen talepler yalnızca "Teklifler" kısmında görünür (burada gizlenir).
-  const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı' && !t.musteriTeklifGonderildi);
+  const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı'
+    && t.durum !== 'Karşılanamadı'   // karşılanamayan talep arşive düşer, açık listede durmaz
+    && !t.musteriTeklifGonderildi);
   const siraliTalepler = [...gorunurTalepler].sort((a,b) => {
     if (srt === 'stz') {
       const fa = sttFarki(a), fb = sttFarki(b);
@@ -7294,6 +7369,7 @@ function talepDetayAc(idx) {
   document.getElementById('td-baslik').innerHTML = `${talepNoEtiket(t)} — ${String(t.urun||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}`;
   document.getElementById('td-alt').textContent = `${t.musteri} · ${t.miktar||''} · Oluşturma: ${talepTarihFmt(t.tarih)}`;
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(t.durum);
+  karsilanamadiButonGuncelle(t);
 
   // Özet
   document.getElementById('td-musteri').textContent = t.musteri;
@@ -7434,6 +7510,15 @@ function talepDetayAc(idx) {
 }
 
 function renderWorkflow(mevcutDurum) {
+  // Kapanan statüler adım çizelgesinde yer almaz — aksi halde `?? 0` yüzünden "Yeni"
+  // aktifmiş gibi görünür ve kapanmış talep süreç başındaymış sanılır.
+  if (['İptal','Reddedildi','Karşılanamadı'].includes(mevcutDurum)) {
+    document.getElementById('td-workflow').innerHTML =
+      '<div style="padding:10px 12px;border-radius:var(--radius);background:rgba(245,166,35,0.1);'
+      + 'border:1px solid rgba(245,166,35,0.25);font-size:13px;color:var(--amber);font-weight:600;">'
+      + '📵 ' + mevcutDurum + ' — süreç kapatıldı</div>';
+    return;
+  }
   const durumSira = {
     'Yeni':0,'RFQ Gönderildi':1,'Teklifler Bekleniyor':2,
     'Teklif Hazır':3,'Müşteriye İletildi':4,'Sipariş Verildi':5,'Tamamlandı':6
@@ -10184,6 +10269,169 @@ function teklifYetkiliBul(t) {
     ad:   yetkililer[0]?.ad   || 'İlgili',
     mail: yetkililer[0]?.mail || '',
   };
+}
+
+// ═══════════════════════════════════════
+// TALEP KARŞILANAMADI — müşteriye bilgi maili + arşive alma
+// ═══════════════════════════════════════
+// Ürün tedarik edilemediğinde talep sessizce açık listede çürümesin: müşteriye nazik bir
+// bilgilendirme gider ve talep 'Karşılanamadı' statüsüyle kapanır (Arşiv'de görünür).
+// Mail gönderimi ile statü değişimi ATOMİK DEĞİL ama sıralı: mail başarısız olursa statü
+// DEĞİŞTİRİLMEZ — aksi halde müşteri haberdar olmadan talep kapanmış olurdu.
+
+function karsilanamadiMailToggle() {
+  const acik = !!document.getElementById('kar-mail-cb')?.checked;
+  const alan = document.getElementById('kar-mail-alan');
+  if (alan) alan.style.display = acik ? '' : 'none';
+}
+
+function karsilanamadiAc() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  if (talepKapaliMi(t)) { showToast('Bu talep zaten kapalı (' + t.durum + ').'); return; }
+  const y = teklifYetkiliBul(t);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('kar-mail-to', y.mail || '');
+  set('kar-neden', '');
+  set('kar-ic-not', '');
+  set('kar-musteri-not', '');
+  document.getElementById('kar-alici-ad').textContent = y.ad || 'İlgili';
+  document.getElementById('kar-talep-bilgi').textContent =
+    '#' + t.no + ' · ' + (t.musteri || '—') + ' · ' + (t.urun || '');
+  document.getElementById('kar-mail-cb').checked = true;
+  karsilanamadiMailToggle();
+  document.getElementById('kar-hata').style.display = 'none';
+  // Fiyat verilmiş bir talebi kapatıyorsak uyar — müşteride açık bir teklif duruyor
+  const uyari = document.getElementById('kar-gonderildi-uyari');
+  if (uyari) uyari.style.display = crmDonulduMu(t) ? 'block' : 'none';
+  openModal('karsilanamadi');
+}
+
+function _karEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function karsilanamadiMailHtml(t, adSoyad, ekCumle) {
+  const urunler = (t.urunler && t.urunler.length > 0)
+    ? t.urunler
+    : [{ aciklama: t.urun, adet: t.miktar || 1, birim: '', kod: '' }];
+  const satirlar = urunler.map((u, i) =>
+    '<tr style="background:' + (i % 2 === 0 ? '#f9f9f9' : '#ffffff') + ';">'
+    + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center;color:#757575;">' + (i + 1) + '</td>'
+    + '<td style="padding:8px 12px;border:1px solid #e0e0e0;font-family:monospace;font-size:12px;color:#555;">' + (_karEsc(u.kod) || '&mdash;') + '</td>'
+    + '<td style="padding:8px 12px;border:1px solid #e0e0e0;font-weight:500;">' + _karEsc(u.aciklama) + '</td>'
+    + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center;">' + _karEsc(u.adet || 1) + ' ' + _karEsc(u.birim || '') + '</td>'
+    + '</tr>').join('');
+
+  return '<!DOCTYPE html><html><body style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;margin:0;padding:20px;">'
+    + '<div style="max-width:720px;">'
+    + '<p>Sayın ' + _karEsc(adSoyad) + ',</p>'
+    + '<p>' + (t.musteriNo ? '<strong>' + _karEsc(t.musteriNo) + '</strong> numaralı talebiniz' : 'Talebiniz')
+    + ' için yaptığımız tedarik araştırması tamamlanmıştır.</p>'
+    + '<p>Maalesef aşağıdaki ürün(ler)i şu an için <strong>tedarik edemediğimizi</strong> üzülerek bildiririz. '
+    + 'Bu nedenle talebinize teklif sunamıyoruz.</p>'
+    + '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:16px 0;">'
+    + '<thead><tr style="background:#1565C0;color:#ffffff;">'
+    + '<th style="padding:9px 12px;text-align:center;border:1px solid #1565C0;width:36px;">#</th>'
+    + '<th style="padding:9px 12px;text-align:left;border:1px solid #1565C0;width:110px;">Ürün Kodu</th>'
+    + '<th style="padding:9px 12px;text-align:left;border:1px solid #1565C0;">Ürün / Açıklama</th>'
+    + '<th style="padding:9px 12px;text-align:center;border:1px solid #1565C0;width:90px;">Miktar</th>'
+    + '</tr></thead><tbody>' + satirlar + '</tbody></table>'
+    + (ekCumle ? '<p>' + _karEsc(ekCumle) + '</p>' : '')
+    + '<p>Anlayışınız için teşekkür eder, bundan sonraki talepleriniz için hizmetinizde olmaktan '
+    + 'memnuniyet duyacağımızı belirtmek isteriz.</p>'
+    + '<p>Saygılarımızla,</p>'
+    + imzaHtml()
+    + '</div></body></html>';
+}
+
+async function karsilanamadiOnayla() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const hata  = document.getElementById('kar-hata');
+  const neden = document.getElementById('kar-neden').value;
+  if (!neden) {
+    hata.textContent = 'Lütfen karşılanamama nedenini seçin.';
+    hata.style.display = 'block'; return;
+  }
+  const mailGonder = !!document.getElementById('kar-mail-cb').checked;
+  const to = (document.getElementById('kar-mail-to').value || '').trim();
+  const epRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (mailGonder && !epRe.test(to)) {
+    hata.textContent = 'Geçerli bir alıcı e-posta adresi girin (ya da mail gönderimini kapatın).';
+    hata.style.display = 'block'; return;
+  }
+  hata.style.display = 'none';
+
+  const btn = document.getElementById('kar-onay-btn');
+  if (btn && btn.disabled) return;          // çift tıklama koruması
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gönderiliyor...'; }
+  try {
+    const musteriNotu = (document.getElementById('kar-musteri-not').value || '').trim();
+    let mailOk = false;
+    if (mailGonder) {
+      const y = teklifYetkiliBul(t);
+      const konu = 'Talebiniz Hk. — ' + (t.musteriNo ? t.musteriNo + ' / ' : '') + t.no;
+      mailOk = await graphMailHtmlGonder([to], konu, karsilanamadiMailHtml(t, y.ad, musteriNotu));
+      if (!mailOk) {
+        // Statüyü DEĞİŞTİRME: müşteri haberdar olmadan talep kapanmasın
+        hata.textContent = 'Mail gönderilemedi (Outlook oturumu açık mı?). Talep kapatılmadı — '
+          + 'tekrar deneyin ya da mail gönderimini kapatıp elle bilgilendirin.';
+        hata.style.display = 'block';
+        return;
+      }
+    }
+    t.durum = 'Karşılanamadı';
+    t.karsilanamadi = {
+      tarih: new Date().toISOString(),
+      kullanici: aktifKullanici?.ad || '',
+      neden,
+      icNot: (document.getElementById('kar-ic-not').value || '').trim(),
+      musteriNotu,
+      mailGonderildi: mailOk,
+      alici: mailOk ? to : '',
+    };
+    kaliciVeriKaydet('Talep karşılanamadı');
+    closeModal('karsilanamadi');
+    document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(t.durum);
+    renderWorkflow(t.durum);
+    karsilanamadiButonGuncelle(t);
+    renderTalepler();
+    showToast(mailOk
+      ? '📵 #' + t.no + ' karşılanamadı olarak kapatıldı — müşteriye bilgi maili gönderildi.'
+      : '📵 #' + t.no + ' karşılanamadı olarak kapatıldı (mail gönderilmedi).');
+    goPage('arsiv', document.querySelector('[onclick*=arsiv]'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🚫 Karşılanamadı Olarak Kapat'; }
+  }
+}
+
+// Başlıktaki "Karşılanamadı" butonu yalnız açık taleplerde görünür
+function karsilanamadiButonGuncelle(t) {
+  const btn = document.getElementById('btn-karsilanamadi');
+  if (btn) btn.style.display = (t && !talepKapaliMi(t)) ? '' : 'none';
+}
+
+// Arşivden yeniden aç (admin). Gönderilen mail geri alınamaz — kullanıcı açıkça uyarılır.
+function karsilanamadiGeriAl(idx) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin yeniden açabilir.'); return; }
+  const t = TALEPLER[idx];
+  if (!t || t.durum !== 'Karşılanamadı') return;
+  const teklifVar = (talepTeklifleri[t.no] || []).length > 0;
+  const yeniDurum = teklifVar ? 'Teklifler Bekleniyor' : (t.rfqTedarikciler?.length ? 'RFQ Gönderildi' : 'Yeni');
+  if (!confirm('#' + t.no + ' talebi yeniden açılsın mı?\n\nDurum: ' + yeniDurum
+    + (t.karsilanamadi?.mailGonderildi
+        ? '\n\n⚠ Müşteriye gönderilen "tedarik edilemiyor" maili GERİ ALINAMAZ — müşteriyi ayrıca bilgilendirin.'
+        : ''))) return;
+  t.durum = yeniDurum;
+  if (t.karsilanamadi) {
+    t.karsilanamadi.geriAlindi = { tarih: new Date().toISOString(), kullanici: aktifKullanici?.ad || '' };
+  }
+  kaliciVeriKaydet('Talep yeniden açıldı');
+  renderArsiv();
+  renderTalepler();
+  showToast('↩ #' + t.no + ' yeniden açıldı — durum: ' + yeniDurum);
 }
 
 async function musteriTeklifMaili() {
@@ -13817,10 +14065,11 @@ function renderArsiv() {
   const simdi   = new Date();
   const sinirTarih = sureFlt ? new Date(simdi - sureFlt*86400000) : null;
 
-  // Kapanan talepler: Tamamlandı + teklifDurumu=red + İptal (yalnızca görünür)
+  // Kapanan talepler: Tamamlandı + teklifDurumu=red + İptal + Karşılanamadı (yalnızca görünür)
   const gorunurTalepler = TALEPLER.filter(talepGorunur);
   const kapaliTalepler = gorunurTalepler.filter(t => {
-    const kapali = t.durum === 'Tamamlandı' || t.durum === 'İptal' || t.teklifDurumu === 'red';
+    const kapali = t.durum === 'Tamamlandı' || t.durum === 'İptal'
+      || t.durum === 'Karşılanamadı' || t.teklifDurumu === 'red';
     if (!kapali) return false;
     if (sinirTarih) {
       const tTarih = new Date(t.siparisTarih || t.tarih || 0);
@@ -13833,6 +14082,7 @@ function renderArsiv() {
   const setEl = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
   setEl('arsiv-k-tamamlandi', gorunurTalepler.filter(t=>t.durum==='Tamamlandı').length);
   setEl('arsiv-k-red',        gorunurTalepler.filter(t=>t.teklifDurumu==='red').length);
+  setEl('arsiv-k-karsilanamadi', gorunurTalepler.filter(t=>t.durum==='Karşılanamadı').length);
   setEl('arsiv-k-iptal',      gorunurTalepler.filter(t=>t.durum==='İptal').length);
 
   // Filtrele
@@ -13841,6 +14091,7 @@ function renderArsiv() {
     const durumEsles = !df ||
       (df === 'Tamamlandı' && t.durum === 'Tamamlandı') ||
       (df === 'red'        && t.teklifDurumu === 'red')  ||
+      (df === 'Karşılanamadı' && t.durum === 'Karşılanamadı') ||
       (df === 'İptal'      && t.durum === 'İptal');
     return (q === '' || txt.includes(q)) && durumEsles;
   }).sort((a,b) => new Date(b.siparisTarih||b.tarih||0) - new Date(a.siparisTarih||a.tarih||0));
@@ -13868,6 +14119,9 @@ function renderArsiv() {
     if (t.durum === 'Tamamlandı') {
       durumIkon='✅'; durumEtiket='Tamamlandı'; durumRenk='var(--green)';
       durumBg='rgba(62,207,142,0.08)'; durumBrd='rgba(62,207,142,0.25)';
+    } else if (t.durum === 'Karşılanamadı') {
+      durumIkon='📵'; durumEtiket='Karşılanamadı'; durumRenk='var(--amber)';
+      durumBg='rgba(245,166,35,0.08)'; durumBrd='rgba(245,166,35,0.25)';
     } else if (t.teklifDurumu === 'red') {
       durumIkon='❌'; durumEtiket='Reddedildi'; durumRenk='var(--red)';
       durumBg='rgba(240,96,96,0.08)'; durumBrd='rgba(240,96,96,0.25)';
@@ -13896,6 +14150,7 @@ function renderArsiv() {
       <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${durumBg};color:${durumRenk};border:1px solid ${durumBrd};font-weight:600;flex-shrink:0;">${durumEtiket}</span>
       <span style="font-size:13px;font-weight:700;color:var(--accent2);min-width:100px;text-align:right;flex-shrink:0;">${tutarHtml}</span>
       <span style="font-size:11px;color:var(--text3);min-width:84px;text-align:right;flex-shrink:0;">${gecen}</span>
+      ${isAdmin && t.durum === 'Karşılanamadı' ? `<button class="btn btn-sm" onclick="event.stopPropagation();karsilanamadiGeriAl(${idx})" title="Talebi yeniden aç" style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
       ${isAdmin ? `<button class="btn btn-sm" onclick="event.stopPropagation();arsivTalepSil(${idx})" title="Talebi arşivden sil" style="padding:2px 8px;font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);flex-shrink:0;">🗑</button>` : ''}
       <span style="color:var(--text3);font-size:18px;flex-shrink:0;">›</span>
     </div>`;
@@ -14125,7 +14380,7 @@ function izinTopluDevret(email) {
   email = (email || '').toLowerCase();
   const vekil = (izinKayitlari()[email]?.vekil || '').toLowerCase();
   if (!vekil) { showToast('⚠ Önce bu kişiye bir vekil atayın.'); return; }
-  const kapali = ['Tamamlandı', 'İptal', 'Reddedildi'];
+  const kapali = TALEP_KAPALI_DURUMLAR;
   const hedef = TALEPLER.filter(t => (t.saticiEmail || '').toLowerCase() === email && !kapali.includes(t.durum));
   if (!hedef.length) { showToast('Devredilecek açık talep yok.'); return; }
   const vekilAd = saticiKullaniciBul(vekil)?.ad || vekil;
@@ -14142,7 +14397,7 @@ function izinTopluDevret(email) {
 function acikTeklifMi(t) {
   if (!t) return false;
   if (t.teklifDurumu === 'red') return false;
-  if (t.durum === 'Tamamlandı' || t.durum === 'İptal') return false;
+  if (talepKapaliMi(t)) return false;
   return t.durum === 'Müşteriye İletildi' || t.musteriTeklifGonderildi;
 }
 function acikTeklifSayisi() { return TALEPLER.filter(t => talepGorunur(t) && acikTeklifMi(t)).length; }
@@ -14606,7 +14861,7 @@ function otoHatirlatAdaylari() {
   if (!cfg.aktif) return [];
   const simdi = Date.now();
   const acikTeklif  = ['bekliyor', 'revize_gonderildi']; // müşteri henüz yanıtlamadı
-  const kapaliDurum = ['Tamamlandı', 'İptal', 'Sipariş Verildi', 'Reddedildi'];
+  const kapaliDurum = [...TALEP_KAPALI_DURUMLAR,'Sipariş Verildi'];
   const out = [];
   TALEPLER.forEach((t, idx) => {
     if (!talepBenim(t)) return;                       // sorumlu satıcı (admin → hepsi)
@@ -16299,7 +16554,7 @@ function renderPanelMetrikler() {
   const ayBasi  = new Date(simdi.getFullYear(), simdi.getMonth(), 1);
   const haftaBasi = new Date(simdi); haftaBasi.setDate(simdi.getDate() - 7);
 
-  const kapaliDurumlar = ['Tamamlandı','İptal','Reddedildi'];
+  const kapaliDurumlar = TALEP_KAPALI_DURUMLAR;
   const aktifTalepler  = gTalepler.filter(t => !kapaliDurumlar.includes(t.durum));
   const buAyTalepler   = gTalepler.filter(t => t.tarih && new Date(t.tarih) >= ayBasi);
   const buHaftaTalepler = gTalepler.filter(t => t.tarih && new Date(t.tarih) >= haftaBasi);
@@ -16391,6 +16646,7 @@ function renderPanelMetrikler() {
     'Teklifler Bekleniyor': 'var(--amber)',
     'Teklif Hazır':     'var(--green)',
     'Tamamlandı':       'var(--green)',
+    'Karşılanamadı':    'var(--amber)',
     'İptal':            'var(--red)',
   };
 
@@ -16470,7 +16726,7 @@ function sonTeklifUyarilariGoster() {
   if (!kart || !icerik) return;
 
   const simdi = new Date();
-  const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
+  const kapali = [...TALEP_KAPALI_DURUMLAR,'kabul','red'];
 
   const yaklasanlar = TALEPLER
     // Yönetici olmayan kullanıcı yalnızca KENDİNE ATANMIŞ taleplerin STZ uyarısını görür
@@ -16533,7 +16789,7 @@ function sonTeklifUyarilariGoster() {
   if (!kart || !icerik) return;
 
   const simdi  = new Date();
-  const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
+  const kapali = [...TALEP_KAPALI_DURUMLAR,'kabul','red'];
 
   const yaklasanlar = TALEPLER
     // Yönetici olmayan kullanıcı yalnızca KENDİNE ATANMIŞ taleplerin STZ uyarısını görür
@@ -16786,7 +17042,7 @@ function stzUyariBaslat() {
 // Sayfa ilk açıldığında: 24 saatten az kalanları popup ile göster
 function _stzKontrolIlkAcilis() {
   const simdi  = new Date();
-  const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
+  const kapali = [...TALEP_KAPALI_DURUMLAR,'kabul','red'];
   TALEPLER.forEach(t => {
     if (!talepBenim(t)) return; // yönetici olmayan: yalnız kendine atanmış taleplerin uyarısı
     if (!t.sonTeklifTarih) return;
@@ -16811,7 +17067,7 @@ function _stzKontrolIlkAcilis() {
 
 function _stzKontrol() {
   const simdi  = new Date();
-  const kapali = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
+  const kapali = [...TALEP_KAPALI_DURUMLAR,'kabul','red'];
 
   TALEPLER.forEach(t => {
     if (!talepBenim(t)) return; // yönetici olmayan: yalnız kendine atanmış taleplerin uyarısı
@@ -16835,7 +17091,7 @@ function _stzKontrol() {
   });
 
   // Panel kartındaki kalan süreleri güncelle
-  const kapaliArr = ['Tamamlandı','İptal','Reddedildi','kabul','red'];
+  const kapaliArr = [...TALEP_KAPALI_DURUMLAR,'kabul','red'];
   const liste = TALEPLER
     .filter(t => talepBenim(t) && t.sonTeklifTarih && !kapaliArr.includes(t.durum) && !crmDonulduMu(t))
     .map(t => ({ t, stz: new Date(t.sonTeklifTarih+'T'+(t.sonTeklifSaat||'17:00')) }));
@@ -16931,7 +17187,7 @@ function renderPanelTalepler() {
   const tbody = document.getElementById('panel-talepler-tbody');
   const empty = document.getElementById('panel-talepler-empty');
   if (!tbody) return;
-  const kapaliDurumlar = ['Tamamlandı','İptal','Reddedildi'];
+  const kapaliDurumlar = TALEP_KAPALI_DURUMLAR;
   // Satıcı izolasyonu: yönetici olmayan kullanıcı yalnızca kendine atanmış talepleri
   // görür (talepBenim → admin: hepsi). Aynı tbody'yi renderTalepler de talepBenim ile
   // dolduruyor; ikisi de aynı kuralı kullanınca panel/çakışma tutarlı olur.
@@ -16952,7 +17208,7 @@ function renderPanelTalepler() {
     </tr>`;
   }).join('');
   if (empty) empty.style.display = aktif.length === 0 ? 'block' : 'none';
-  set('m-talepler', gorunur.filter(t => !['Tamamlandı','İptal','Reddedildi'].includes(t.durum)).length);
+  set('m-talepler', gorunur.filter(t => !TALEP_KAPALI_DURUMLAR.includes(t.durum)).length);
   function set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
 } 
 
@@ -18586,7 +18842,7 @@ function otoTalepAralikGuncelle(val) {
 function otoAdayTalepler() {
   return TALEPLER.filter(t =>
     t && t.no && talepGorunur(t) &&
-    t.durum !== 'Tamamlandı' && t.durum !== 'İptal' && t.teklifDurumu !== 'red');
+    !talepKapaliMi(t) && t.teklifDurumu !== 'red');
 }
 // Talep teklif olarak müşteriye gitti mi (etiketleme için)
 function otoTalepTeklifGitti(t) {
