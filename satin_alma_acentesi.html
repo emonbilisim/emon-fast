@@ -7028,6 +7028,9 @@ let talepSayac = 0; // çevrimdışı fallback başlangıcı; çevrimiçide sunu
 function taleplerDurumMigrate() {
   TALEPLER.forEach(t => {
     if (t.durum === 'Onay Bekliyor') t.durum = 'Müşteriye İletildi';
+    // Ölü alan temizliği: fiyatOnayTalep.satisTablosu (ham tablo HTML'i) hiç okunmuyor,
+    // yalnızca blobu şişiriyordu. Bellekten/localStorage'dan da düş ki bu cihaz da küçülsün.
+    if (t.fiyatOnayTalep && 'satisTablosu' in t.fiyatOnayTalep) delete t.fiyatOnayTalep.satisTablosu;
     // Geriye dönük: bu düzeltmeden ÖNCE müşteriye gönderilmiş onaylı teklifler
     // "gönderilmeyi bekliyor" damgası (gonderilenOnaySira) taşımaz → cihazlar-arası saat
     // farkı bunları panel yeşil kartında takılı bırakıyordu. Gönderim, o anki onay altında
@@ -12480,7 +12483,11 @@ async function fiyatOnayTalep() {
     satici: aktifKullanici.ad,
     tarih:  new Date().toISOString(),
     not,
-    satisTablosu: document.getElementById('satis-urun-tbody')?.innerHTML || '',
+    // satisTablosu (tablonun ham innerHTML'i) ARTIK SAKLANMIYOR: hiçbir yerde okunmuyordu,
+    // ama her onay talebinde input/select/inline-stil dolu markup ortak bloba gömülüyordu.
+    // Onay ekranı tabloyu zaten saticiSatisData + saticiTeklifData'dan yeniden kuruyor.
+    // Blob 10 MB'ı aşınca backend POST /api/veri'yi 413 ile reddediyor → HİÇBİR değişiklik
+    // (fiyat onayı dahil) sunucuya yazılamıyordu. Bkz talepBlobGuvenli/taleplerDurumMigrate.
     toplamStr: document.getElementById('satis-toplam')?.textContent || '',
     saticiSatisData: saticiData,
     saticiTeklifData: teklifSnapshot,
@@ -20623,6 +20630,15 @@ async function apiVeriKaydet(veri) {
       body: JSON.stringify({ ...veri, _build: APP_BUILD })  // build damgası — backend stale-client koruması
     });
     if (r.status === 401) oturumSuresiDoldu();
+    // 413 = gövde backend limitini (~10 MB) aştı. Bu HER yazımı öldürür: fiyat onayı,
+    // müşteri düzenlemesi, talep — hepsi sessizce geri alınırdı ("sunucuya yazılmıyor").
+    // Retry ASLA düzeltmez, verinin küçülmesi gerekir → genel "bağlantı" uyarısı yerine
+    // net teşhis göster, konsola ölçülen boyutu bas.
+    if (r.status === 413) {
+      const mb = (JSON.stringify(veri).length / 1048576).toFixed(1);
+      console.error('[kayit] 413 — gövde çok büyük:', mb, 'MB (sunucu limiti ~10 MB).');
+      showToast('⛔ Veri paketi çok büyük (' + mb + ' MB) — sunucu reddediyor, HİÇBİR değişiklik kaydedilmiyor. Tekrar denemek düzeltmez.');
+    }
     // Backend bu istemciyi "eski sürüm" diye reddettiyse (build-guard 409):
     // önbellekli eski kod ortak veriyi bozmasın → güvenli durumdaysa yenile.
     if (r.status === 409 && !_staleReloadYapildi) {
@@ -21149,6 +21165,12 @@ function talepBlobGuvenli() {
     if (Array.isArray(t.gorseller)) {
       t.gorseller = t.gorseller.map(g => { const { b64, ...meta } = g; return meta; });
     }
+    // fiyatOnayTalep.satisTablosu: satış tablosunun HAM innerHTML'i (input/select/inline
+    // stil dolu). Hiçbir yerde OKUNMUYOR, ama her onay talebinde ortak bloba gömülüyor ve
+    // orada kalıyordu. Backend POST /api/veri'yi ~10 MB üstünde 413 ile reddediyor → blob
+    // eşiği aşınca HİÇBİR değişiklik (fiyat onayı dahil) yazılamıyor, sessizce geri alınıyor.
+    // Giden gövdeden tek noktadan ayıklanır; sunucudaki eski kopyalar ilk yazımda düşer.
+    if (t.fiyatOnayTalep && 'satisTablosu' in t.fiyatOnayTalep) delete t.fiyatOnayTalep.satisTablosu;
   });
   return kopya;
 }
