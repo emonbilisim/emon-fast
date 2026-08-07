@@ -13190,14 +13190,30 @@ async function portalArsivMailiGonder(t, tabloHtml, toplamStr) {
     : '⚠ Portal arşiv maili gönderilemedi (Outlook bağlı değil olabilir).');
 }
 
+// Firma adı KARŞILAŞTIRMA anahtarı: büyük/küçük harf, Türkçe karakter, noktalama ve
+// fazla boşluk farklarını siler. "EREN ... A.Ş." / "Eren ... AŞ" / "EREN ... A.S."
+// aynı anahtara iner. Yalnız EŞLEŞTİRME için; görüntülenen ad hiç değişmez.
+function _firmaAnahtar(s) {
+  return String(s || '')
+    .toLocaleLowerCase('tr')
+    .replace(/[ıİ]/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c')
+    .replace(/[^a-z0-9]/g, '');   // noktalama + boşluk tamamen düşer
+}
+
 // Admin: onayla
 // Aynı no'lu (ve aynı müşterili) YİNELENEN talep varsa onay/red durumunu onlara da uygula.
 // Sebep: fiyat onayları talep NO'su ile listeleniyor; geçmişteki no-çakışmasından kalan bir
 // çift kayıt 'bekliyor' kalırsa admin onayladığı halde aynı no tekrar tekrar onay isteyebilir.
+// Müşteri adı BİREBİR karşılaştırılmıyor: ikiz kayıtlar çoğu zaman yazım varyantı taşıyor
+// ("A.Ş." vs "AŞ", sondaki boşluk) → birebir şart, eşitlemeyi sessizce atlıyor ve talep
+// onay listesinde ikinci satır olarak kalmaya devam ediyordu. Normalize anahtar kullanılır;
+// gerçekten FARKLI müşteriler yine eşleşmez (admin'in görmediği fiyat onaylanmaz).
 function fiyatOnayYinelenleriEsitle(t) {
   let n = 0;
+  const tAnahtar = _firmaAnahtar(t.musteri);
   TALEPLER.forEach(o => {
-    if (o !== t && o.no === t.no && (o.musteri || '') === (t.musteri || '') && o.fiyatOnayDurumu === 'bekliyor') {
+    if (o !== t && o.no === t.no && _firmaAnahtar(o.musteri) === tAnahtar && o.fiyatOnayDurumu === 'bekliyor') {
       o.fiyatOnayDurumu = t.fiyatOnayDurumu;
       o.fiyatOnayTalep = JSON.parse(JSON.stringify(t.fiyatOnayTalep || {}));
       // İkizin damgası da KENDİ eski damgasını geçmeli — yoksa merge'de ikizin sunucudaki

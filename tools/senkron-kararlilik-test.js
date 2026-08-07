@@ -13,7 +13,7 @@ function ekstrakt(fn){
   for(const s of satirlar){ out.push(s); if(s==='}') break; }
   return out.join('\n');
 }
-const FNS=['_onaySiraYeni','_canon','_mkey','_kayitBirlestir','_mergeDizi','_mergeMusteriler','_mergeObje','_adminSahipli','_onayKey','_mergeKaydet'];
+const FNS=['_onaySiraYeni','_firmaAnahtar','_canon','_mkey','_kayitBirlestir','_mergeDizi','_mergeMusteriler','_mergeObje','_adminSahipli','_onayKey','_mergeKaydet'];
 let aktifKullanici={rol:'admin',ad:'selim'}, _sunucuBaz={};
 let _silinenTalepNolar=new Set(),_silinenMusteriFirmalar=new Set(),_silinenTedarikciKeyler=new Set(),_silinenCrmIdler=new Set(),_silinenTeklifSatir=new Set();
 eval(FNS.map(ekstrakt).join('\n\n'));
@@ -191,6 +191,23 @@ console.log('=== ODAKLI SENARYOLAR ===');
   ok(_onaySiraYeni(t) > ileri, 'S15: yeni karar damgası ileri saatli damgayı geçiyor');
   const t2 = {no:'TLP-4'};                        // damgasız kayıt
   ok(_onaySiraYeni(t2) >= Date.now(), 'S15: damgasız kayıtta damga duvar saatinden küçük değil');
+}
+
+// S16: FİYAT ONAYI — ikiz kayıt eşleşmesi firma adı YAZIM VARYANTINA takılmamalı.
+// Regresyon: birebir müşteri karşılaştırması yüzünden "A.Ş." / "AŞ" / "A.S." farkı olan
+// ikiz kayıt eşitlemeden kaçıyor, talep onay listesinde ikinci satır olarak kalıyordu.
+{
+  const varyant = [
+    'EREN PERAKENDE VE TEKSTİL A.Ş.',
+    'Eren Perakende ve Tekstil AŞ',
+    'EREN PERAKENDE VE TEKSTIL A.S.',
+    '  eren perakende ve tekstil a.ş.  ',
+  ];
+  const anahtarlar = new Set(varyant.map(_firmaAnahtar));
+  ok(anahtarlar.size === 1, 'S16: firma adı yazım varyantları tek anahtara indi');
+  ok(_firmaAnahtar('EREN PERAKENDE A.Ş.') !== _firmaAnahtar('EREN TEKSTİL A.Ş.'),
+     'S16: gerçekten FARKLI firmalar hâlâ ayrışıyor (yanlış eşleşme yok)');
+  ok(_firmaAnahtar(null) === '' && _firmaAnahtar(undefined) === '', 'S16: boş/null firma güvenli');
 }
 
 console.log(`  → ${pass} geçti, ${fail} başarısız`);
