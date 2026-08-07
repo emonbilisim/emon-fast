@@ -12374,6 +12374,16 @@ function satisBolumunuGuncelle() {
   }
 }
 
+// Fiyat onayı KARAR DAMGASI üret (merge'de "en yeni karar kazanır" için).
+// Ham Date.now() YETMEZ: damgalar farklı cihazların duvar saatinden geliyor. Satıcının
+// saati admin'inkinden ileriyse, satıcının ESKİ 'bekliyor' damgası admin'in YENİ onay
+// damgasından büyük çıkıyor → merge onayı geri alıyor ve talep tekrar onaya düşüyordu.
+// Lamport mantığı: yeni damga, kaydın ÜZERİNDEKİ damgadan (yani karşı tarafın saatinden)
+// da HER ZAMAN büyük olsun. Böylece sonraki karar, saat farkından bağımsız olarak kazanır.
+function _onaySiraYeni(t) {
+  return Math.max(Date.now(), ((t && t.fiyatOnaySira) || 0) + 1);
+}
+
 // Revizyon / fiyat değişimi → ÖNCEKİ admin fiyat onayını GEÇERSİZ kıl.
 // Onaylı bir teklif revizyona düşünce, satıcı revize fiyatı admin onayı olmadan
 // müşteriye gönderememeli; tekrar "Admin Onayı İste" akışına düşmeli. Admin kilidi
@@ -12383,7 +12393,7 @@ function fiyatOnayiniGecersizKil(t) {
   t = t || TALEPLER[aktifTalepIdx];
   if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
   t.fiyatOnayDurumu = null;
-  t.fiyatOnaySira = Date.now();   // monotonik karar damgası (geçersiz kılma da en yeni karar)
+  t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası (geçersiz kılma da en yeni karar)
   if (t.fiyatOnayTalep) {
     delete t.fiyatOnayTalep.adminSatisData;
     delete t.fiyatOnayTalep.adminTarih;
@@ -12481,7 +12491,7 @@ async function fiyatOnayTalep() {
   // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez)
   if (AYARLAR.awayMode) {
     t.fiyatOnayDurumu = 'onaylandi';
-    t.fiyatOnaySira = Date.now();   // monotonik karar damgası (merge'de en yeni kazanır)
+    t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası (merge'de en yeni kazanır)
     t.fiyatOnayTalep.adminNot        = '🌙 Otomatik onay — admin away (uzakta) modunda.' + (not ? ' • Satıcı notu: ' + not : '');
     t.fiyatOnayTalep.adminTarih      = new Date().toISOString();
     t.fiyatOnayTalep.adminSatisData  = saticiData;
@@ -12499,7 +12509,7 @@ async function fiyatOnayTalep() {
   }
 
   t.fiyatOnayDurumu = 'bekliyor';
-  t.fiyatOnaySira = Date.now();   // monotonik karar damgası
+  t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası
   // ÖNCE sunucuya yaz, SONRA admine mail. Aksi halde mail gider ama veri ortak
   // tabana yansımazsa admin talebi göremez (yerelde kalır).
   const kayitOk = await kaliciVeriKaydet('Onay talebi');
@@ -13190,7 +13200,9 @@ function fiyatOnayYinelenleriEsitle(t) {
     if (o !== t && o.no === t.no && (o.musteri || '') === (t.musteri || '') && o.fiyatOnayDurumu === 'bekliyor') {
       o.fiyatOnayDurumu = t.fiyatOnayDurumu;
       o.fiyatOnayTalep = JSON.parse(JSON.stringify(t.fiyatOnayTalep || {}));
-      o.fiyatOnaySira = t.fiyatOnaySira || Date.now();
+      // İkizin damgası da KENDİ eski damgasını geçmeli — yoksa merge'de ikizin sunucudaki
+      // bayat 'bekliyor' hali (aynı/daha büyük damgayla) bu eşitlemeyi geri alabilir.
+      o.fiyatOnaySira = Math.max(t.fiyatOnaySira || 0, _onaySiraYeni(o));
       n++;
     }
   });
@@ -13217,7 +13229,7 @@ async function adminFiyatOnayla() {
     : 'Onay notu (isteğe bağlı):') || '';
 
   t.fiyatOnayDurumu = 'onaylandi';
-  t.fiyatOnaySira = Date.now();   // monotonik karar damgası — bayat 'bekliyor' bunu geri alamaz
+  t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası — bayat 'bekliyor' bunu geri alamaz
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
   t.fiyatOnayTalep.adminNot       = not;
   t.fiyatOnayTalep.adminTarih     = new Date().toISOString();
@@ -13227,9 +13239,16 @@ async function adminFiyatOnayla() {
   // Portal talebi ise onaylanan fiyat tablosunu (DOM canlıyken) yakala
   const _portalTablo  = t.portalTalebi ? satisTabloEmailHtml() : '';
   const _portalToplam = document.getElementById('satis-toplam')?.textContent || adminData.toplamStr || '';
-  await kaliciVeriKaydet('Fiyat onayı'); // HEMEN ortak sunucuya yaz — satıcı sonucu görsün
+  const kayitOk = await kaliciVeriKaydet('Fiyat onayı'); // HEMEN ortak sunucuya yaz — satıcı sonucu görsün
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
+  // Sunucuya YAZILAMADIYSA onay yalnız bu cihazın belleğinde/localStorage'ında kalır ve
+  // ilk periyodik tazeleme (45 sn / sekmeye dönüş) onu sunucudaki 'bekliyor' ile EZER →
+  // talep listeye tekrar düşer. "Onaylandı" deyip satıcıya mail atmak yanıltıcı olur.
+  if (!kayitOk) {
+    showToast('⛔ Onay sunucuya yazılamadı — satıcı göremez, talep onay listesinde kalır. Bağlantıyı kontrol edip tekrar onaylayın (mail GÖNDERİLMEDİ).');
+    return;
+  }
   showToast(degisiklikVar
     ? '✅ Admin\'in revize fiyatlarıyla onaylandı.'
     : '✅ Fiyat onaylandı! Satıcı artık müşteriye gönderebilir.');
@@ -13278,7 +13297,7 @@ async function adminOnayliFiyatiGuncelle() {
   t.fiyatOnayTalep.adminDegisiklik = true;
   t.fiyatOnayTalep.adminTarih      = new Date().toISOString();
   if (not) t.fiyatOnayTalep.adminNot = not;
-  t.fiyatOnaySira = Date.now();   // monotonik karar damgası — bayat oturum geri alamaz
+  t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası — bayat oturum geri alamaz
   fiyatOnayYinelenleriEsitle(t);  // (varsa) aynı no'lu yinelenen kayıt da izlensin
   await kaliciVeriKaydet('Onaylı fiyat güncelleme'); // HEMEN ortak sunucuya yaz
   satisBolumunuGuncelle();
@@ -13293,14 +13312,18 @@ async function adminFiyatReddet() {
   const not = prompt('Red gerekçesi:') || '';
   if (!not) { showToast('Red gerekçesi gerekli.'); return; }
   t.fiyatOnayDurumu = 'reddedildi';
-  t.fiyatOnaySira = Date.now();   // monotonik karar damgası
+  t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
   t.fiyatOnayTalep.adminNot = not;
   t.fiyatOnayTalep.adminTarih = new Date().toISOString();
   fiyatOnayYinelenleriEsitle(t); // varsa aynı no'lu çift kayıt da reddedilsin
-  await kaliciVeriKaydet('Fiyat reddi'); // HEMEN ortak sunucuya yaz
+  const kayitOk = await kaliciVeriKaydet('Fiyat reddi'); // HEMEN ortak sunucuya yaz
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
+  if (!kayitOk) {   // yazılamadıysa red de bu cihazda kalır → ilk tazelemede geri gelir
+    showToast('⛔ Red sunucuya yazılamadı — talep onay listesinde kalır. Bağlantıyı kontrol edip tekrar deneyin.');
+    return;
+  }
   showToast('❌ Fiyat reddedildi, satıcı bilgilendirildi.');
 }
 
@@ -13459,6 +13482,7 @@ function fiyatOnayKaydiSil(idx) {
   if (!confirm(`"${t.no} — ${t.musteri}" fiyat onayı kaydı silinsin mi?\n\nTalep ve teklif verileri KORUNUR; yalnızca onay kaydı (durum + onay geçmişi) temizlenir.`)) return;
   delete t.fiyatOnayTalep;
   t.fiyatOnayDurumu = null;
+  t.fiyatOnaySira = _onaySiraYeni(t);  // silme de bir KARAR → damgasız kalırsa merge kaydı geri getirir
   veriKaydet();
   renderFiyatOnaylari();
   renderTalepler();
@@ -13473,7 +13497,7 @@ function fiyatOnayGecmisiniTemizle() {
   const hedef = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu));
   if (!hedef.length) { showToast('Temizlenecek tamamlanmış onay kaydı yok.'); return; }
   if (!confirm(`Tamamlanmış ${hedef.length} fiyat onayı kaydı silinsin mi?\n\nTalepler ve teklifler KORUNUR; yalnızca onay kayıtları (durum + onay geçmişi) temizlenir. Onay bekleyenlere dokunulmaz.`)) return;
-  hedef.forEach(t => { delete t.fiyatOnayTalep; t.fiyatOnayDurumu = null; });
+  hedef.forEach(t => { delete t.fiyatOnayTalep; t.fiyatOnayDurumu = null; t.fiyatOnaySira = _onaySiraYeni(t); });
   veriKaydet();
   renderFiyatOnaylari();
   renderTalepler();
@@ -20948,11 +20972,32 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   // Fiyat onayı çakışma çözümü: admin'in onayı/reddi, bayat bir satıcı oturumunun
   // 'bekliyor'u tarafından geri alınmasın. Karar damgası (fiyatOnaySira) EN YENİ olan
   // taraf (yerel/sunucu) kazanır — base-diff'ten bağımsız. (Damgasız eski kayıtlar atlanır.)
+  //
+  // ANAHTAR, _mergeDizi ile AYNI olmalı (no + '#' + tekrar sırası). Eskiden yalnız t.no
+  // ile Map kuruluyordu; aynı no'lu ÇİFT kayıt varsa (geçmişteki no-çakışmasından kalan)
+  // Map'te SON kayıt kazanıyor, sonra o kaydın durumu aynı no'lu TÜM kayıtlara yazılıyordu.
+  // Sonuç: bayat 'bekliyor' ikizi, admin'in yeni onayını her push'ta siliyor → onay hiç
+  // sunucuya işlenmiyor, talep listeye tekrar tekrar düşüyordu. Konum bazlı anahtar her
+  // kaydı KENDİ ikiziyle eşleştirir; kararlar artık kayıt-başına çözülür.
   try {
-    const _lT = new Map((local.TALEPLER || []).map(t => [t.no, t]));
-    const _sT = new Map((server.TALEPLER || []).map(t => [t.no, t]));
+    const _onayIdx = (arr) => {
+      const sayac = new Map(), m = new Map();
+      (arr || []).forEach(t => {
+        const k = String(t && t.no);
+        const n = sayac.get(k) || 0;
+        sayac.set(k, n + 1);
+        m.set(k + '#' + n, t);
+      });
+      return m;
+    };
+    const _lT = _onayIdx(local.TALEPLER), _sT = _onayIdx(server.TALEPLER);
+    const _sayac = new Map();
     sonuc.TALEPLER.forEach(t => {
-      const l = _lT.get(t.no), s = _sT.get(t.no);
+      const kBase = String(t && t.no);
+      const n = _sayac.get(kBase) || 0;
+      _sayac.set(kBase, n + 1);
+      const k = kBase + '#' + n;
+      const l = _lT.get(k), s = _sT.get(k);
       const ls = (l && l.fiyatOnaySira) || 0, ss = (s && s.fiyatOnaySira) || 0;
       if (!ls && !ss) return;
       const kazanan = ss > ls ? s : l;

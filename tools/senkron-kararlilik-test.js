@@ -13,7 +13,7 @@ function ekstrakt(fn){
   for(const s of satirlar){ out.push(s); if(s==='}') break; }
   return out.join('\n');
 }
-const FNS=['_canon','_mkey','_kayitBirlestir','_mergeDizi','_mergeMusteriler','_mergeObje','_adminSahipli','_onayKey','_mergeKaydet'];
+const FNS=['_onaySiraYeni','_canon','_mkey','_kayitBirlestir','_mergeDizi','_mergeMusteriler','_mergeObje','_adminSahipli','_onayKey','_mergeKaydet'];
 let aktifKullanici={rol:'admin',ad:'selim'}, _sunucuBaz={};
 let _silinenTalepNolar=new Set(),_silinenMusteriFirmalar=new Set(),_silinenTedarikciKeyler=new Set(),_silinenCrmIdler=new Set(),_silinenTeklifSatir=new Set();
 eval(FNS.map(ekstrakt).join('\n\n'));
@@ -145,6 +145,52 @@ console.log('=== ODAKLI SENARYOLAR ===');
   const r=push(local,server,base);
   ok(r.TALEPLER.find(t=>t.no==='ESKI'), 'S12: 21g\'den eski tombstone budandı, yeni talep yaşıyor');
   ok(!('ESKI' in (r.TALEP_TOMBSTONE||{})), 'S12: eski tombstone girişi silindi');
+}
+
+// S13: FİYAT ONAYI — aynı no'lu ÇİFT kayıt, admin'in onayını silmemeli.
+// Regresyon: onay çakışma çözümü Map'i yalnız t.no ile kuruyordu → çift kayıtta SON kayıt
+// kazanıp durumunu aynı no'lu TÜM kayıtlara yazıyordu. Bayat 'bekliyor' ikizi admin'in yeni
+// onayını her push'ta siliyor, talep onay listesine tekrar tekrar düşüyordu.
+{
+  const T0 = 1786096800000;
+  const tal = o => Object.assign({no:'TLP-1',musteri:'Acme',urun:'X'}, o);
+  const onayli   = tal({fiyatOnayDurumu:'onaylandi', fiyatOnaySira:T0+60000, fiyatOnayTalep:{adminTarih:'x'}});
+  const bekleyen = tal({musteri:'Acme A.Ş.', fiyatOnayDurumu:'bekliyor', fiyatOnaySira:T0, fiyatOnayTalep:{satici:'ali'}});
+  // her iki SIRALAMA da aynı sonucu vermeli (konum bazlı anahtar → sıra-bağımsız karar)
+  [[onayli,bekleyen],[bekleyen,onayli]].forEach((dizilim, i) => {
+    const base=bos(); base.TALEPLER=clone(dizilim);
+    const server=bos(); server.TALEPLER=clone(dizilim);
+    const local=bos();  local.TALEPLER=clone(dizilim);
+    const r=push(local,server,base);
+    const onayliSayi = r.TALEPLER.filter(t=>t.fiyatOnayDurumu==='onaylandi').length;
+    ok(onayliSayi===1, 'S13.'+i+': çift kayıtta admin onayı korundu (ikiz onu ezmedi)');
+  });
+}
+// S14: FİYAT ONAYI — admin onayı ardışık turlarda KALICI olmalı (tekrar onaya düşmesin)
+{
+  const T0 = 1786096800000;
+  const tal = o => Object.assign({no:'TLP-2',musteri:'Acme',urun:'X'}, o);
+  let server=bos(); server.TALEPLER=[
+    tal({fiyatOnayDurumu:'bekliyor', fiyatOnaySira:T0, fiyatOnayTalep:{satici:'ali'}}),
+    tal({musteri:'Acme A.Ş.', fiyatOnayDurumu:'bekliyor', fiyatOnaySira:T0, fiyatOnayTalep:{satici:'ali'}}),
+  ];
+  for (let tur=1; tur<=3; tur++) {
+    const local=clone(server), base=clone(server);
+    local.TALEPLER[0].fiyatOnayDurumu='onaylandi';
+    local.TALEPLER[0].fiyatOnaySira=T0+tur*60000;
+    local.TALEPLER[0].fiyatOnayTalep={adminTarih:'t'+tur};
+    server=push(local,server,base);
+  }
+  ok(server.TALEPLER[0].fiyatOnayDurumu==='onaylandi', 'S14: onay 3 tur sonunda hâlâ onaylı (geri düşmedi)');
+}
+// S15: FİYAT ONAYI — karar damgası karşı tarafın (ileri) saatini de geçmeli (clock skew).
+// _onaySiraYeni Lamport mantığı: satıcının saati ileriyse bile admin'in yeni kararı kazanır.
+{
+  const ileri = Date.now() + 10*60000;           // satıcı cihazı 10 dk ileri
+  const t = {no:'TLP-3', fiyatOnayDurumu:'bekliyor', fiyatOnaySira:ileri};
+  ok(_onaySiraYeni(t) > ileri, 'S15: yeni karar damgası ileri saatli damgayı geçiyor');
+  const t2 = {no:'TLP-4'};                        // damgasız kayıt
+  ok(_onaySiraYeni(t2) >= Date.now(), 'S15: damgasız kayıtta damga duvar saatinden küçük değil');
 }
 
 console.log(`  → ${pass} geçti, ${fail} başarısız`);
