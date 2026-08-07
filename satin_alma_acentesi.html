@@ -21122,6 +21122,16 @@ async function _veriPush(veri) {
       console.warn('Clobber önlendi: TALEPLER birleşimi boş, sunucudaki', sunucu.TALEPLER.length, 'talep korunuyor.');
       gonderilecek.TALEPLER = sunucu.TALEPLER;
     }
+    // ŞİŞME SIZINTISI KAPAT: merge sonucu SUNUCUDAKİ kayıtlardan başlıyor ve fiyat-onay
+    // çakışma çözümü kazanan tarafın fiyatOnayTalep'ini olduğu gibi kopyalıyor → sunucuda
+    // duran eski satisTablosu (ham tablo HTML'i) giden gövdeye geri sızabilir.
+    // talepBlobGuvenli yalnız YEREL snapshot'ı temizliyor; asıl gövde burada oluşuyor.
+    // Tek çıkış noktasında ayıkla ki blob 413 sınırına doğru tekrar büyümesin.
+    if (Array.isArray(gonderilecek.TALEPLER)) {
+      gonderilecek.TALEPLER.forEach(t => {
+        if (t && t.fiyatOnayTalep && 'satisTablosu' in t.fiyatOnayTalep) delete t.fiyatOnayTalep.satisTablosu;
+      });
+    }
     // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
     gonderilecek.taleplerKasten = _taleplerKastenSilindi;
     const ok = await apiVeriKaydet(gonderilecek);
