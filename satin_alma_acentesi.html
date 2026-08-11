@@ -3608,7 +3608,8 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
 <div class="modal-overlay" id="modal-altKalem">
   <div class="modal" style="width:min(96vw,680px);max-height:90vh;overflow-y:auto;">
     <div class="modal-title">↹ Alternatif Ürünler</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">İstenen ürün bulunamadıysa, her ürün için <b>birden fazla alternatif</b> ürünü <b>kendi birim fiyatıyla</b> ekleyin. Müşteri teklifinde ilgili ürünün altında <b>opsiyonel seçenekler</b> olarak gösterilir; genel toplama dahil edilmez (müşteri tercih eder).</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">İstenen ürün bulunamadıysa, her ürün için <b>birden fazla alternatif</b> ürünü ekleyin. Müşteri teklifinde ilgili ürünün altında <b>opsiyonel seçenekler</b> olarak gösterilir; genel toplama dahil edilmez (müşteri tercih eder).<br>
+      <b>Maliyet (marj+KDV)</b> seçiliyken girdiğiniz <u>tedarikçi fiyatına</u> ana kalemle aynı zincir uygulanır: kargo payı + kâr marjı + KDV (+ varsa revize iskontosu). <b>Satış fiyatı</b> seçiliyken girdiğiniz değer müşteriye <u>olduğu gibi</u> gider. Her satırın sağında müşteriye gidecek tutar anlık gösterilir.</div>
     <div id="alt-kalem-icerik"></div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('altKalem')">İptal</button>
@@ -8804,7 +8805,10 @@ function yeniTeklifSatirEkle() {
   const rfqFirmalar = Array.from(rfqSeciliTedarikciler);
   const eklenecek = rfqFirmalar.find(f => !mevcutlar.includes(f)) || '';
   const manuelMod = !eklenecek; // RFQ'dan tedarikçi kalmadıysa manuel mod
-  if (eklenecek) _silinenTeklifSatir.delete(String(t.no) + '|' + eklenecek); // sil→yeniden ekle: silme seti düşürmesin
+  if (eklenecek) {                                // sil→yeniden ekle: silme seti düşürmesin
+    const on = String(t.no) + '|' + eklenecek + '#';   // anahtar artık pozisyonlu → hepsini temizle
+    Array.from(_silinenTeklifSatir).forEach(k => { if (k.startsWith(on)) _silinenTeklifSatir.delete(k); });
+  }
   talepTeklifleri[t.no].push({
     tedarikci: eklenecek,
     _manuelMod: manuelMod,
@@ -8857,11 +8861,38 @@ function talepTeklifGuncelle(i, alan, deger) {
   }
 }
 
+// Teklif satırı silme anahtarı: 'talepNo|tedarikci#n' — n, O TEDARİKÇİNİN kaçıncı satırı.
+// POZİSYON ŞART: aynı tedarikçi bir malzemeye birden fazla ALTERNATİF ürünle dönebiliyor
+// (bkz seciliOutlookTeklifleriEkle) → her alternatif aynı tedarikçi adıyla AYRI satır olur.
+// Anahtar pozisyonsuzken ('talepNo|tedarikci') tek bir alternatifi silmek, _mergeObje'deki
+// filtrede o tedarikçinin TÜM satırlarını düşürüyordu → ana teklif de senkronda kayboluyordu.
+//
+// n, YEREL dizideki sıra değil MERGE dizisindeki sıradır: merge union olduğu için bu oturumda
+// zaten silinmiş satırlar sunucudan gelip sayıma dahil olur. Bu yüzden dolu slotlar atlanarak
+// ilerlenir — aynı tedarikçiden ikinci bir satır silindiğinde indeks kaymasın.
+function _teklifSilmeAnahtari(talepNo, liste, i) {
+  const ad = r => String((r && r.tedarikci) ?? '');
+  const ted = ad(liste[i]);
+  let n = 0;
+  for (let j = 0; j < i; j++) if (ad(liste[j]) === ted) n++;   // güncel dizideki sıra
+  const on = String(talepNo) + '|' + ted + '#';
+  let k = 0, gorulen = 0;
+  while (true) {
+    if (_silinenTeklifSatir.has(on + k)) { k++; continue; }     // bu slot zaten silinmiş → atla
+    if (gorulen === n) break;
+    gorulen++; k++;
+  }
+  return on + k;
+}
+
 function talepTeklifSil(i) {
   const t = TALEPLER[aktifTalepIdx];
-  const _sil = talepTeklifleri[t.no]?.[i]?.tedarikci; // union merge yalnız açıkça silinen satırı düşürsün
-  if (_sil != null) _silinenTeklifSatir.add(String(t.no) + '|' + _sil);
-  talepTeklifleri[t.no].splice(i, 1);
+  const liste = talepTeklifleri[t.no];
+  if (!liste || !liste[i]) return;
+  // union merge YALNIZ açıkça silinen satırı düşürsün — aynı tedarikçinin diğer
+  // alternatif satırları ayakta kalmalı
+  _silinenTeklifSatir.add(_teklifSilmeAnahtari(t.no, liste, i));
+  liste.splice(i, 1);
   renderTalepTeklifleri();
   veriKaydet(); // teklif satırı silme ortak sunucuya yazılsın (merge'de geri gelmesin)
 }
@@ -9193,6 +9224,11 @@ function satisHesaplaTablosu() {
   const kdvNotuEl = document.getElementById('satis-kdv-notu');
   if (!tbody || !toplamEl) return;
 
+  // ürün başına marj/KDV/kargo — altKalemMusteriFiyat bunu kullanır. EN BAŞTA sıfırlanır:
+  // aşağıdaki döviz-seçim erken return'ünde bağlam BAYAT kalıp önceki talebin marjını
+  // alternatif kalemlere uygulamasın (boş bağlam → "marj uygulanamadı" uyarısı).
+  window._satisUrunBaglam = {};
+
   const urunler = t.urunler && t.urunler.length > 0
     ? t.urunler
     : [{ aciklama: t.urun, adet: t.miktar||1, birim:'Adet' }];
@@ -9352,6 +9388,8 @@ function satisHesaplaTablosu() {
     const musteriHedefVars = musteriHedefMarjHesap(u);
     const marjVarsayilan = (musteriHedefVars !== null && !isNaN(musteriHedefVars)) ? musteriHedefVars : (parseFloat(FP_KURALLAR?.baz) || 25);
     const marj     = parseFloat(satisUrunMarjlari[uIdx] ?? marjVarsayilan);
+    // ↹ Alternatif kalemler (t.altKalemler) de AYNI zincirden geçsin diye bağlamı sakla
+    window._satisUrunBaglam[uIdx] = { marj, kdv, kargoBirimTL };
     const netTL    = topMaliyetTL * (1 + marj/100);
     const kdvTutar = netTL * kdv / 100;
     const birimSatisTL  = netTL + kdvTutar;
@@ -9890,6 +9928,54 @@ function satisSatirBirim(row) {
 // t.altKalemler = { <urunIdx>: [ {ad, kod, fiyat, para} ] }. Müşteri teklifinde
 // ilgili ürünün altında opsiyonel seçenek olarak gösterilir; toplama dahil DEĞİL.
 const MO_PARA_SEMBOL = { TRY:'₺', USD:'$', EUR:'€' };
+
+// ↹ Alternatif kalemin MÜŞTERİ fiyatı — tek kaynak (modal önizlemesi + mail/PDF aynı bunu kullanır).
+// tip='maliyet' (yeni satırların varsayılanı): girilen değer TEDARİKÇİ maliyetidir; ana satırla
+//   aynı zincirden geçer → + kargo payı, × (1+marj), × (1+KDV). Toplu iskonto çağıran tarafta.
+// tip='satis' (eski/tip'siz satırların varsayılanı): girilen değer müşteri fiyatıdır, dokunulmaz.
+// Neden: eskiden alternatifler HAM geçiyordu (yalnızca parseFloat) — kullanıcı maliyeti yazarsa
+// müşteriye MALİYETİNE, marjsız teklif gidiyordu. Tip'siz eski kayıtlar davranış değiştirmesin
+// diye 'satis' sayılır; geriye dönük hesaplama YAPILMAZ.
+function altKalemMusteriFiyat(uIdx, fiyat, para, tip) {
+  const f = parseFloat(fiyat) || 0;
+  para = para || 'TRY';
+  if (!(f > 0)) return null;
+  const b = (window._satisUrunBaglam || {})[uIdx];
+  if (tip !== 'maliyet') return { birimFiyat: f, para, hesaplandi: false, baglamYok: false };
+  if (!b)                return { birimFiyat: f, para, hesaplandi: false, baglamYok: true };
+  const usdKur = parseFloat(dovizKurlari.usdSatis) || 0;
+  const eurKur = parseFloat(dovizKurlari.eurSatis) || 0;
+  const _toTL = (v, p) => p === 'USD' ? (usdKur > 0 ? v * usdKur : v)
+                        : p === 'EUR' ? (eurKur > 0 ? v * eurKur : v) : v;
+  const _tlTo = (tl, p) => p === 'USD' ? (usdKur > 0 ? tl / usdKur : null)
+                         : p === 'EUR' ? (eurKur > 0 ? tl / eurKur : null) : tl;
+  const topMaliyetTL = _toTL(f, para) + (b.kargoBirimTL || 0);
+  const birimSatisTL = topMaliyetTL * (1 + (b.marj || 0) / 100) * (1 + (b.kdv || 0) / 100);
+  const gosterim = (para === 'TRY') ? birimSatisTL : _tlTo(birimSatisTL, para);
+  return gosterim == null
+    ? { birimFiyat: birimSatisTL, para: 'TRY', hesaplandi: true, baglamYok: false }   // kur yoksa TL'de kal
+    : { birimFiyat: gosterim,     para,        hesaplandi: true, baglamYok: false };
+}
+
+function altKalemOnizle(el) {
+  const row = el && el.closest('.alt-kalem-row'); if (!row) return;
+  const kap = row.closest('[data-uidx]');         if (!kap) return;
+  const out = row.querySelector('.ak-onizleme');  if (!out) return;
+  const uIdx = parseInt(kap.getAttribute('data-uidx')) || 0;
+  const h = altKalemMusteriFiyat(uIdx,
+    row.querySelector('.ak-fiyat')?.value,
+    row.querySelector('.ak-para')?.value || 'TRY',
+    row.querySelector('.ak-tip')?.value  || 'maliyet');
+  if (!h) { out.innerHTML = ''; return; }
+  const tutar = (MO_PARA_SEMBOL[h.para] || '₺')
+    + h.birimFiyat.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  out.innerHTML = h.baglamYok
+    ? '<span style="color:var(--amber);" title="Satış tablosu hesaplanmadan marj/KDV uygulanamaz — modalı kapatıp satış tablosunu yenileyin">⚠ marj uygulanamadı</span>'
+    : '→ müşteriye <b style="color:var(--green);">' + tutar + '</b>'
+      + (h.hesaplandi ? ' <span style="color:var(--text3);">(marj+KDV dahil)</span>'
+                      : ' <span style="color:var(--text3);">(olduğu gibi)</span>');
+}
+
 function altKalemModalAc() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) { showToast('Talep bulunamadı.'); return; }
@@ -9900,7 +9986,7 @@ function altKalemModalAc() {
     `<div style="border:1px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:10px;">
       <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${moEsc(u.aciklama || '—')}${u.kod ? ` <span style="font-size:11px;color:var(--text3);font-family:monospace;">${moEsc(u.kod)}</span>` : ''}</div>
       <div id="alt-kalem-liste-${i}" data-uidx="${i}"></div>
-      <button type="button" class="btn btn-sm" onclick="altKalemSatir(${i})" style="margin-top:4px;">＋ Alternatif Ekle</button>
+      <button type="button" class="btn btn-sm" onclick="altKalemSatir(${i}, {tip:'maliyet'})" style="margin-top:4px;">＋ Alternatif Ekle</button>
     </div>`
   ).join('');
   urunler.forEach((u, i) => (Array.isArray(mevcut[i]) ? mevcut[i] : []).forEach(a => altKalemSatir(i, a)));
@@ -9913,26 +9999,42 @@ function altKalemSatir(i, a) {
   row.className = 'alt-kalem-row';
   row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap;';
   const v = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+  // tip'siz (eski) kayıtlar 'satis' sayılır → davranışları değişmez; yeni satırlar 'maliyet'
+  const tip = a.tip === 'maliyet' ? 'maliyet' : 'satis';
   row.innerHTML =
     `<input type="text" class="ak-ad" placeholder="Alternatif ürün adı" value="${v(a.ad)}" style="flex:2;min-width:150px;">`
     + `<input type="text" class="ak-kod" placeholder="Kod" value="${v(a.kod)}" style="width:90px;font-family:var(--font-mono);">`
-    + `<input type="number" class="ak-fiyat" placeholder="Birim fiyat" value="${a.fiyat != null && a.fiyat !== '' ? a.fiyat : ''}" step="0.01" min="0" style="width:100px;">`
-    + `<select class="ak-para" style="width:74px;"><option value="TRY">₺ TL</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option></select>`
-    + `<button type="button" class="btn btn-sm" style="color:var(--red);" title="Kaldır" onclick="this.parentNode.remove()">✕</button>`;
+    + `<input type="number" class="ak-fiyat" placeholder="Birim fiyat" value="${a.fiyat != null && a.fiyat !== '' ? a.fiyat : ''}" step="0.01" min="0" style="width:100px;" oninput="altKalemOnizle(this)">`
+    + `<select class="ak-para" style="width:74px;" onchange="altKalemOnizle(this)"><option value="TRY">₺ TL</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option></select>`
+    + `<select class="ak-tip" style="width:126px;" title="Maliyet: girdiğiniz tedarikçi fiyatına kargo payı + marj + KDV uygulanır. Satış fiyatı: girdiğiniz değer müşteriye olduğu gibi gider." onchange="altKalemOnizle(this)">`
+      + `<option value="maliyet"${tip==='maliyet'?' selected':''}>Maliyet (marj+KDV)</option>`
+      + `<option value="satis"${tip==='satis'?' selected':''}>Satış fiyatı</option>`
+    + `</select>`
+    + `<button type="button" class="btn btn-sm" style="color:var(--red);" title="Kaldır" onclick="this.parentNode.remove()">✕</button>`
+    + `<span class="ak-onizleme" style="flex-basis:100%;font-size:11px;color:var(--text3);padding-left:2px;"></span>`;
   kap.appendChild(row);
   if (a.para) { const sel = row.querySelector('.ak-para'); if (sel) sel.value = a.para; }
+  altKalemOnizle(row.querySelector('.ak-fiyat'));
 }
 function altKalemKaydet() {
   const t = TALEPLER[aktifTalepIdx]; if (!t) return;
   const res = {};
   document.querySelectorAll('#alt-kalem-icerik [id^="alt-kalem-liste-"]').forEach(kap => {
     const i = kap.getAttribute('data-uidx');
-    const arr = Array.from(kap.querySelectorAll('.alt-kalem-row')).map(r => ({
-      ad: (r.querySelector('.ak-ad')?.value || '').trim(),
-      kod: (r.querySelector('.ak-kod')?.value || '').trim(),
-      fiyat: parseFloat(r.querySelector('.ak-fiyat')?.value) || 0,
-      para: r.querySelector('.ak-para')?.value || 'TRY',
-    })).filter(a => a.ad || a.kod);
+    const arr = Array.from(kap.querySelectorAll('.alt-kalem-row')).map(r => {
+      const a = {
+        ad: (r.querySelector('.ak-ad')?.value || '').trim(),
+        kod: (r.querySelector('.ak-kod')?.value || '').trim(),
+        fiyat: parseFloat(r.querySelector('.ak-fiyat')?.value) || 0,
+        para: r.querySelector('.ak-para')?.value || 'TRY',
+        tip: r.querySelector('.ak-tip')?.value === 'maliyet' ? 'maliyet' : 'satis',
+      };
+      // Hesaplanmış müşteri fiyatını da yaz: satış tablosu bağlamı olmayan bir yerden
+      // (arşiv, başka cihaz) teklif üretilirse maliyet HAM olarak müşteriye gitmesin.
+      const h = altKalemMusteriFiyat(parseInt(i) || 0, a.fiyat, a.para, a.tip);
+      if (h && h.hesaplandi) { a.musteriFiyat = h.birimFiyat; a.musteriPara = h.para; }
+      return a;
+    }).filter(a => a.ad || a.kod);
     if (arr.length) res[i] = arr;
   });
   t.altKalemler = res;
@@ -9973,11 +10075,26 @@ function musteriTeklifSatirlari(talepIdx) {
     const altKayit = t.musteriTeklifFiyatlar?.[i];
     const altAd  = (altCanli?.ad  ?? altKayit?.altAd)  || '';
     const altKod = (altCanli?.kod ?? altKayit?.altKod) || '';
-    // Çoklu alternatif (kendi fiyatıyla) — toplama dahil DEĞİL, opsiyonel seçenek
-    const altListe = (t.altKalemler && Array.isArray(t.altKalemler[i])) ? t.altKalemler[i] : [];
+    // Çoklu alternatif (kendi fiyatıyla) — toplama dahil DEĞİL, opsiyonel seçenek.
+    // Fiyat kaynağı önceliği:
+    //   1) gönderim anındaki snapshot (arşiv/geçmiş teklif → gönderilen fiyat aynen korunur)
+    //   2) canlı hesap (aktif talep): tip='maliyet' ise marj+KDV+toplu iskonto uygulanır
+    //   3) kayıtta saklanan musteriFiyat (satış tablosu bağlamı yoksa)
+    //   4) ham fiyat — yalnızca tip'siz/'satis' eski kayıtlar için (eski davranış)
+    const altSnapshot = (idx !== aktifTalepIdx && Array.isArray(altKayit?.alternatifler))
+      ? altKayit.alternatifler : null;
+    const altListe = altSnapshot
+      || ((t.altKalemler && Array.isArray(t.altKalemler[i])) ? t.altKalemler[i] : []);
     const alternatifler = altListe.map(a => {
-      const ap = a.para || 'TRY';
-      const bf = parseFloat(a.fiyat) || 0;
+      let bf, ap;
+      if (altSnapshot) {
+        bf = parseFloat(a.birimFiyat) || 0; ap = a.para || 'TRY';
+      } else {
+        const h = (idx === aktifTalepIdx) ? altKalemMusteriFiyat(i, a.fiyat, a.para, a.tip) : null;
+        if (h && h.hesaplandi)          { bf = h.birimFiyat * iskFactor; ap = h.para; }
+        else if (a.musteriFiyat > 0)    { bf = a.musteriFiyat * iskFactor; ap = a.musteriPara || a.para || 'TRY'; }
+        else                            { bf = parseFloat(a.fiyat) || 0;  ap = a.para || 'TRY'; }
+      }
       return { ad: a.ad || '', kod: a.kod || '', birimFiyat: bf, para: ap, sembol: semboller[ap] || '₺', adet, toplam: bf * adet };
     });
     return { aciklama: u.aciklama||'', kod: u.kod||'', adet, birim: u.birim||'Adet',
@@ -10704,7 +10821,12 @@ async function teklifMailGonderEt() {
         // musteriTeklifTarih'ten ileri gösterip teklif gönderildiği halde rozeti takıyordu.
         // Damga tüm cihazlarda aynı (admin'de üretilir, merge ile birebir taşınır).
         TALEPLER[aktifTalepIdx].gonderilenOnaySira = TALEPLER[aktifTalepIdx].fiyatOnaySira || 0;
-        TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({ birimFiyat: u.birimFiyat, para: u.para, altAd: u.altAd || '', altKod: u.altKod || '' }));
+        // ↹ Alternatifler de snapshot'a girsin: müşteriye GİDEN fiyat (marj+KDV+iskonto uygulanmış)
+        // arşivde/PDF tekrar üretiminde ham maliyete dönmesin.
+        TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({
+          birimFiyat: u.birimFiyat, para: u.para, altAd: u.altAd || '', altKod: u.altKod || '',
+          alternatifler: (u.alternatifler || []).map(a => ({ ad: a.ad, kod: a.kod, birimFiyat: a.birimFiyat, para: a.para })),
+        }));
         TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
         TALEPLER[aktifTalepIdx].teklifGonderimSayisi = (TALEPLER[aktifTalepIdx].teklifGonderimSayisi || 0) + 1;
         renderWorkflow('Müşteriye İletildi');
@@ -20819,7 +20941,7 @@ let _silinenMusteriFirmalar = new Set();
 // (kimlik canon/kompozit → aynı içerikle yeniden-ekleme filtrelenmesin). Bkz [[emon-fast-senkron-merge]].
 let _silinenTedarikciKeyler = new Set(); // tam-satır _canon
 let _silinenCrmIdler        = new Set(); // CRM_AKTIVITELER id
-let _silinenTeklifSatir     = new Set(); // talepTeklifleri satırı: 'talepNo|tedarikci'
+let _silinenTeklifSatir     = new Set(); // talepTeklifleri satırı: 'talepNo|tedarikci#n' (bkz _teklifSilmeAnahtari)
 
 function _mkey(r, keyFn) {
   try { const k = keyFn(r); return (k === undefined || k === null) ? JSON.stringify(r) : String(k); }
@@ -20940,7 +21062,7 @@ function _mergeMusteriler(base, local, server, silinen) {
 // tedarikçi-anahtarlı SATIR+ALAN bazlı birleştir → iki kullanıcı aynı talebin FARKLI
 // tedarikçi satırlarını doldurursa biri diğerini WHOLE-ARRAY ile ezmesin. Gerçek silme
 // yalnız açıkça silinen talep no'ları (silinenAnahtar=_silinenTalepNolar) ve teklif
-// satırları (silinenSatir=_silinenTeklifSatir, 'talepNo|tedarikci') için.
+// satırları (silinenSatir=_silinenTeklifSatir, 'talepNo|tedarikci#n') için.
 function _mergeObje(base, local, server, silinenAnahtar, silinenSatir) {
   base = base || {}; local = local || {}; server = server || {};
   const sonuc = { ...server };                         // UNION: sunucudan başla
@@ -20952,7 +21074,15 @@ function _mergeObje(base, local, server, silinenAnahtar, silinenSatir) {
       // teklif satırları: tedarikçi-anahtarlı union + alan-bazlı (bkz _kayitBirlestir)
       let birlesik = _mergeDizi(bv || [], lv, sv, r => r && r.tedarikci, true);
       if (silinenSatir && silinenSatir.size) {
-        birlesik = birlesik.filter(r => !silinenSatir.has(String(k) + '|' + (r && r.tedarikci)));
+        // Anahtar pozisyonlu ('talepNo|tedarikci#n') — aynı tedarikçinin ALTERNATİF ürün
+        // satırlarından yalnız silinen düşsün, ana teklif ayakta kalsın (bkz _teklifSilmeAnahtari).
+        const say = new Map();
+        birlesik = birlesik.filter(r => {
+          const ted = String((r && r.tedarikci) ?? '');
+          const n = say.get(ted) || 0;
+          say.set(ted, n + 1);
+          return !silinenSatir.has(String(k) + '|' + ted + '#' + n);
+        });
       }
       sonuc[k] = birlesik;
     } else if (_canon(lv) !== _canon(bv)) {
