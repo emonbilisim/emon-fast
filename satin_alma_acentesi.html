@@ -1194,6 +1194,8 @@
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;" id="satis-aksiyonlar">
         <!-- Admin butonları -->
+        <!-- Admin revizyonu: müşteriye mail atmadan sisteme yaz. Kayıt = onay → satıcı gönderir. -->
+        <button class="btn btn-primary" style="flex:1;display:none;" id="btn-admin-fiyat-kaydet" onclick="adminFiyatRevizyonKaydet()" title="Tablodaki fiyatları sisteme kaydet — onaylı fiyat olarak işaretlenir, satıcı müşteriye gönderir">💾 Fiyatı Kaydet / Onayla</button>
         <button class="btn btn-primary" style="flex:1;display:none;" id="btn-admin-gonder" onclick="musteriTeklifMaili()">📧 Müşteriye Teklif Maili Gönder</button>
         <button class="btn" style="display:none;" id="btn-pdf-indir" onclick="teklifPdfIndir(aktifTalepIdx)">📥 PDF İndir</button>
         <button class="btn" style="flex:1;display:none;" id="btn-admin-tamamla" onclick="kargoModalAc()">📦 Kargo Bilgisi Gir</button>
@@ -12359,7 +12361,7 @@ function satisBolumunuGuncelle() {
   const headerAks = document.getElementById('satis-header-aksiyonlar');
 
   // Tüm aksiyonları gizle
-  ['btn-admin-gonder','btn-admin-tamamla','btn-satici-onay-talep','btn-satici-gonder','btn-satici-tamamla'].forEach(id => {
+  ['btn-admin-fiyat-kaydet','btn-admin-gonder','btn-admin-tamamla','btn-satici-onay-talep','btn-satici-gonder','btn-satici-tamamla'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -12368,6 +12370,7 @@ function satisBolumunuGuncelle() {
     if (hesapBol) hesapBol.style.display = 'block';
     if (headerAks) headerAks.style.display = 'flex';
     const gonder  = document.getElementById('btn-admin-gonder');
+    const kaydet  = document.getElementById('btn-admin-fiyat-kaydet');
     const tamamla = document.getElementById('btn-admin-tamamla');
     const pdfBtn  = document.getElementById('btn-pdf-indir');
     const siparisVerildi = t?.durum === 'Sipariş Verildi';
@@ -12377,6 +12380,9 @@ function satisBolumunuGuncelle() {
     if (tamamla) tamamla.style.display = siparisVerildi ? 'flex' : 'none';
     // Mail butonu sipariş verildiyse gizle
     if (gonder) gonder.style.display = (siparisVerildi || siparisTamam) ? 'none' : 'flex';
+    // 💾 Kaydet: admin'in tablo revizyonunu MAİL ATMADAN sisteme yazan tek yol.
+    // Onay bekleyen durumda gizli — orada karar "Onayla/Reddet" bandından verilir.
+    if (kaydet) kaydet.style.display = (siparisVerildi || siparisTamam || onayDurumu === 'bekliyor') ? 'none' : 'flex';
     if (pdfBtn) pdfBtn.style.display = 'flex';
 
     if (onayDurumu === 'bekliyor' && bandi) {
@@ -12395,17 +12401,35 @@ function satisBolumunuGuncelle() {
         + '</div>';
     } else if (onayDurumu === 'onaylandi' && bandi) {
       // Onaylı — admin tabloyu düzenleyebilir; değişikliği kayıtlı fiyata (adminSatisData)
-      // yazmak için açık bir "Güncelle" butonu. Onay durumu KORUNUR.
+      // yazmak için aşağıdaki "💾 Fiyatı Kaydet / Onayla" butonu. Onay durumu KORUNUR.
       bandi.style.display = 'block';
       bandi.style.background = 'rgba(62,207,142,0.1)';
       bandi.style.border = '1px solid rgba(62,207,142,0.3)';
       const revize = !!t.fiyatOnayTalep?.adminDegisiklik;
+      const gonderimBekliyor = onayliGonderimBekliyorMu(t);
       bandi.innerHTML = '✅ <strong>Fiyat onaylandı</strong> — satıcı müşteriye gönderebilir.'
         + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti.</span>' : '')
         + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Not: ' + t.fiyatOnayTalep.adminNot + '</span>' : '')
+        + (gonderimBekliyor && t.musteriTeklifGonderildi
+            ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">📤 Revize sonrası müşteriye HENÜZ gönderilmedi — satıcının panelinde "✅ Gönder" uyarısı görünüyor.</span>' : '')
         + '<div style="margin-top:8px;border-top:1px solid rgba(62,207,142,0.25);padding-top:8px;">'
-        + '<span style="font-size:12px;color:var(--text2);">Tablodaki marj %, birim satış, KDV veya nakliyeyi değiştirdiysen kaydet — yoksa yenilemede eski onaylı değerler geri gelir:</span><br>'
-        + '<button class="btn btn-sm btn-primary" style="margin-top:6px;" onclick="adminOnayliFiyatiGuncelle()" title="Onaylı fiyat tablosunu güncelle (onay durumu korunur)">💾 Onaylı fiyatı güncelle</button>'
+        + '<span style="font-size:12px;color:var(--text2);">Tablodaki marj %, birim satış, KDV, nakliye veya revize iskontosunu değiştirdiysen aşağıdaki <strong>💾 Fiyatı Kaydet / Onayla</strong> butonuna bas — yoksa yenilemede eski onaylı değerler geri gelir.</span>'
+        + '</div>';
+    } else if (bandi && !siparisVerildi && !siparisTamam) {
+      // Onay akışı YOK (taze talep, müşteri revizyonu sonrası ya da reddedilmiş).
+      // Admin burada tabloyu revize edebilir ama kaydı yalnız "💾 Fiyatı Kaydet / Onayla"
+      // yapar. Eskiden tek kayıt yolu müşteriye mail atmaktı → revizyon kayboluyordu.
+      bandi.style.display = 'block';
+      bandi.style.background = 'rgba(79,142,247,0.10)';
+      bandi.style.border = '1px solid rgba(79,142,247,0.28)';
+      const revizyonMu = !!(t.musteriTeklifGonderildi || t.fiyatOnayTalep || onayDurumu === 'reddedildi');
+      bandi.innerHTML = (revizyonMu ? '✏️ <strong>Fiyat revizyonu</strong>' : '💰 <strong>Fiyatlama</strong>')
+        + ' — tabloyu düzenledikten sonra aşağıdaki <strong>💾 Fiyatı Kaydet / Onayla</strong> butonuna bas.'
+        + '<div style="margin-top:4px;font-size:12px;color:var(--text2);">'
+        + 'Kaydedilen fiyat <strong>onaylanan fiyat</strong> olarak işaretlenir; sorumlu satıcıya bildirim gider ve '
+        + 'teklifi müşteriye <strong>satıcı</strong> gönderir. Müşteriye mail atmadan kayıt yapılabilir.'
+        + (onayDurumu === 'reddedildi' && t.fiyatOnayTalep?.adminNot
+            ? '<br><span style="color:var(--red);">❌ Önceki red gerekçesi: ' + t.fiyatOnayTalep.adminNot + '</span>' : '')
         + '</div>';
     } else if (bandi) {
       bandi.style.display = 'none';
@@ -12424,12 +12448,18 @@ function satisBolumunuGuncelle() {
         satirlar.querySelectorAll('input,select,button').forEach(el => el.disabled = true);
       }
       if (bandi) {
-        bandi.style.display = 'block';
-        bandi.style.background = 'rgba(62,207,142,0.1)';
-        bandi.style.border = '1px solid rgba(62,207,142,0.3)';
         const revize = !!t.fiyatOnayTalep?.adminDegisiklik;
-        bandi.innerHTML = '✅ <strong>Admin onayladı</strong> — Müşteriye teklif gönderilebilir.'
+        // Admin revize edip kaydettiyse (fiyatOnaySira son gönderimden yeni) satıcının
+        // teklifi TEKRAR göndermesi gerekir — bunu banda net yaz, rozete bırakma.
+        const tekrarGonder = onayliGonderimBekliyorMu(t) && t.musteriTeklifGonderildi;
+        bandi.style.display = 'block';
+        bandi.style.background = tekrarGonder ? 'rgba(251,191,36,0.14)' : 'rgba(62,207,142,0.1)';
+        bandi.style.border = tekrarGonder ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(62,207,142,0.3)';
+        bandi.innerHTML = (tekrarGonder
+            ? '📤 <strong>Onaylanan fiyat güncellendi — teklifi müşteriye TEKRAR gönderin.</strong>'
+            : '✅ <strong>Admin onayladı</strong> — Müşteriye teklif gönderilebilir.')
           + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti — tablodaki değerler admin\'in onayladığı değerlerdir.</span>' : '')
+          + (tekrarGonder ? '<br><span style="font-size:12px;color:var(--text2);">Müşteriye giden son teklif eski fiyatı içeriyor; aşağıdaki <strong>📧 Müşteriye Teklif Maili Gönder</strong> ile güncel fiyatı iletin.</span>' : '')
           + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Admin notu: ' + t.fiyatOnayTalep.adminNot + '</span>' : '')
           + '<div style="margin-top:8px;border-top:1px solid rgba(62,207,142,0.25);padding-top:8px;">'
           + '<span style="font-size:12px;color:var(--text2);">Başka tedarikçiden farklı fiyat mı geldi?</span><br>'
@@ -13408,6 +13438,9 @@ function satisDurumFarkliMi(a, b) {
   if ((a.nakliye||0) !== (b.nakliye||0)) return true;
   if (!!a.ikinciAll !== !!b.ikinciAll) return true;
   if ((a.toplamPara||null) !== (b.toplamPara||null)) return true;
+  // ✏️ Revize iskontosu admin'in EN SIK kullandığı revizyon aracı — karşılaştırmada yoksa
+  // "tabloda değişiklik yok" denip kayıt reddedilir ve indirim sisteme hiç yazılmaz.
+  if ((a.topluIskonto||0) !== (b.topluIskonto||0)) return true;
   const keys = new Set([...Object.keys(a.marjlar||{}), ...Object.keys(b.marjlar||{})]);
   for (const k of keys) {
     const av = parseFloat(a.marjlar?.[k]); const bv = parseFloat(b.marjlar?.[k]);
@@ -13420,34 +13453,81 @@ function satisDurumFarkliMi(a, b) {
   return false;
 }
 
-// Admin: ZATEN onaylı bir talebin fiyat tablosunu güncelle (marj/KDV/nakliye/toplam).
-// Onay durumu 'onaylandi' KALIR — yalnızca kayıtlı fiyat (adminSatisData) tazelenir.
-// Bu buton olmadan admin'in onay-sonrası düzenlemesi sadece bellekte/DOM'da kalıyor,
-// hiçbir yere yazılmıyordu → yenilemede satisTabloDurumuYukle eski onaylı veriyi geri
-// yüklüyor, admin'in değişikliği "kayboluyordu". Taze fiyatOnaySira damgası ŞART:
-// yoksa _mergeKaydet bayat bir oturumun eski fiyatOnayTalep'ini üzerine geri yazabilir.
-async function adminOnayliFiyatiGuncelle() {
+// Admin: tablodaki fiyat revizyonunu SİSTEME YAZ — müşteriye mail atmadan.
+// Eskiden bu yalnız 'onaylandi' durumunda mümkündü; onay akışı olmayan bir talepte
+// (taze talep, müşteri revizyonu sonrası fiyatOnayiniGecersizKil ile onay düşmüş kayıt,
+// ya da reddedilmiş kayıt) admin'in düzenlemesi hiçbir yere yazılmıyordu → tek kayıt yolu
+// müşteriye teklif maili atmaktı; atmazsa yenilemede satisTabloDurumuYukle eski değerleri
+// geri yükleyip revizyonu "kaybediyordu".
+//
+// Kayıt = ONAY: adminSatisData yazılır ve durum 'onaylandi' olur. Böylece satıcı tarafında
+// kilitli/onaylı fiyat görünür, panelde "✅ Gönder" rozeti yanar ve teklifi MÜŞTERİYE SATICI
+// gönderir. Taze fiyatOnaySira damgası ŞART: hem bayat oturumun eski fiyatOnayTalep'ini
+// merge'de geri yazmasını engeller, hem de gonderilenOnaySira'yı geçerek "revize edildi,
+// tekrar gönder" uyarısını satıcıya geri getirir.
+async function adminFiyatRevizyonKaydet() {
   const t = TALEPLER[aktifTalepIdx];
-  if (!t || t.fiyatOnayDurumu !== 'onaylandi') return;
+  if (!t) return;
+  if (aktifKullanici?.rol !== 'admin') { showToast('⚠ Bu işlem yalnızca admin içindir.'); return; }
+  if (t.fiyatOnayDurumu === 'bekliyor') { showToast('⚠ Bu talep onay bekliyor — yukarıdaki "✅ Onayla" ile onaylayın.'); return; }
+
   const yeni = satisTabloDurumuYakala();
   const eski = t.fiyatOnayTalep?.adminSatisData;
-  if (eski && !satisDurumFarkliMi(eski, yeni)) {
+  const zatenOnayli = t.fiyatOnayDurumu === 'onaylandi';
+  if (zatenOnayli && eski && !satisDurumFarkliMi(eski, yeni)) {
     showToast('Tabloda değişiklik yok — güncellenecek bir şey bulunamadı.');
     return;
   }
-  if (!confirm('Onaylı fiyat tablosu güncellensin mi?\n\nYeni toplam: ' + yeni.toplamStr + '\n\nOnay durumu korunur; satıcı güncel fiyatı görür.')) return;
-  const not = prompt('Güncelleme notu (isteğe bağlı):') || '';
+
+  // Bildirimi kimin alacağını ÖNCEDEN çöz ki onay mesajında görünsün.
+  const sorumlu   = (typeof talepSorumluKullanici === 'function') ? talepSorumluKullanici(t) : null;
+  const saticiAdi = t.fiyatOnayTalep?.satici || sorumlu?.ad || sorumlu?.email || '';
+
+  const mesaj = (zatenOnayli
+      ? 'Onaylı fiyat tablosu güncellensin mi?'
+      : 'Revize fiyat sisteme kaydedilsin ve ONAYLI fiyat olarak işaretlensin mi?')
+    + '\n\nYeni toplam: ' + yeni.toplamStr
+    + '\n\nTeklifi müşteriye ' + (saticiAdi ? saticiAdi.replace(/\s+/g, ' ') : 'sorumlu satıcı') + ' gönderecek.';
+  if (!confirm(mesaj)) return;
+  const not = prompt('Revizyon / onay notu (satıcı görecek, isteğe bağlı):') || '';
+
   if (!t.fiyatOnayTalep) t.fiyatOnayTalep = {};
+  // Onay akışı hiç başlamadıysa satıcı kimliğini talebin sorumlusundan doldur —
+  // "onaylandı" bildirimi ve satıcı adı boş kalmasın.
+  if (!t.fiyatOnayTalep.satici && sorumlu) {
+    t.fiyatOnayTalep.satici     = sorumlu.ad || sorumlu.email || '';
+    t.fiyatOnayTalep.saticiMail = (sorumlu.email || '').toLowerCase();
+  }
+  if (!t.fiyatOnayTalep.tarih) t.fiyatOnayTalep.tarih = new Date().toISOString();
   t.fiyatOnayTalep.adminSatisData  = yeni;
-  t.fiyatOnayTalep.adminDegisiklik = true;
+  // "✏ Admin revize etti" rozeti yalnız GERÇEKTEN değişiklik varsa: onaylı kayıtta eski
+  // onaylı tabloya, yeni kayıtta satıcının taslağına göre karşılaştır. Karşılaştıracak
+  // referans yoksa (admin'in kendi fiyatlaması) revizyon sayılmaz.
+  t.fiyatOnayTalep.adminDegisiklik = zatenOnayli
+    ? true                                     // buraya gelmişse tablo eskisinden farklı
+    : (t.fiyatOnayTalep.saticiSatisData ? satisDurumFarkliMi(t.fiyatOnayTalep.saticiSatisData, yeni) : false);
   t.fiyatOnayTalep.adminTarih      = new Date().toISOString();
   if (not) t.fiyatOnayTalep.adminNot = not;
-  t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası — bayat oturum geri alamaz
+  t.fiyatOnayDurumu = 'onaylandi';
+  t.fiyatOnaySira   = _onaySiraYeni(t);   // monotonik karar damgası — bayat oturum geri alamaz
   fiyatOnayYinelenleriEsitle(t);  // (varsa) aynı no'lu yinelenen kayıt da izlensin
-  await kaliciVeriKaydet('Onaylı fiyat güncelleme'); // HEMEN ortak sunucuya yaz
+
+  const kayitOk = await kaliciVeriKaydet('Admin fiyat revizyonu'); // HEMEN ortak sunucuya yaz
   satisBolumunuGuncelle();
   onayBekleyenBadgeGuncelle();
-  showToast('💾 Onaylı fiyat güncellendi — satıcı yeni fiyatı görecek.');
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  renderTalepler();
+  // Sunucuya yazılamadıysa revizyon yalnız bu cihazda kalır ve ilk tazeleme onu EZER →
+  // satıcı eski fiyatı gönderir. Bunu sessizce geçme, satıcıya da haber verme.
+  if (!kayitOk) {
+    showToast('⛔ Revizyon sunucuya yazılamadı — satıcı göremez, değişiklik ilk tazelemede kaybolur. Bağlantıyı kontrol edip tekrar kaydedin.');
+    return;
+  }
+  showToast(zatenOnayli
+    ? '💾 Onaylı fiyat güncellendi — satıcı yeni fiyatı görüp müşteriye gönderecek.'
+    : '💾 Revize fiyat kaydedildi ve onaylandı — teklifi satıcı müşteriye gönderecek.');
+  // Fiyat gerçekten değiştiyse "revize edildi" tonunda, değişmediyse düz onay bildirimi.
+  onayOnaylandiBildirimGonder(t, { revizyon: !!t.fiyatOnayTalep.adminDegisiklik });
 }
 
 // Admin: reddet
@@ -16253,9 +16333,12 @@ async function otoOnayBildirimGonder(t) {
   } catch (e) { console.error('otoOnayBildirimGonder hatası:', e); }
 }
 
-// Admin onaylayınca → talebi gönderen satıcının e-postasına "onaylandı" maili
-async function onayOnaylandiBildirimGonder(t) {
+// Admin onaylayınca → talebi gönderen satıcının e-postasına "onaylandı" maili.
+// opts.revizyon: admin fiyatı KENDİ revize edip kaydetti (onay talebine cevap değil) →
+// satıcı asıl bunu kaçırıyor, o yüzden başlık/metin "revize edildi, sen gönder" olur.
+async function onayOnaylandiBildirimGonder(t, opts) {
   try {
+    const revizyon = !!(opts && opts.revizyon);
     const oT = t.fiyatOnayTalep || {};
     let to = (oT.saticiMail || '').trim();
     if (!to && oT.satici) {
@@ -16263,26 +16346,45 @@ async function onayOnaylandiBildirimGonder(t) {
         .find(k => k.ad === oT.satici || k.username === oT.saticiUsername);
       to = (u?.email || '').trim();
     }
-    if (!to) { showToast('⚠ Satıcıya onay maili gidemedi — satıcı e-postası bulunamadı.'); return; }
+    // Onay talebi hiç açılmadıysa (admin doğrudan revize etti) → talebin SORUMLU satıcısı
+    if (!to && typeof talepSorumluKullanici === 'function') {
+      to = (talepSorumluKullanici(t)?.email || '').trim();
+    }
+    // Kendi kendine bildirim gönderme (talebin sorumlusu admin'in kendisiyse)
+    if (to && aktifKullanici?.email && to.toLowerCase() === (aktifKullanici.email || '').toLowerCase()) return;
+    if (!to) {
+      showToast(revizyon
+        ? '⚠ Satıcıya revizyon maili gidemedi — talebe sorumlu satıcı atanmamış. (Fiyat kaydedildi, panelde "✅ Gönder" uyarısı görünür.)'
+        : '⚠ Satıcıya onay maili gidemedi — satıcı e-postası bulunamadı.');
+      return;
+    }
     const toplamStr = oT.adminSatisData?.toplamStr || oT.toplamStr || '—';
+    const baslik = revizyon ? '✏️ Fiyat Revize Edildi — Onaylandı' : '✅ Fiyatınız Onaylandı';
+    const giris  = revizyon
+      ? 'Admin bu talebin fiyatını revize etti ve <b>onaylanan fiyat</b> olarak kaydetti. Teklifi müşteriye <b>siz</b> göndereceksiniz — aşağıdaki bağlantıdan talebi açıp güncel fiyatla gönderin.'
+      : 'Gönderdiğiniz fiyat onaylandı. Artık müşteriye teklifi gönderebilirsiniz.';
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
-        <h2 style="margin:0 0 4px;color:#1a7f4b;">✅ Fiyatınız Onaylandı</h2>
-        <p style="color:#666;margin:0 0 16px;">Gönderdiğiniz fiyat onaylandı. Artık müşteriye teklifi gönderebilirsiniz.</p>
+        <h2 style="margin:0 0 4px;color:${revizyon ? '#b9770b' : '#1a7f4b'};">${baslik}</h2>
+        <p style="color:#666;margin:0 0 16px;">${giris}</p>
         <table style="font-size:13px;border-collapse:collapse;">
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${t.no || '—'}</strong></td></tr>
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${t.musteri || '—'}</td></tr>
-          <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylanan Toplam</td><td style="font-weight:700;color:#1a7f4b;">${toplamStr}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Onaylanan Toplam</td><td style="font-weight:700;color:${revizyon ? '#b9770b' : '#1a7f4b'};">${toplamStr}</td></tr>
           ${oT.adminDegisiklik ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Not</td><td>Admin fiyat tablosunda değişiklik yaptı.</td></tr>` : ''}
           ${oT.adminNot ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Admin Notu</td><td>${oT.adminNot}</td></tr>` : ''}
+          ${revizyon && t.musteriTeklifGonderildi ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Uyarı</td><td style="color:#b9770b;font-weight:600;">Müşteriye giden son teklif ESKİ fiyatı içeriyor — tekrar gönderin.</td></tr>` : ''}
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Onay Tarihi</td><td>${oT.adminTarih ? new Date(oT.adminTarih).toLocaleString('tr-TR') : '—'}</td></tr>
         </table>
         ${talepLinkButonuHtml(t, '🔗 Talebi Aç ve Müşteriye Gönder')}
       </div>`;
-    const ok = await graphMailHtmlGonder([to], `[Fiyat Onaylandı] ${t.no || ''} — ${t.musteri || ''}`, html);
+    const konu = revizyon
+      ? `[Fiyat Revizyonu] ${t.no || ''} — ${t.musteri || ''} onaylandı, müşteriye gönderin`
+      : `[Fiyat Onaylandı] ${t.no || ''} — ${t.musteri || ''}`;
+    const ok = await graphMailHtmlGonder([to], konu, html);
     showToast(ok
-      ? `📧 Onay bildirimi ${to} adresine gönderildi.`
-      : '⚠ Satıcıya onay maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
+      ? `📧 ${revizyon ? 'Revizyon' : 'Onay'} bildirimi ${to} adresine gönderildi.`
+      : '⚠ Satıcıya bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
   } catch (e) { console.error('onayOnaylandiBildirimGonder hatası:', e); }
 }
 
