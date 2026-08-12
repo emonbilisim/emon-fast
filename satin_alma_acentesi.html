@@ -550,6 +550,7 @@
       <span class="nav-badge" id="badge-talepler">3</span>
       <span class="nav-badge" id="badge-oto-taslak" title="Gelen maillerden bekleyen taslak" style="display:none;background:var(--amber);color:#1a1a1a;">0</span>
       <span class="nav-badge onayli-yanip" id="badge-onayli-gonder" title="Admin onayladı — müşteriye gönderilmeyi bekliyor" style="display:none;background:var(--green);color:#06281c;">0</span>
+      <span class="nav-badge onayli-yanip" id="badge-tedsip-bekleyen" title="Müşteri siparişi alındı — tedarikçiye sipariş geçilmedi" style="display:none;background:var(--purple);color:#1b1033;">0</span>
     </div>
     <div class="nav-item" data-nav="teklifler" onclick="goPage('teklifler',this)">
       <span class="icon">💬</span> Teklifler
@@ -644,6 +645,17 @@
         </div>
       </div>
       <div id="panel-onayli-gonder-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
+
+    <!-- 🛒 Müşteri siparişi alındı — tedarikçiye sipariş geçilmedi (satın alma dikkati) -->
+    <div class="card" id="panel-tedsip-card" style="display:none;margin-bottom:20px;border-left:3px solid var(--purple);background:rgba(167,139,250,0.07);">
+      <div class="card-header">
+        <div>
+          <div class="card-title" style="color:var(--purple);">🛒 Tedarikçiye Sipariş Geçilmedi</div>
+          <div class="card-sub">Müşteri siparişi alındı ama bu kalemler için tedarikçiye sipariş maili gitmedi.</div>
+        </div>
+      </div>
+      <div id="panel-tedsip-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
     </div>
 
     <!-- ⏰ Son Teklif Zamanı Uyarıları (sayfa açılışında ilk görünen alan) -->
@@ -1208,6 +1220,10 @@
         <button class="btn" style="display:none;" id="btn-pdf-indir-satici" onclick="teklifPdfIndir(aktifTalepIdx)">📥 PDF İndir</button>
       </div>
     </div>
+
+    <!-- 🛒 TEDARİKÇİ SİPARİŞİ — müşteri siparişi alındıktan sonra satın alma
+         (renderTedSiparis doldurur; müşteri sipariş vermeden görünmez) -->
+    <div class="card" id="td-tedsiparis-section" style="display:none;margin-top:16px;"></div>
   </div>
 
   <!-- FİYAT ONAYLARI PAGE (Admin) -->
@@ -3645,6 +3661,28 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
   </div>
 </div>
 
+<!-- MODAL: Tedarikçi Siparişi — seçili kalemler tedarikçi bazında gruplanır,
+     her tedarikçiye kendi RFQ/teklif mailinin ZİNCİRİNDE sipariş gider -->
+<div class="modal-overlay" id="modal-tedSiparis">
+  <div class="modal" style="width:min(96vw,780px);">
+    <div class="modal-title">🛒 Tedarikçiye Sipariş Gönder</div>
+    <div id="tedsip-ozet" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
+    <div id="tedsip-gruplar" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px;max-height:46vh;overflow-y:auto;"></div>
+    <div class="form-group">
+      <label class="form-label">Sipariş Notu / Teslimat Bilgisi (tüm tedarikçilere gider)</label>
+      <textarea id="tedsip-not" rows="3" placeholder="Teslim adresi, irsaliye/fatura bilgisi, termin, özel talimat..."></textarea>
+    </div>
+    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;" title="Tedarikçi mailindeki tüm alıcılara (CC dahil) yanıt ver">
+      <input type="checkbox" id="tedsip-tumu" style="accent-color:var(--accent);"> Tümünü yanıtla (mailindeki CC'leri koru)
+    </label>
+    <div id="tedsip-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin:10px 0;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('tedSiparis')">İptal</button>
+      <button class="btn btn-primary" id="tedsip-gonder-btn" onclick="tedSiparisGonder()">📨 Siparişi Gönder</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Tedarikçi Mailine Zincir Yanıt (aynı mail üzerinden ek soru/cevap) -->
 <div class="modal-overlay" id="modal-tedMailCevap">
   <div class="modal" style="width:min(96vw,640px);max-height:90vh;overflow-y:auto;">
@@ -5059,7 +5097,7 @@ function closeModal(id) { document.getElementById('modal-' + id).classList.remov
 const _KORUMALI_MODALLAR = new Set([
   'musteriForm','yeniTedarikci','duzenleTedarikci','yeniTalep','topluYapistir',
   'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif','teklifMailOnay',
-  'moKart','moForm','moFormEdit','altKalem'
+  'moKart','moForm','moFormEdit','altKalem','tedSiparis'
 ]);
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
   if (e.target !== m) return; // yalnızca arka plana (içeriğe değil) tıklama
@@ -7181,7 +7219,7 @@ function renderTalepler() {
         <td style="font-weight:500;">${t.musteri}</td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.urun}</td>
         <td style="font-size:12px;">${t.miktar||'—'}</td>
-        <td>${durumTalepBadge(t.durum)}${onayliRozet(t)}</td>
+        <td>${durumTalepBadge(t.durum)}${onayliRozet(t)}${tedSipRozet(t)}</td>
         <td style="font-size:12px;color:var(--text2);">${talepTarihFmt(t.tarih)}</td>
         <td><button class="btn btn-sm" onclick="goPage('talepler',document.querySelector('[onclick*=talepler]'))">→</button></td>`;
       panelTbody.appendChild(pr);
@@ -7204,7 +7242,7 @@ function renderTalepler() {
         <td data-label="Müşteri" style="font-weight:500;">${t.musteri}</td>
         <td data-label="Ürün" style="max-width:220px;">${t.urun}</td>
         <td data-label="Miktar" style="font-size:12px;">${t.miktar||'—'}</td>
-        <td data-label="Durum">${durumTalepBadge(t.durum)}${onayliRozet(t)}</td>
+        <td data-label="Durum">${durumTalepBadge(t.durum)}${onayliRozet(t)}${tedSipRozet(t)}</td>
         <td data-label="Tarih" style="font-size:12px;color:var(--text2);">${talepTarihFmt(t.tarih)}</td>
         <td data-label="Termin" style="font-size:12px;color:var(--text2);">${t.termin?tarihKisa(new Date(t.termin)):'—'}</td>
         <td data-label="STZ" style="font-size:12px;">${(()=>{
@@ -7243,6 +7281,7 @@ function renderTalepler() {
   if (typeof otoTalepHatirlatGuncelle === 'function') otoTalepHatirlatGuncelle();
   if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
   if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  if (typeof tedSipBekleyenGuncelle === 'function') tedSipBekleyenGuncelle();
 }
 
 function filterTalepler() { renderTalepler(); }
@@ -7472,6 +7511,7 @@ function talepDetayAc(idx) {
   renderTalepTeklifleri();
   renderRfqDurumu();
   renderKargoTakip();
+  renderTedSiparis();
 
   // Satış fiyatı — marjları sıfırla ve tabloyu yükle
   satisUrunMarjlari = {};
@@ -7509,6 +7549,9 @@ function talepDetayAc(idx) {
       else satisHesaplaReset();
     }
     satisBolumunuGuncelle();
+    // Satış tablosu yüklendikten SONRA tazele: tedarikçi önerisi (ucuz/ikinci seçimi)
+    // canlı maliyet tablosuyla aynı olsun — 150ms önce satisUrunBaz henüz boştu.
+    renderTedSiparis();
   }, 150);
 
   goPage('talepDetay', null);
@@ -15536,7 +15579,11 @@ function siparisKaydet() {
   renderTalepler();
   renderWorkflow('Sipariş Verildi');
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Sipariş Verildi');
-  showToast('✅ Sipariş kaydedildi! Kargo bilgilerini daha sonra girebilirsiniz.');
+  // Müşteri siparişi alındı → tedarikçi sipariş bölümü açılsın. Sipariş "Teklifler"
+  // sayfasından da onaylanabiliyor; o zaman detay ekranı BAŞKA talebi gösteriyor olabilir.
+  if (idx === aktifTalepIdx) renderTedSiparis();
+  tedSipBekleyenGuncelle();
+  showToast('✅ Sipariş kaydedildi! Şimdi 5. adımdan tedarikçilere sipariş geçebilirsiniz.');
 }
 
 // ═══════════════════════════════════════
@@ -18509,6 +18556,520 @@ async function tedMailCevapGonder() {
   showToast(zincirde
     ? '↩️ ' + (k.firma ? k.firma + ' — ' : '') + 'tedarikçinin mailine YANIT olarak gönderildi (aynı zincir): ' + alicilar.join(', ')
     : '📧 Yanıt zinciri kurulamadı — "' + konuRe + '" konulu YENİ mail olarak gönderildi: ' + alicilar.join(', '));
+}
+
+// ═══════════════════════════════════════
+// TEDARİKÇİ SİPARİŞİ (müşteri siparişi sonrası satın alma)
+// ═══════════════════════════════════════
+// Müşteri siparişi geçtikten sonra kalemler tedarikçilere sipariş edilir. Tek tek ya da
+// toplu seçilebilir; seçim TEDARİKÇİ BAZINDA gruplanır ve her firmaya TEK mail gider.
+// Mail, tedarikçinin fiyatı paylaştığı RFQ yanıtının ZİNCİRİNDE gönderilir
+// (_zincirYanitGonder → createReply): tedarikçi kendi verdiği fiyatın altında siparişi
+// görür, hangi teklife ait olduğunu sormak zorunda kalmaz. Zincir kurulamazsa (mail
+// bulunamadı / başka posta kutusu) sipariş KAYBOLMAZ, "SİPARİŞ" konulu yeni mail gider.
+
+function _tsEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _tsAttr(s) { return _tsEsc(s).replace(/"/g, '&quot;'); }
+
+// Siparişe konu ürün listesi: müşteri siparişinde onaylananlar varsa onlar, yoksa talep ürünleri.
+// Dönen her kalem, teklif fiyatlarının indekslendiği ÜRÜN İNDEKSİNİ (uIdx) taşır — fiyat
+// anahtarı ('fiyat_<i>') bu indekstir, sipariş dizisinin sırası değil.
+function tedSipKalemler(t) {
+  const urunler = (t.urunler && t.urunler.length) ? t.urunler : [{ aciklama: t.urun, kod: '', adet: t.miktar || 1, birim: 'Adet' }];
+  const sip = Array.isArray(t.siparis) && t.siparis.length ? t.siparis : null;
+  const map = (u, i, s) => ({
+    uIdx: i,
+    aciklama: u.aciklama || '',
+    kod: u.kod || '',
+    adet: parseFloat(s?.adet ?? u.adet) || 1,
+    birim: s?.birim || u.birim || 'Adet',
+  });
+  const secili = urunler.map((u, i) => {
+    const s = sip ? sip.find(x => x.aciklama === u.aciklama) : null;
+    return (sip && !s) ? null : map(u, i, s);   // müşteri bu kalemi sipariş etmedi
+  }).filter(Boolean);
+  // Sipariş kaydı ürün listesiyle hiç eşleşmiyorsa (ürünler sipariş sonrası düzenlenmiş)
+  // kalemleri gizleme — aksi halde bölüm boş görünür ve sipariş hiç geçilemez.
+  return secili.length ? secili : urunler.map((u, i) => map(u, i, null));
+}
+
+// Bir ürüne fiyat veren tedarikçiler — ucuzdan pahalıya (TL karşılığına göre).
+function tedSipUrunTeklifleri(t, uIdx, urunSayisi) {
+  const liste = talepTeklifleri[t.no] || [];
+  return liste.map(tk => {
+    const tlHam = tk.urunFiyatlari?.['fiyat_' + uIdx] || (urunSayisi === 1 ? tk.birimFiyat : 0);
+    if (!tlHam || tlHam <= 0 || !tk.tedarikci) return null;
+    const ham  = tk.urunFiyatlari?.['fiyat_' + uIdx + '_ham'];
+    const para = tk.urunFiyatlari?.['fiyat_' + uIdx + '_para'] || 'TRY';
+    const hamSayi = (ham === undefined || ham === null || ham === '') ? null : parseFloat(ham);
+    return {
+      firma: tk.tedarikci,
+      tlHam,
+      birimFiyat: (hamSayi !== null && !isNaN(hamSayi)) ? hamSayi : tlHam,
+      para: (hamSayi !== null && !isNaN(hamSayi)) ? para : 'TRY',
+      alt: tk.urunFiyatlari?.['fiyat_' + uIdx + '_alt'] || '',
+      altkod: tk.urunFiyatlari?.['fiyat_' + uIdx + '_altkod'] || '',
+      teslimat: tk.teslimat || '',
+      odeme: tk.odeme || '',
+    };
+  }).filter(Boolean).sort((a, b) => a.tlHam - b.tlHam);
+}
+
+// Satışta hangi tedarikçinin maliyeti kullanıldıysa sipariş de ona önerilir.
+// Kaynak sırası: onaylanan fiyat tablosu (adminSatisData) → ekrandaki canlı seçim.
+// Böylece müşteriye satılan fiyatın dayandığı tedarikçiyle sipariş edilen tedarikçi ayrışmaz.
+function tedSipVarsayilanFirma(t, uIdx, teklifler) {
+  if (!teklifler.length) return '';
+  const kayit = t.fiyatOnayTalep?.adminSatisData || null;
+  const baz = kayit?.baz || (typeof satisUrunBaz !== 'undefined' ? satisUrunBaz : {});
+  const ikinciAll = kayit ? !!kayit.ikinciAll : !!document.getElementById('ikinci-fiyat-cb')?.checked;
+  const ikinci = ikinciAll || baz?.[uIdx] === 'ikinci';
+  return (ikinci && teklifler.length > 1) ? teklifler[1].firma : teklifler[0].firma;
+}
+
+// Bu kalem daha önce sipariş edildi mi? (aynı ürün indeksi geçen ilk sipariş)
+function tedSipVerilmisKayit(t, uIdx) {
+  return (t.tedSiparisleri || []).find(s => (s.urunler || []).some(u => u.uIdx === uIdx)) || null;
+}
+
+// ─── "Tedarikçiye sipariş geçilmedi" uyarısı ───────────────────────────────
+// Modül 2026-08-12'de devreye girdi. Ondan ÖNCE alınan müşteri siparişleri sistem
+// dışında satın alınmıştı → geriye dönük uyarı üretmesinler, yoksa panel ilk açılışta
+// yıllarca eski kayıtla dolar ve rozet asla sıfırlanmaz.
+const TEDSIP_TAKIP_BASLANGIC = '2026-08-12';
+
+// Müşterinin sipariş ettiği ama hiçbir tedarikçi siparişine girmemiş kalemler.
+// Kısmi siparişle doğru çalışır: tedSipKalemler yalnız müşterinin ısmarladığı satırları döner.
+function tedSipBekleyenKalemler(t) {
+  if (!t || !crmSiparisMi(t)) return [];
+  if (talepKapaliMi(t)) return [];                       // Tamamlandı/İptal/Reddedildi/Karşılanamadı → iş bitti
+  const bas = String(t.siparisTarih || t.tarih || '').slice(0, 10);
+  if (bas && bas < TEDSIP_TAKIP_BASLANGIC) return [];
+  return tedSipKalemler(t).filter(k => !tedSipVerilmisKayit(t, k.uIdx));
+}
+function tedSipBekliyorMu(t) { return tedSipBekleyenKalemler(t).length > 0; }
+
+// Talep listesi durum hücresine küçük "🛒 Sipariş Geç" rozeti
+function tedSipRozet(t) {
+  return tedSipBekliyorMu(t)
+    ? ' <span class="badge badge-purple onayli-yanip" style="font-weight:600;" title="Müşteri siparişi alındı — tedarikçiye sipariş geçin">🛒 Sipariş Geç</span>'
+    : '';
+}
+
+// Nav rozeti + Panel afişini güncelle (renderTalepler sonu + sipariş kaydet/gönder/geri al)
+function tedSipBekleyenGuncelle() {
+  const liste = TALEPLER
+    .map((t, idx) => ({ t, idx, eksik: tedSipBekleyenKalemler(t) }))
+    .filter(x => x.eksik.length);
+  const n = liste.length;
+  const badge = document.getElementById('badge-tedsip-bekleyen');
+  if (badge) { badge.textContent = n; badge.style.display = n > 0 ? 'inline-flex' : 'none'; }
+  const card = document.getElementById('panel-tedsip-card');
+  const ic   = document.getElementById('panel-tedsip-icerik');
+  if (!card || !ic) return;
+  if (n === 0) { card.style.display = 'none'; ic.innerHTML = ''; return; }
+  card.style.display = '';
+  ic.innerHTML = liste.map(({ t, idx, eksik }) => {
+    const kismi = (t.tedSiparisleri || []).length > 0;   // bir kısmı sipariş edilmiş
+    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border:1px solid rgba(167,139,250,0.3);border-radius:var(--radius);">'
+      + '<span class="mono" style="font-weight:600;">#' + _tsEsc(t.no || '') + '</span>'
+      + '<span style="font-weight:500;">' + _tsEsc(t.musteri || '') + '</span>'
+      + '<span style="font-size:12px;color:var(--text3);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _tsEsc(t.urun || '') + '</span>'
+      + '<span style="font-size:11px;color:var(--purple);">' + eksik.length + ' kalem bekliyor' + (kismi ? ' (kısmi)' : '') + '</span>'
+      + '<button class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="talepDetayAc(' + idx + ')">🛒 Sipariş Geç →</button>'
+      + '</div>';
+  }).join('');
+}
+
+// Sipariş numarası: talep no'suna bağlı, tedarikçi başına sıralı → yazışmada izlenebilir.
+function tedSipNoUret(t) {
+  const n = (t.tedSiparisleri || []).length + 1;
+  return String(t.no || 'TLP') + '/S' + String(n).padStart(2, '0');
+}
+
+function tedSipParaFmt(v, para) {
+  const s = { TRY: '₺', USD: '$', EUR: '€' }[para] || '₺';
+  const n = (parseFloat(v) || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return para === 'TRY' ? n + ' ' + s : s + n;
+}
+
+function renderTedSiparis() {
+  const t = TALEPLER[aktifTalepIdx];
+  const sec = document.getElementById('td-tedsiparis-section');
+  if (!sec) return;
+  // Müşteri siparişi geçmeden tedarikçiye sipariş açılmaz — yanlışlıkla satın alma olmasın.
+  if (!t || !crmSiparisMi(t)) { sec.style.display = 'none'; sec.innerHTML = ''; return; }
+
+  const kalemler = tedSipKalemler(t);
+  const urunSayisi = ((t.urunler && t.urunler.length) ? t.urunler : [1]).length;
+  const verilmis = (t.tedSiparisleri || []);
+
+  const satirlar = kalemler.map(k => {
+    const teklifler = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi);
+    const kayit = tedSipVerilmisKayit(t, k.uIdx);
+    const varsayilan = tedSipVarsayilanFirma(t, k.uIdx, teklifler);
+    const opts = teklifler.map(o =>
+      '<option value="' + _tsAttr(o.firma) + '"' + (o.firma === varsayilan ? ' selected' : '') + '>'
+      + _tsEsc(o.firma) + ' — ' + tedSipParaFmt(o.birimFiyat, o.para) + '</option>').join('');
+    const secim = teklifler.length
+      ? '<select id="tsip-firma-' + k.uIdx + '" onchange="tedSipSatirDegisti()" style="font-size:12px;padding:4px 6px;max-width:230px;">' + opts + '</select>'
+      : '<span style="font-size:11px;color:var(--amber);">⚠ Bu ürüne fiyat veren tedarikçi yok</span>';
+    const altBilgi = teklifler.find(o => o.firma === varsayilan);
+    return '<tr style="border-bottom:1px solid var(--border);' + (kayit ? 'opacity:0.6;' : '') + '">'
+      + '<td style="padding:8px 10px;text-align:center;">'
+      + (kayit
+          ? '<span title="' + _tsAttr(kayit.firma + ' · ' + (kayit.sipNo || '')) + '">✅</span>'
+          : '<input type="checkbox" id="tsip-cb-' + k.uIdx + '" ' + (teklifler.length ? 'checked' : 'disabled')
+            + ' onchange="tedSipSatirDegisti()" style="width:15px;height:15px;accent-color:var(--accent);">')
+      + '</td>'
+      + '<td style="padding:8px 10px;">'
+      + '<div style="font-size:13px;font-weight:500;">' + _tsEsc(k.aciklama) + '</div>'
+      + (k.kod ? '<div style="font-size:11px;color:var(--text3);font-family:monospace;">' + _tsEsc(k.kod) + '</div>' : '')
+      // Muadil satırı seçili tedarikçiye BAĞLI — dropdown değişince tedSipSatirDegisti tazeler,
+      // yoksa başka tedarikçinin muadili gösterilip yanlış ürün sipariş edilebilir.
+      + '<div id="tsip-alt-' + k.uIdx + '" style="font-size:11px;color:var(--accent2);">'
+      + (altBilgi?.alt ? '↹ Muadil: ' + _tsEsc(altBilgi.alt) + (altBilgi.altkod ? ' (' + _tsEsc(altBilgi.altkod) + ')' : '') : '') + '</div>'
+      + (kayit ? '<div style="font-size:11px;color:var(--green);">✅ ' + _tsEsc(kayit.firma) + ' · ' + _tsEsc(kayit.sipNo || '') + ' · ' + (kayit.tarih ? new Date(kayit.tarih).toLocaleDateString('tr-TR') : '') + '</div>' : '')
+      + '</td>'
+      + '<td style="padding:8px 10px;text-align:center;">'
+      + (kayit ? _tsEsc(String(k.adet)) + ' ' + _tsEsc(k.birim)
+               : '<input type="number" id="tsip-adet-' + k.uIdx + '" value="' + _tsAttr(String(k.adet)) + '" min="1" step="1" style="width:66px;padding:4px 6px;font-size:12px;text-align:center;"> <span style="font-size:11px;color:var(--text3);">' + _tsEsc(k.birim) + '</span>')
+      + '</td>'
+      + '<td style="padding:8px 10px;">' + (kayit ? '<span style="font-size:12px;color:var(--text3);">—</span>' : secim) + '</td>'
+      + '<td style="padding:8px 10px;text-align:right;">'
+      + (kayit ? '<span style="font-size:11px;color:var(--text3);">gönderildi</span>'
+               : (teklifler.length ? '<button class="btn btn-sm" onclick="tedSiparisModalAc(' + k.uIdx + ')" style="font-size:11px;">🛒 Tek Sipariş</button>' : ''))
+      + '</td>'
+      + '</tr>';
+  }).join('');
+
+  const gecmis = verilmis.length
+    ? '<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">'
+      + '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Gönderilen Siparişler</div>'
+      + verilmis.map((s, i) =>
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;background:var(--bg3);border-radius:var(--radius);margin-bottom:6px;font-size:12px;">'
+          + '<span class="mono" style="font-weight:600;">' + _tsEsc(s.sipNo || '—') + '</span>'
+          + '<span style="font-weight:500;">' + _tsEsc(s.firma) + '</span>'
+          + '<span style="color:var(--text3);">' + (s.urunler || []).length + ' kalem · ' + _tsEsc(s.toplamStr || '—') + '</span>'
+          + '<span style="color:var(--text3);">' + (s.tarih ? new Date(s.tarih).toLocaleString('tr-TR') : '') + '</span>'
+          + (s.zincirde ? '<span class="badge badge-green" style="font-size:10px;">↩ teklif zincirinde</span>'
+                        : '<span class="badge badge-amber" style="font-size:10px;">yeni mail</span>')
+          + '<button class="btn btn-sm" onclick="tedSiparisGeriAl(' + i + ')" style="margin-left:auto;font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Kaydı sil — kalemler tekrar sipariş edilebilir olur (mail geri alınmaz)">🗑 Kaydı Sil</button>'
+          + '</div>').join('')
+      + '</div>'
+    : '';
+
+  sec.style.display = 'block';
+  sec.innerHTML = '<div class="card-header">'
+    + '<div><div class="card-title">5 — 🛒 Tedarikçi Siparişi</div>'
+    + '<div class="card-sub" id="tsip-durum-sub">Müşteri siparişi alındı — kalemleri tedarikçilere sipariş edin. Mail, tedarikçinin fiyat verdiği mailin zincirinde gider.</div></div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button class="btn btn-sm" onclick="tedSipHepsiniSec(true)" style="font-size:12px;">☑ Tümünü Seç</button>'
+    + '<button class="btn btn-sm" onclick="tedSipHepsiniSec(false)" style="font-size:12px;">☐ Temizle</button>'
+    + '</div></div>'
+    + (kalemler.length
+        ? '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">'
+          + '<thead><tr style="background:var(--bg3);">'
+          + '<th style="padding:8px 10px;width:40px;font-size:11px;color:var(--text3);">✓</th>'
+          + '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text3);">Ürün</th>'
+          + '<th style="padding:8px 10px;font-size:11px;color:var(--text3);width:130px;">Miktar</th>'
+          + '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text3);">Tedarikçi (teklif fiyatı)</th>'
+          + '<th style="padding:8px 10px;width:110px;"></th>'
+          + '</tr></thead><tbody>' + satirlar + '</tbody></table></div>'
+        : '<div style="padding:16px;color:var(--text3);font-size:13px;">Siparişe uygun kalem bulunamadı.</div>')
+    + '<div id="tsip-secim-ozet" style="font-size:12px;color:var(--text2);margin-top:10px;"></div>'
+    + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'
+    + '<button class="btn btn-primary" style="flex:1;" onclick="tedSiparisModalAc()">🛒 Seçili Kalemleri Tedarikçilere Sipariş Et</button>'
+    + '</div>'
+    + gecmis;
+
+  tedSipSatirDegisti();
+}
+
+function tedSipHepsiniSec(deger) {
+  document.querySelectorAll('[id^="tsip-cb-"]').forEach(cb => { if (!cb.disabled) cb.checked = !!deger; });
+  tedSipSatirDegisti();
+}
+
+// Ekrandaki seçimi tedarikçi bazında grupla (sipariş maili firma başına TEK gider).
+// soloIdx verilirse ekrandaki tikler DEĞİŞTİRİLMEDEN yalnız o kalem toparlanır — "Tek
+// Sipariş" iptal edilirse kullanıcının toplu seçimi bozulmasın.
+function tedSipSecimToparla(soloIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return [];
+  const solo = (soloIdx !== undefined && soloIdx !== null);
+  const urunSayisi = ((t.urunler && t.urunler.length) ? t.urunler : [1]).length;
+  const gruplar = {};
+  tedSipKalemler(t).forEach(k => {
+    if (tedSipVerilmisKayit(t, k.uIdx)) return;
+    if (solo && k.uIdx !== soloIdx) return;
+    const cb = document.getElementById('tsip-cb-' + k.uIdx);
+    if (!solo && (!cb || !cb.checked)) return;
+    const firma = document.getElementById('tsip-firma-' + k.uIdx)?.value || '';
+    if (!firma) return;
+    const adet = parseFloat(document.getElementById('tsip-adet-' + k.uIdx)?.value) || k.adet;
+    const o = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi).find(x => x.firma === firma) || {};
+    if (!gruplar[firma]) gruplar[firma] = { firma, urunler: [] };
+    gruplar[firma].urunler.push({
+      uIdx: k.uIdx, aciklama: k.aciklama, kod: k.kod, adet, birim: k.birim,
+      birimFiyat: o.birimFiyat ?? null, para: o.para || 'TRY',
+      alt: o.alt || '', altkod: o.altkod || '', teslimat: o.teslimat || '', odeme: o.odeme || '',
+    });
+  });
+  return Object.values(gruplar);
+}
+
+function tedSipSatirDegisti() {
+  const t = TALEPLER[aktifTalepIdx];
+  const ozet = document.getElementById('tsip-secim-ozet');
+  if (!ozet || !t) return;
+  // Seçili tedarikçinin muadil bilgisini tazele
+  const urunSayisi = ((t.urunler && t.urunler.length) ? t.urunler : [1]).length;
+  tedSipKalemler(t).forEach(k => {
+    const el = document.getElementById('tsip-alt-' + k.uIdx);
+    const firma = document.getElementById('tsip-firma-' + k.uIdx)?.value;
+    if (!el || !firma) return;
+    const o = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi).find(x => x.firma === firma);
+    el.innerHTML = o?.alt ? '↹ Muadil: ' + _tsEsc(o.alt) + (o.altkod ? ' (' + _tsEsc(o.altkod) + ')' : '') : '';
+  });
+  const gruplar = tedSipSecimToparla();
+  const kalem = gruplar.reduce((a, g) => a + g.urunler.length, 0);
+  ozet.innerHTML = kalem
+    ? '📦 <strong>' + kalem + ' kalem</strong> · <strong>' + gruplar.length + ' tedarikçi</strong>: '
+      + gruplar.map(g => _tsEsc(g.firma) + ' (' + g.urunler.length + ')').join(' · ')
+      + '<br><span style="color:var(--text3);">Her tedarikçiye tek mail gider.</span>'
+    : '<span style="color:var(--text3);">Sipariş edilecek kalem seçilmedi.</span>';
+}
+
+// Sipariş penceresini aç. uIdx verilirse yalnız o kalem (tek sipariş) hazırlanır.
+async function tedSiparisModalAc(uIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) { showToast('⛔ Açık talep bulunamadı.'); return; }
+  const gruplar = tedSipSecimToparla(uIdx);
+  if (!gruplar.length) { showToast('⚠ Önce sipariş edilecek kalemleri ve tedarikçilerini seçin.'); return; }
+
+  const fm = rfqFirmaMap();
+  const msVar = !!(aktifKullanici?.msAccount && msGraphToken);
+  if (msVar) { try { await msTokenYenile(aktifKullanici.msAccount); } catch {} }
+
+  // Her firma için: teklif mailinin zinciri + alıcı adresleri hazırla.
+  for (const g of gruplar) {
+    g.mailler = (fm[g.firma]?.mailler || []).slice();
+    let kayit = t.rfqCevapMailleri?.[g.firma] || null;
+    if (!kayit && msVar) {
+      const m = await _tedSonYanitAra(g.mailler, t.no, g.firma);
+      if (m) { if (tedCevapMailKaydet(t, g.firma, m)) veriKaydet(); kayit = t.rfqCevapMailleri[g.firma]; }
+    }
+    g.zincirKaydi = kayit;
+    if (kayit?.from && !g.mailler.includes(kayit.from)) g.mailler.unshift(kayit.from);
+    g.alici = (kayit?.from || g.mailler[0] || '');
+  }
+  window._tedSiparisGruplar = gruplar;
+
+  const ozetEl = document.getElementById('tedsip-ozet');
+  if (ozetEl) {
+    ozetEl.innerHTML = '<strong>' + _tsEsc(t.no || '') + '</strong> — ' + _tsEsc(t.musteri || '')
+      + ' · ' + gruplar.reduce((a, g) => a + g.urunler.length, 0) + ' kalem, ' + gruplar.length + ' tedarikçi.'
+      + (msVar ? '' : '<br><span style="color:var(--amber);">⚠ Microsoft 365 bağlı değil — sipariş maili gönderilemez.</span>');
+  }
+
+  const kutu = document.getElementById('tedsip-gruplar');
+  if (kutu) {
+    kutu.innerHTML = gruplar.map((g, gi) => {
+      const toplamlar = {};
+      g.urunler.forEach(u => {
+        if (u.birimFiyat == null) return;
+        toplamlar[u.para] = (toplamlar[u.para] || 0) + u.birimFiyat * u.adet;
+      });
+      const toplamStr = Object.keys(toplamlar).length
+        ? Object.entries(toplamlar).map(([p, v]) => tedSipParaFmt(v, p)).join(' + ') : '—';
+      return '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--bg2);">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">'
+        + '<strong style="font-size:13px;">' + _tsEsc(g.firma) + '</strong>'
+        + (g.zincirKaydi
+            ? '<span class="badge badge-green" style="font-size:10px;" title="' + _tsAttr(g.zincirKaydi.konu || '') + '">↩ teklif mailinin zincirinde gider</span>'
+            : '<span class="badge badge-amber" style="font-size:10px;">zincir yok — yeni mail olarak gider</span>')
+        + '<span style="margin-left:auto;font-size:12px;font-weight:600;color:var(--green);">' + _tsEsc(toplamStr) + '</span>'
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">'
+        + g.urunler.map(u => '• ' + _tsEsc(u.aciklama) + (u.kod ? ' (' + _tsEsc(u.kod) + ')' : '') + ' — ' + u.adet + ' ' + _tsEsc(u.birim)
+            + (u.birimFiyat != null ? ' × ' + tedSipParaFmt(u.birimFiyat, u.para) : ' <span style="color:var(--amber);">(fiyat yok)</span>')).join('<br>')
+        + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<div style="flex:1;min-width:180px;"><div style="font-size:11px;color:var(--text3);">Kime</div>'
+        + '<input type="text" id="tedsip-to-' + gi + '" value="' + _tsAttr(g.alici) + '" style="width:100%;padding:5px 8px;font-size:12px;"></div>'
+        + '<div style="flex:1;min-width:180px;"><div style="font-size:11px;color:var(--text3);">CC (isteğe bağlı)</div>'
+        + '<input type="text" id="tedsip-cc-' + gi + '" value="" placeholder="ek alıcılar" style="width:100%;padding:5px 8px;font-size:12px;"></div>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  const notEl = document.getElementById('tedsip-not');
+  if (notEl && !notEl.value) notEl.value = t.siparisNot || '';
+  const h = document.getElementById('tedsip-hata'); if (h) h.style.display = 'none';
+  const tumuEl = document.getElementById('tedsip-tumu'); if (tumuEl) tumuEl.checked = false;
+  openModal('tedSiparis');
+}
+
+// Bir tedarikçiye gidecek sipariş gövdesi (zincir yanıtına da, yeni maile de aynı fragment).
+function tedSipMailFragment(t, g, sipNo, not) {
+  const satirlar = g.urunler.map((u, i) =>
+    '<tr style="background:' + (i % 2 === 0 ? '#f5f5f5' : '#ffffff') + ';">'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center;">' + (i + 1) + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;">' + _tsEsc(u.alt || u.aciklama)
+    + (u.alt ? '<div style="font-size:11px;color:#757575;">(talep: ' + _tsEsc(u.aciklama) + ')</div>' : '') + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;font-family:monospace;font-size:12px;">' + _tsEsc(u.altkod || u.kod || '—') + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center;">' + _tsEsc(String(u.adet)) + ' ' + _tsEsc(u.birim) + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right;">'
+    + (u.birimFiyat != null ? _tsEsc(tedSipParaFmt(u.birimFiyat, u.para)) : '—') + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right;font-weight:600;">'
+    + (u.birimFiyat != null ? _tsEsc(tedSipParaFmt(u.birimFiyat * u.adet, u.para)) : '—') + '</td>'
+    + '</tr>').join('');
+
+  const toplamlar = {};
+  g.urunler.forEach(u => { if (u.birimFiyat != null) toplamlar[u.para] = (toplamlar[u.para] || 0) + u.birimFiyat * u.adet; });
+  const toplamStr = Object.keys(toplamlar).length
+    ? Object.entries(toplamlar).map(([p, v]) => tedSipParaFmt(v, p)).join(' + ') : '—';
+
+  return '<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;">'
+    + '<p>Sayın İlgili,</p>'
+    + '<p>Vermiş olduğunuz fiyat teklifi doğrultusunda aşağıdaki <strong>siparişimizi</strong> iletiyoruz. '
+    + 'Teyidinizi ve tahmini teslim tarihini bu mail üzerinden bildirmenizi rica ederiz.</p>'
+    + '<table style="font-size:13px;margin:12px 0;border-collapse:collapse;">'
+    + '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Sipariş No</td><td><strong>' + _tsEsc(sipNo) + '</strong></td></tr>'
+    + '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Talep No</td><td>' + _tsEsc(t.no || '—') + '</td></tr>'
+    + '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Sipariş Tarihi</td><td>' + new Date().toLocaleDateString('tr-TR') + '</td></tr>'
+    + '</table>'
+    + '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:14px 0;">'
+    + '<thead><tr style="background:#1565C0;color:#ffffff;">'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;width:34px;">#</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:left;">Ürün / Açıklama</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:left;width:110px;">Ürün Kodu</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:center;width:90px;">Miktar</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:right;width:100px;">Birim Fiyat</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:right;width:110px;">Tutar</th>'
+    + '</tr></thead><tbody>' + satirlar + '</tbody>'
+    + '<tfoot><tr><td colspan="5" style="padding:7px 10px;border:1px solid #e0e0e0;text-align:right;font-weight:600;">TOPLAM</td>'
+    + '<td style="padding:7px 10px;border:1px solid #e0e0e0;text-align:right;font-weight:700;color:#1a7f4b;">' + _tsEsc(toplamStr) + '</td></tr></tfoot>'
+    + '</table>'
+    + '<p style="font-size:12px;color:#757575;">Fiyatlar teklifinizde belirtilen birim fiyatlardır. Farklılık varsa lütfen sipariş öncesi bildiriniz.</p>'
+    + (not ? '<div style="background:#f1f8ff;border-left:4px solid #1565C0;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;white-space:pre-wrap;font-size:13px;">'
+        + _tsEsc(not) + '</div>' : '')
+    + imzaHtml()
+    + '</div>';
+}
+
+async function tedSiparisGonder() {
+  const t = TALEPLER[aktifTalepIdx];
+  const gruplar = window._tedSiparisGruplar || [];
+  const hata = document.getElementById('tedsip-hata');
+  const uyar = m => { if (hata) { hata.textContent = m; hata.style.display = 'block'; } else showToast(m); };
+  if (!t || !gruplar.length) { uyar('Sipariş bilgisi kayboldu — pencereyi kapatıp tekrar açın.'); return; }
+  if (!(aktifKullanici?.msAccount && msGraphToken)) {
+    uyar('⚠ Sipariş maili için Microsoft 365 bağlantısı gerekli — topbar\'daki bağlantıdan giriş yapın.');
+    return;
+  }
+
+  const ayir = s => String(s || '').split(/[,;\s]+/).map(x => x.trim()).filter(x => x.includes('@'));
+  const not  = (document.getElementById('tedsip-not')?.value || '').trim();
+  const tumu = !!document.getElementById('tedsip-tumu')?.checked;
+
+  // Alıcıları önce TOPLU doğrula: yarısı gitmiş yarısı adressiz kalmasın.
+  const hedefler = gruplar.map((g, gi) => ({
+    g, alicilar: ayir(document.getElementById('tedsip-to-' + gi)?.value),
+    ccler: ayir(document.getElementById('tedsip-cc-' + gi)?.value),
+  }));
+  const adressiz = hedefler.filter(h => !h.alicilar.length).map(h => h.g.firma);
+  if (adressiz.length) { uyar('Şu tedarikçiler için geçerli alıcı adresi yok: ' + adressiz.join(', ')); return; }
+  if (hata) hata.style.display = 'none';
+
+  const btn = document.getElementById('tedsip-gonder-btn');
+  const btnEski = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gönderiliyor...'; }
+  const btnGeri = () => { if (btn) { btn.disabled = false; btn.textContent = btnEski || '📨 Siparişi Gönder'; } };
+
+  try { await msTokenYenile(aktifKullanici.msAccount); } catch {}
+  if (!Array.isArray(t.tedSiparisleri)) t.tedSiparisleri = [];
+
+  const basarili = [], basarisiz = [];
+  for (const { g, alicilar, ccler } of hedefler) {
+    const sipNo = tedSipNoUret(t);
+    const fragment = tedSipMailFragment(t, g, sipNo, not);
+    const konuBase = g.zincirKaydi?.konu || ('[' + (t.no || '') + '] ' + (t.urun || ''));
+    const konu = 'SİPARİŞ ' + sipNo + ' — ' + konuBase.replace(/^(re|ynt|yan)\s*:\s*/i, '');
+
+    let zincirde = false;
+    if (g.zincirKaydi && !g.zincirKaydi.zincirYok) {
+      const mailId = await _tedCevapMailIdCoz(g.zincirKaydi);
+      if (mailId) {
+        const s = await _zincirYanitGonder({ mailId, replyAll: tumu, alicilar, ccler, fragment });
+        if (s.ok) zincirde = true; else console.warn('[ted-siparis] zincir kurulamadı:', g.firma, s);
+      }
+    }
+    // Zincir yoksa/kurulamadıysa sipariş KAYBOLMASIN — "SİPARİŞ <no>" konulu yeni mail
+    if (!zincirde) {
+      const li = mailGovdeLogoInline('<!DOCTYPE html><html><body style="margin:0;padding:20px;">'
+        + '<div style="max-width:760px;">' + fragment + '</div></body></html>');
+      let ok = false;
+      try {
+        const resp = await fetch(GRAPH_API + '/me/sendMail', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: {
+              subject: konu,
+              body: { contentType: 'HTML', content: li.content },
+              toRecipients: alicilar.map(a => ({ emailAddress: { address: a } })),
+              ccRecipients: ccler.map(a => ({ emailAddress: { address: a } })),
+              attachments: li.ekler,
+            },
+            saveToSentItems: true,
+          })
+        });
+        ok = resp.ok || resp.status === 202;
+        if (!ok) console.error('[ted-siparis] mail hatası:', g.firma, resp.status, await resp.text().catch(() => ''));
+      } catch (e) { console.error('[ted-siparis] mail hatası:', g.firma, e); }
+      if (!ok) { basarisiz.push(g.firma); continue; }   // kayıt AÇMA: gitmemiş sipariş "verildi" görünmesin
+    }
+
+    const toplamlar = {};
+    g.urunler.forEach(u => { if (u.birimFiyat != null) toplamlar[u.para] = (toplamlar[u.para] || 0) + u.birimFiyat * u.adet; });
+    t.tedSiparisleri.push({
+      sipNo, firma: g.firma,
+      urunler: g.urunler.map(u => ({ uIdx: u.uIdx, aciklama: u.aciklama, kod: u.kod, adet: u.adet, birim: u.birim, birimFiyat: u.birimFiyat, para: u.para, alt: u.alt, altkod: u.altkod })),
+      alicilar, ccler, konu, not,
+      toplamStr: Object.keys(toplamlar).length ? Object.entries(toplamlar).map(([p, v]) => tedSipParaFmt(v, p)).join(' + ') : '—',
+      tarih: new Date().toISOString(),
+      kullanici: aktifKullanici?.ad || aktifKullanici?.email || '',
+      zincirde,
+    });
+    basarili.push(g.firma + (zincirde ? ' (zincir)' : ' (yeni mail)'));
+  }
+
+  if (basarili.length) await kaliciVeriKaydet('Tedarikçi siparişi');
+  btnGeri();
+  renderTedSiparis();
+  tedSipBekleyenGuncelle();
+  if (!basarili.length) { uyar('⛔ Hiçbir sipariş gönderilemedi (' + basarisiz.join(', ') + '). Bağlantıyı kontrol edip tekrar deneyin.'); return; }
+  closeModal('tedSiparis');
+  showToast('🛒 Sipariş gönderildi: ' + basarili.join(' · ')
+    + (basarisiz.length ? ' · ⛔ GİTMEYEN: ' + basarisiz.join(', ') : ''));
+}
+
+// Yanlış gönderim / iptal → kaydı sil, kalemler tekrar sipariş edilebilir olsun.
+// Mail geri alınmaz; bu yalnız sistemdeki sipariş kaydını temizler.
+async function tedSiparisGeriAl(i) {
+  const t = TALEPLER[aktifTalepIdx];
+  const s = t?.tedSiparisleri?.[i];
+  if (!s) return;
+  if (!confirm('“' + s.sipNo + ' — ' + s.firma + '” sipariş kaydı silinsin mi?\n\nGönderilen mail GERİ ALINMAZ; yalnız sistemdeki kayıt silinir ve kalemler tekrar sipariş edilebilir olur.')) return;
+  t.tedSiparisleri.splice(i, 1);
+  await kaliciVeriKaydet('Tedarikçi sipariş kaydı silme');
+  renderTedSiparis();
+  tedSipBekleyenGuncelle();
+  showToast('🗑 Sipariş kaydı silindi — kalemler tekrar sipariş edilebilir.');
 }
 
 // Tek bir mail için AI ile fiyat çıkar
