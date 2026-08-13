@@ -3683,6 +3683,36 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
   </div>
 </div>
 
+<!-- MODAL: Sipariş Öncesi Son Fiyat Revizesi (indirim) Talebi -->
+<div class="modal-overlay" id="modal-tedRevize">
+  <div class="modal" style="width:min(96vw,780px);">
+    <div class="modal-title">💰 Son Fiyat Revizesi İste</div>
+    <div id="tedrev-ozet" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
+    <div id="tedrev-gruplar" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px;max-height:40vh;overflow-y:auto;"></div>
+    <div class="form-group">
+      <label class="form-label">Hedef / Gerekçe (isteğe bağlı — maile yazılır)</label>
+      <input type="text" id="tedrev-hedef" placeholder="örn. %5 ek iskonto, rakip fiyatı, proje adedi...">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Mesaj (tüm tedarikçilere gider)</label>
+      <textarea id="tedrev-not" rows="3" placeholder="Revize talebinizin gerekçesi, termin, ödeme koşulu..."></textarea>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;" title="Tedarikçinin teklif mailindeki tüm alıcılara (CC dahil) yanıt ver">
+        <input type="checkbox" id="tedrev-tumu" style="accent-color:var(--accent);"> Tümünü yanıtla (mailindeki CC'leri koru)
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;" title="Tedarikçinin kendi verdiği birim fiyatları tabloda göster — neyin revize edileceği net olsun">
+        <input type="checkbox" id="tedrev-fiyat" checked style="accent-color:var(--accent);"> Mevcut teklif fiyatlarını tabloda göster
+      </label>
+    </div>
+    <div id="tedrev-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin:10px 0;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('tedRevize')">İptal</button>
+      <button class="btn btn-primary" id="tedrev-gonder-btn" onclick="tedRevizeGonder()">💰 Revize Talebini Gönder</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Tedarikçi Mailine Zincir Yanıt (aynı mail üzerinden ek soru/cevap) -->
 <div class="modal-overlay" id="modal-tedMailCevap">
   <div class="modal" style="width:min(96vw,640px);max-height:90vh;overflow-y:auto;">
@@ -5097,7 +5127,7 @@ function closeModal(id) { document.getElementById('modal-' + id).classList.remov
 const _KORUMALI_MODALLAR = new Set([
   'musteriForm','yeniTedarikci','duzenleTedarikci','yeniTalep','topluYapistir',
   'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif','teklifMailOnay',
-  'moKart','moForm','moFormEdit','altKalem','tedSiparis'
+  'moKart','moForm','moFormEdit','altKalem','tedSiparis','tedRevize'
 ]);
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
   if (e.target !== m) return; // yalnızca arka plana (içeriğe değil) tıklama
@@ -18709,6 +18739,7 @@ function renderTedSiparis() {
   const satirlar = kalemler.map(k => {
     const teklifler = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi);
     const kayit = tedSipVerilmisKayit(t, k.uIdx);
+    const revize = kayit ? null : tedRevizeSonKayit(t, k.uIdx);   // sipariş geçildiyse revize bilgisi anlamını yitirir
     const varsayilan = tedSipVarsayilanFirma(t, k.uIdx, teklifler);
     const opts = teklifler.map(o =>
       '<option value="' + _tsAttr(o.firma) + '"' + (o.firma === varsayilan ? ' selected' : '') + '>'
@@ -18732,6 +18763,7 @@ function renderTedSiparis() {
       + '<div id="tsip-alt-' + k.uIdx + '" style="font-size:11px;color:var(--accent2);">'
       + (altBilgi?.alt ? '↹ Muadil: ' + _tsEsc(altBilgi.alt) + (altBilgi.altkod ? ' (' + _tsEsc(altBilgi.altkod) + ')' : '') : '') + '</div>'
       + (kayit ? '<div style="font-size:11px;color:var(--green);">✅ ' + _tsEsc(kayit.firma) + ' · ' + _tsEsc(kayit.sipNo || '') + ' · ' + (kayit.tarih ? new Date(kayit.tarih).toLocaleDateString('tr-TR') : '') + '</div>' : '')
+      + (revize ? '<div style="font-size:11px;color:var(--amber);" title="Revize fiyat gelince tedarikçi teklifini güncelleyin — sipariş bu talebi beklemez">💰 Revize istendi: ' + _tsEsc(revize.firma) + ' · ' + (revize.tarih ? new Date(revize.tarih).toLocaleDateString('tr-TR') : '') + '</div>' : '')
       + '</td>'
       + '<td style="padding:8px 10px;text-align:center;">'
       + (kayit ? _tsEsc(String(k.adet)) + ' ' + _tsEsc(k.birim)
@@ -18740,7 +18772,12 @@ function renderTedSiparis() {
       + '<td style="padding:8px 10px;">' + (kayit ? '<span style="font-size:12px;color:var(--text3);">—</span>' : secim) + '</td>'
       + '<td style="padding:8px 10px;text-align:right;">'
       + (kayit ? '<span style="font-size:11px;color:var(--text3);">gönderildi</span>'
-               : (teklifler.length ? '<button class="btn btn-sm" onclick="tedSiparisModalAc(' + k.uIdx + ')" style="font-size:11px;">🛒 Tek Sipariş</button>' : ''))
+               : (teklifler.length
+                   ? '<div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;">'
+                     + '<button class="btn btn-sm" onclick="tedRevizeModalAc(' + k.uIdx + ')" style="font-size:11px;" title="Sipariş öncesi bu kalem için son fiyat revizesi (indirim) iste">💰 Revize</button>'
+                     + '<button class="btn btn-sm" onclick="tedSiparisModalAc(' + k.uIdx + ')" style="font-size:11px;">🛒 Sipariş</button>'
+                     + '</div>'
+                   : ''))
       + '</td>'
       + '</tr>';
   }).join('');
@@ -18761,6 +18798,23 @@ function renderTedSiparis() {
       + '</div>'
     : '';
 
+  const revizeler = (t.tedRevizeTalepleri || []);
+  const revizeGecmis = revizeler.length
+    ? '<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">'
+      + '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">İstenen Fiyat Revizeleri</div>'
+      + revizeler.map((r, i) =>
+          '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 10px;background:var(--bg3);border-radius:var(--radius);margin-bottom:6px;font-size:12px;">'
+          + '<span style="font-weight:500;">' + _tsEsc(r.firma) + '</span>'
+          + '<span style="color:var(--text3);">' + (r.urunler || []).length + ' kalem</span>'
+          + (r.hedef ? '<span style="color:var(--amber);">🎯 ' + _tsEsc(r.hedef) + '</span>' : '')
+          + '<span style="color:var(--text3);">' + (r.tarih ? new Date(r.tarih).toLocaleString('tr-TR') : '') + '</span>'
+          + (r.zincirde ? '<span class="badge badge-green" style="font-size:10px;">↩ teklif zincirinde</span>'
+                        : '<span class="badge badge-amber" style="font-size:10px;">yeni mail</span>')
+          + '<button class="btn btn-sm" onclick="tedRevizeGeriAl(' + i + ')" style="margin-left:auto;font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Kaydı sil (mail geri alınmaz)">🗑 Kaydı Sil</button>'
+          + '</div>').join('')
+      + '</div>'
+    : '';
+
   sec.style.display = 'block';
   sec.innerHTML = '<div class="card-header">'
     + '<div><div class="card-title">5 — 🛒 Tedarikçi Siparişi</div>'
@@ -18776,13 +18830,15 @@ function renderTedSiparis() {
           + '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text3);">Ürün</th>'
           + '<th style="padding:8px 10px;font-size:11px;color:var(--text3);width:130px;">Miktar</th>'
           + '<th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text3);">Tedarikçi (teklif fiyatı)</th>'
-          + '<th style="padding:8px 10px;width:110px;"></th>'
+          + '<th style="padding:8px 10px;width:160px;"></th>'
           + '</tr></thead><tbody>' + satirlar + '</tbody></table></div>'
         : '<div style="padding:16px;color:var(--text3);font-size:13px;">Siparişe uygun kalem bulunamadı.</div>')
     + '<div id="tsip-secim-ozet" style="font-size:12px;color:var(--text2);margin-top:10px;"></div>'
     + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'
-    + '<button class="btn btn-primary" style="flex:1;" onclick="tedSiparisModalAc()">🛒 Seçili Kalemleri Tedarikçilere Sipariş Et</button>'
+    + '<button class="btn" style="flex:1;min-width:230px;" onclick="tedRevizeModalAc()" title="Sipariş öncesi seçili kalemler için tedarikçilerden son indirim iste">💰 Seçili Kalemler İçin Son Revize İste</button>'
+    + '<button class="btn btn-primary" style="flex:1;min-width:230px;" onclick="tedSiparisModalAc()">🛒 Seçili Kalemleri Tedarikçilere Sipariş Et</button>'
     + '</div>'
+    + revizeGecmis
     + gecmis;
 
   tedSipSatirDegisti();
@@ -18843,18 +18899,13 @@ function tedSipSatirDegisti() {
     : '<span style="color:var(--text3);">Sipariş edilecek kalem seçilmedi.</span>';
 }
 
-// Sipariş penceresini aç. uIdx verilirse yalnız o kalem (tek sipariş) hazırlanır.
-async function tedSiparisModalAc(uIdx) {
-  const t = TALEPLER[aktifTalepIdx];
-  if (!t) { showToast('⛔ Açık talep bulunamadı.'); return; }
-  const gruplar = tedSipSecimToparla(uIdx);
-  if (!gruplar.length) { showToast('⚠ Önce sipariş edilecek kalemleri ve tedarikçilerini seçin.'); return; }
-
+// Her grup için tedarikçinin fiyat verdiği mailin zinciri + alıcı adreslerini hazırla.
+// Sipariş ve revize talebi AYNI zinciri kullanır (tedarikçi kendi fiyatının altında görsün).
+// Dönüş: Microsoft 365 bağlı mı — bağlı değilse zincir kurulamaz, çağıran bunu kullanıcıya söyler.
+async function _tedZincirHazirla(t, gruplar) {
   const fm = rfqFirmaMap();
   const msVar = !!(aktifKullanici?.msAccount && msGraphToken);
   if (msVar) { try { await msTokenYenile(aktifKullanici.msAccount); } catch {} }
-
-  // Her firma için: teklif mailinin zinciri + alıcı adresleri hazırla.
   for (const g of gruplar) {
     g.mailler = (fm[g.firma]?.mailler || []).slice();
     let kayit = t.rfqCevapMailleri?.[g.firma] || null;
@@ -18866,6 +18917,23 @@ async function tedSiparisModalAc(uIdx) {
     if (kayit?.from && !g.mailler.includes(kayit.from)) g.mailler.unshift(kayit.from);
     g.alici = (kayit?.from || g.mailler[0] || '');
   }
+  return msVar;
+}
+
+// Bu kalem için en son gönderilen revize talebi (satırda "beklemede" göstermek için)
+function tedRevizeSonKayit(t, uIdx) {
+  const liste = (t.tedRevizeTalepleri || []).filter(r => (r.urunler || []).some(u => u.uIdx === uIdx));
+  return liste.length ? liste[liste.length - 1] : null;
+}
+
+// Sipariş penceresini aç. uIdx verilirse yalnız o kalem (tek sipariş) hazırlanır.
+async function tedSiparisModalAc(uIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) { showToast('⛔ Açık talep bulunamadı.'); return; }
+  const gruplar = tedSipSecimToparla(uIdx);
+  if (!gruplar.length) { showToast('⚠ Önce sipariş edilecek kalemleri ve tedarikçilerini seçin.'); return; }
+
+  const msVar = await _tedZincirHazirla(t, gruplar);
   window._tedSiparisGruplar = gruplar;
 
   const ozetEl = document.getElementById('tedsip-ozet');
@@ -19056,6 +19124,229 @@ async function tedSiparisGonder() {
   closeModal('tedSiparis');
   showToast('🛒 Sipariş gönderildi: ' + basarili.join(' · ')
     + (basarisiz.length ? ' · ⛔ GİTMEYEN: ' + basarisiz.join(', ') : ''));
+}
+
+// ─── SİPARİŞ ÖNCESİ SON FİYAT REVİZESİ ────────────────────────────────────
+// Sipariş vermeden önce tedarikçiden son bir indirim istenir. Sipariş maliyle AYNI
+// altyapıyı kullanır (seçim → firma bazında gruplama → teklif mailinin zincirinde tek
+// mail). Sipariş kaydı AÇMAZ ve kalemi KİLİTLEMEZ: revize isteseniz de siparişi istediğiniz
+// an geçebilirsiniz, tedarikçi indirim vermezse süreç beklemede kalmaz.
+// Gelen revize fiyat, tedarikçi teklifi normal yoldan güncellenerek sisteme girer.
+
+// Revize penceresini aç. uIdx verilirse yalnız o kalem için istenir.
+async function tedRevizeModalAc(uIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) { showToast('⛔ Açık talep bulunamadı.'); return; }
+  const gruplar = tedSipSecimToparla(uIdx);
+  if (!gruplar.length) { showToast('⚠ Önce revize istenecek kalemleri ve tedarikçilerini seçin.'); return; }
+
+  const msVar = await _tedZincirHazirla(t, gruplar);
+  window._tedRevizeGruplar = gruplar;
+
+  const ozetEl = document.getElementById('tedrev-ozet');
+  if (ozetEl) {
+    ozetEl.innerHTML = '<strong>' + _tsEsc(t.no || '') + '</strong> — ' + _tsEsc(t.musteri || '')
+      + ' · ' + gruplar.reduce((a, g) => a + g.urunler.length, 0) + ' kalem, ' + gruplar.length + ' tedarikçi.'
+      + '<br><span style="color:var(--text3);">Sipariş öncesi son indirim talebi — sipariş kaydı açılmaz, kalemler siparişe açık kalır.</span>'
+      + (msVar ? '' : '<br><span style="color:var(--amber);">⚠ Microsoft 365 bağlı değil — revize maili gönderilemez.</span>');
+  }
+
+  const kutu = document.getElementById('tedrev-gruplar');
+  if (kutu) {
+    kutu.innerHTML = gruplar.map((g, gi) => {
+      const toplamlar = {};
+      g.urunler.forEach(u => { if (u.birimFiyat != null) toplamlar[u.para] = (toplamlar[u.para] || 0) + u.birimFiyat * u.adet; });
+      const toplamStr = Object.keys(toplamlar).length
+        ? Object.entries(toplamlar).map(([p, v]) => tedSipParaFmt(v, p)).join(' + ') : '—';
+      const onceki = (t.tedRevizeTalepleri || []).filter(r => r.firma === g.firma).length;
+      return '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--bg2);">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">'
+        + '<strong style="font-size:13px;">' + _tsEsc(g.firma) + '</strong>'
+        + (g.zincirKaydi
+            ? '<span class="badge badge-green" style="font-size:10px;" title="' + _tsAttr(g.zincirKaydi.konu || '') + '">↩ teklif mailinin zincirinde gider</span>'
+            : '<span class="badge badge-amber" style="font-size:10px;">zincir yok — yeni mail olarak gider</span>')
+        + (onceki ? '<span class="badge badge-amber" style="font-size:10px;" title="Bu firmadan daha önce revize istendi">💰 ' + onceki + '. revize talebi</span>' : '')
+        + '<span style="margin-left:auto;font-size:12px;font-weight:600;color:var(--green);">' + _tsEsc(toplamStr) + '</span>'
+        + '</div>'
+        + '<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">'
+        + g.urunler.map(u => '• ' + _tsEsc(u.aciklama) + (u.kod ? ' (' + _tsEsc(u.kod) + ')' : '') + ' — ' + u.adet + ' ' + _tsEsc(u.birim)
+            + (u.birimFiyat != null ? ' × ' + tedSipParaFmt(u.birimFiyat, u.para) : ' <span style="color:var(--amber);">(fiyat yok)</span>')).join('<br>')
+        + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<div style="flex:1;min-width:180px;"><div style="font-size:11px;color:var(--text3);">Kime</div>'
+        + '<input type="text" id="tedrev-to-' + gi + '" value="' + _tsAttr(g.alici) + '" style="width:100%;padding:5px 8px;font-size:12px;"></div>'
+        + '<div style="flex:1;min-width:180px;"><div style="font-size:11px;color:var(--text3);">CC (isteğe bağlı)</div>'
+        + '<input type="text" id="tedrev-cc-' + gi + '" value="" placeholder="ek alıcılar" style="width:100%;padding:5px 8px;font-size:12px;"></div>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  const notEl = document.getElementById('tedrev-not');
+  if (notEl && !notEl.value.trim()) notEl.value = TEDREV_VARSAYILAN_NOT;
+  const h = document.getElementById('tedrev-hata'); if (h) h.style.display = 'none';
+  const tumuEl = document.getElementById('tedrev-tumu'); if (tumuEl) tumuEl.checked = false;
+  openModal('tedRevize');
+}
+
+const TEDREV_VARSAYILAN_NOT = 'Siparişe çıkmadan önce fiyatlarınızı son bir kez değerlendirmenizi rica ederiz. '
+  + 'Vereceğiniz revize fiyat sonrasında siparişi ivedilikle geçmeyi planlıyoruz.';
+
+// Bir tedarikçiye gidecek revize talebi gövdesi (zincir yanıtına da, yeni maile de aynı fragment).
+function tedRevizeMailFragment(t, g, not, hedef, fiyatGoster) {
+  const kolonSayisi = fiyatGoster ? 5 : 4;
+  const satirlar = g.urunler.map((u, i) =>
+    '<tr style="background:' + (i % 2 === 0 ? '#f5f5f5' : '#ffffff') + ';">'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center;">' + (i + 1) + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;">' + _tsEsc(u.alt || u.aciklama)
+    + (u.alt ? '<div style="font-size:11px;color:#757575;">(talep: ' + _tsEsc(u.aciklama) + ')</div>' : '') + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;font-family:monospace;font-size:12px;">' + _tsEsc(u.altkod || u.kod || '—') + '</td>'
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center;">' + _tsEsc(String(u.adet)) + ' ' + _tsEsc(u.birim) + '</td>'
+    + (fiyatGoster
+        ? '<td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right;">'
+          + (u.birimFiyat != null ? _tsEsc(tedSipParaFmt(u.birimFiyat, u.para)) : '—') + '</td>'
+        : '')
+    + '<td style="padding:6px 10px;border:1px solid #e0e0e0;background:#fffde7;"></td>'
+    + '</tr>').join('');
+
+  const toplamlar = {};
+  g.urunler.forEach(u => { if (u.birimFiyat != null) toplamlar[u.para] = (toplamlar[u.para] || 0) + u.birimFiyat * u.adet; });
+  const toplamStr = Object.keys(toplamlar).length
+    ? Object.entries(toplamlar).map(([p, v]) => tedSipParaFmt(v, p)).join(' + ') : '—';
+
+  return '<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;">'
+    + '<p>Sayın İlgili,</p>'
+    + '<p>Vermiş olduğunuz teklif için teşekkür ederiz. Siparişi vermeden önce aşağıdaki kalemler için '
+    + '<strong>son bir fiyat revizesi</strong> yapmanızı rica ediyoruz.</p>'
+    + '<table style="font-size:13px;margin:12px 0;border-collapse:collapse;">'
+    + '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Talep No</td><td><strong>' + _tsEsc(t.no || '—') + '</strong></td></tr>'
+    + (hedef ? '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Hedefimiz</td><td><strong>' + _tsEsc(hedef) + '</strong></td></tr>' : '')
+    + '</table>'
+    + '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:14px 0;">'
+    + '<thead><tr style="background:#1565C0;color:#ffffff;">'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;width:34px;">#</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:left;">Ürün / Açıklama</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:left;width:110px;">Ürün Kodu</th>'
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:center;width:90px;">Miktar</th>'
+    + (fiyatGoster ? '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:right;width:110px;">Mevcut Fiyatınız</th>' : '')
+    + '<th style="padding:7px 10px;border:1px solid #1565C0;text-align:right;width:120px;">Revize Fiyat</th>'
+    + '</tr></thead><tbody>' + satirlar + '</tbody>'
+    + (fiyatGoster
+        ? '<tfoot><tr><td colspan="' + (kolonSayisi - 1) + '" style="padding:7px 10px;border:1px solid #e0e0e0;text-align:right;font-weight:600;">MEVCUT TOPLAM</td>'
+          + '<td style="padding:7px 10px;border:1px solid #e0e0e0;text-align:right;font-weight:700;">' + _tsEsc(toplamStr) + '</td>'
+          + '<td style="padding:7px 10px;border:1px solid #e0e0e0;background:#fffde7;"></td></tr></tfoot>'
+        : '')
+    + '</table>'
+    + '<p style="font-size:12px;color:#757575;">Sağdaki <strong>Revize Fiyat</strong> sütununu doldurup bu mail üzerinden yanıtlamanız yeterlidir.</p>'
+    + (not ? '<div style="background:#f1f8ff;border-left:4px solid #1565C0;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;white-space:pre-wrap;font-size:13px;">'
+        + _tsEsc(not) + '</div>' : '')
+    + imzaHtml()
+    + '</div>';
+}
+
+async function tedRevizeGonder() {
+  const t = TALEPLER[aktifTalepIdx];
+  const gruplar = window._tedRevizeGruplar || [];
+  const hata = document.getElementById('tedrev-hata');
+  const uyar = m => { if (hata) { hata.textContent = m; hata.style.display = 'block'; } else showToast(m); };
+  if (!t || !gruplar.length) { uyar('Revize bilgisi kayboldu — pencereyi kapatıp tekrar açın.'); return; }
+  if (!(aktifKullanici?.msAccount && msGraphToken)) {
+    uyar('⚠ Revize maili için Microsoft 365 bağlantısı gerekli — topbar\'daki bağlantıdan giriş yapın.');
+    return;
+  }
+
+  const ayir = s => String(s || '').split(/[,;\s]+/).map(x => x.trim()).filter(x => x.includes('@'));
+  const not   = (document.getElementById('tedrev-not')?.value || '').trim();
+  const hedef = (document.getElementById('tedrev-hedef')?.value || '').trim();
+  const tumu  = !!document.getElementById('tedrev-tumu')?.checked;
+  const fiyatGoster = !!document.getElementById('tedrev-fiyat')?.checked;
+
+  // Alıcıları önce TOPLU doğrula: yarısı gitmiş yarısı adressiz kalmasın.
+  const hedefler = gruplar.map((g, gi) => ({
+    g, alicilar: ayir(document.getElementById('tedrev-to-' + gi)?.value),
+    ccler: ayir(document.getElementById('tedrev-cc-' + gi)?.value),
+  }));
+  const adressiz = hedefler.filter(h => !h.alicilar.length).map(h => h.g.firma);
+  if (adressiz.length) { uyar('Şu tedarikçiler için geçerli alıcı adresi yok: ' + adressiz.join(', ')); return; }
+  if (hata) hata.style.display = 'none';
+
+  const btn = document.getElementById('tedrev-gonder-btn');
+  const btnEski = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gönderiliyor...'; }
+  const btnGeri = () => { if (btn) { btn.disabled = false; btn.textContent = btnEski || '💰 Revize Talebini Gönder'; } };
+
+  try { await msTokenYenile(aktifKullanici.msAccount); } catch {}
+  if (!Array.isArray(t.tedRevizeTalepleri)) t.tedRevizeTalepleri = [];
+
+  const basarili = [], basarisiz = [];
+  for (const { g, alicilar, ccler } of hedefler) {
+    const fragment = tedRevizeMailFragment(t, g, not, hedef, fiyatGoster);
+    const konuBase = g.zincirKaydi?.konu || ('[' + (t.no || '') + '] ' + (t.urun || ''));
+    const konu = 'FİYAT REVİZE TALEBİ — ' + konuBase.replace(/^(re|ynt|yan)\s*:\s*/i, '');
+
+    let zincirde = false;
+    if (g.zincirKaydi && !g.zincirKaydi.zincirYok) {
+      const mailId = await _tedCevapMailIdCoz(g.zincirKaydi);
+      if (mailId) {
+        const s = await _zincirYanitGonder({ mailId, replyAll: tumu, alicilar, ccler, fragment });
+        if (s.ok) zincirde = true; else console.warn('[ted-revize] zincir kurulamadı:', g.firma, s);
+      }
+    }
+    // Zincir yoksa/kurulamadıysa talep KAYBOLMASIN — konulu yeni mail
+    if (!zincirde) {
+      const li = mailGovdeLogoInline('<!DOCTYPE html><html><body style="margin:0;padding:20px;">'
+        + '<div style="max-width:760px;">' + fragment + '</div></body></html>');
+      let ok = false;
+      try {
+        const resp = await fetch(GRAPH_API + '/me/sendMail', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + msGraphToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: {
+              subject: konu,
+              body: { contentType: 'HTML', content: li.content },
+              toRecipients: alicilar.map(a => ({ emailAddress: { address: a } })),
+              ccRecipients: ccler.map(a => ({ emailAddress: { address: a } })),
+              attachments: li.ekler,
+            },
+            saveToSentItems: true,
+          })
+        });
+        ok = resp.ok || resp.status === 202;
+        if (!ok) console.error('[ted-revize] mail hatası:', g.firma, resp.status, await resp.text().catch(() => ''));
+      } catch (e) { console.error('[ted-revize] mail hatası:', g.firma, e); }
+      if (!ok) { basarisiz.push(g.firma); continue; }   // kayıt AÇMA: gitmemiş talep "istendi" görünmesin
+    }
+
+    t.tedRevizeTalepleri.push({
+      firma: g.firma,
+      urunler: g.urunler.map(u => ({ uIdx: u.uIdx, aciklama: u.aciklama, kod: u.kod, adet: u.adet, birim: u.birim, birimFiyat: u.birimFiyat, para: u.para })),
+      alicilar, ccler, konu, not, hedef,
+      tarih: new Date().toISOString(),
+      kullanici: aktifKullanici?.ad || aktifKullanici?.email || '',
+      zincirde,
+    });
+    basarili.push(g.firma + (zincirde ? ' (zincir)' : ' (yeni mail)'));
+  }
+
+  if (basarili.length) await kaliciVeriKaydet('Tedarikçi fiyat revize talebi');
+  btnGeri();
+  renderTedSiparis();
+  if (!basarili.length) { uyar('⛔ Hiçbir revize talebi gönderilemedi (' + basarisiz.join(', ') + '). Bağlantıyı kontrol edip tekrar deneyin.'); return; }
+  closeModal('tedRevize');
+  showToast('💰 Revize talebi gönderildi: ' + basarili.join(' · ')
+    + (basarisiz.length ? ' · ⛔ GİTMEYEN: ' + basarisiz.join(', ') : ''));
+}
+
+// Yanlış gönderilen revize talebi kaydını sil (mail geri alınmaz).
+async function tedRevizeGeriAl(i) {
+  const t = TALEPLER[aktifTalepIdx];
+  const r = t?.tedRevizeTalepleri?.[i];
+  if (!r) return;
+  if (!confirm('“' + r.firma + '” revize talebi kaydı silinsin mi?\n\nGönderilen mail GERİ ALINMAZ; yalnız sistemdeki kayıt silinir.')) return;
+  t.tedRevizeTalepleri.splice(i, 1);
+  await kaliciVeriKaydet('Tedarikçi revize talebi kaydı silme');
+  renderTedSiparis();
+  showToast('🗑 Revize talebi kaydı silindi.');
 }
 
 // Yanlış gönderim / iptal → kaydı sil, kalemler tekrar sipariş edilebilir olsun.
