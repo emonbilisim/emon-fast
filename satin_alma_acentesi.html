@@ -3713,6 +3713,43 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
   </div>
 </div>
 
+<!-- MODAL: Manuel sipariş kaydı (telefon/WhatsApp) — MAİL GÖNDERİLMEZ -->
+<div class="modal-overlay" id="modal-tedManuel">
+  <div class="modal" style="width:min(96vw,860px);">
+    <div class="modal-title">☎️ Manuel Sipariş Kaydı</div>
+    <div id="tedman-ozet" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
+    <div id="tedman-kalemler" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:42vh;overflow-y:auto;"></div>
+    <datalist id="tedman-firma-list"></datalist>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="form-group" style="flex:1;min-width:190px;">
+        <label class="form-label">Sipariş Kanalı</label>
+        <select id="tedman-kanal">
+          <option value="Telefon">📞 Telefon</option>
+          <option value="WhatsApp">💬 WhatsApp</option>
+          <option value="Yüz yüze">🤝 Yüz yüze</option>
+          <option value="Tedarikçi portalı">🌐 Tedarikçi portalı / bayi paneli</option>
+          <option value="Elden mail">✉️ Kendi mailimden (sistem dışı)</option>
+          <option value="Diğer">Diğer</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1;min-width:170px;">
+        <label class="form-label">Sipariş Tarihi</label>
+        <input type="date" id="tedman-tarih">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Not (kiminle görüşüldü, tedarikçinin verdiği sipariş/teyit no, termin...)</label>
+      <textarea id="tedman-not" rows="2" placeholder="örn. Ahmet Bey ile telefonda teyit edildi — tedarikçi sipariş no 45812, teslim 3 iş günü"></textarea>
+    </div>
+    <div style="font-size:11px;color:var(--text3);">Bu kayıt için <strong>mail gönderilmez</strong> — sipariş sistem dışında geçilmiştir. Kalemler "sipariş edildi" sayılır ve bekleyen sipariş uyarısından düşer.</div>
+    <div id="tedman-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px;font-size:13px;color:var(--red);margin:10px 0;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('tedManuel')">İptal</button>
+      <button class="btn btn-primary" id="tedman-kaydet-btn" onclick="tedManuelKaydet()">✅ Sipariş Verildi Olarak İşaretle</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Tedarikçi Mailine Zincir Yanıt (aynı mail üzerinden ek soru/cevap) -->
 <div class="modal-overlay" id="modal-tedMailCevap">
   <div class="modal" style="width:min(96vw,640px);max-height:90vh;overflow-y:auto;">
@@ -5127,7 +5164,7 @@ function closeModal(id) { document.getElementById('modal-' + id).classList.remov
 const _KORUMALI_MODALLAR = new Set([
   'musteriForm','yeniTedarikci','duzenleTedarikci','yeniTalep','topluYapistir',
   'gorevForm','kullaniciForm','fiyatKurallari','dovizGiris','revizeTalebi','yeniTeklif','teklifMailOnay',
-  'moKart','moForm','moFormEdit','altKalem','tedSiparis','tedRevize'
+  'moKart','moForm','moFormEdit','altKalem','tedSiparis','tedRevize','tedManuel'
 ]);
 document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => {
   if (e.target !== m) return; // yalnızca arka plana (içeriğe değil) tıklama
@@ -18898,9 +18935,14 @@ function renderTedSiparis() {
     return '<tr style="border-bottom:1px solid var(--border);' + (kayit ? 'opacity:0.6;' : '') + '">'
       + '<td style="padding:8px 10px;text-align:center;">'
       + (kayit
-          ? '<span title="' + _tsAttr(kayit.firma + ' · ' + (kayit.sipNo || '')) + '">✅</span>'
-          : '<input type="checkbox" id="tsip-cb-' + k.uIdx + '" ' + (teklifler.length ? 'checked' : 'disabled')
-            + ' onchange="tedSipSatirDegisti()" style="width:15px;height:15px;accent-color:var(--accent);">')
+          ? '<span title="' + _tsAttr(kayit.firma + ' · ' + (kayit.sipNo || '') + (kayit.manuel ? ' · manuel: ' + (kayit.kanal || '') : '')) + '">'
+            + (kayit.manuel ? '☎️' : '✅') + '</span>'
+          // Fiyat veren tedarikçisi olmayan kalem de SEÇİLEBİLİR (varsayılan tiksiz): mail
+          // siparişi bunu zaten atlar (tedSipSecimToparla teklif yoksa döner), ama telefonla
+          // sipariş edilmiş olabilir ve manuel kayda dahil edilebilmeli.
+          : '<input type="checkbox" id="tsip-cb-' + k.uIdx + '" ' + (teklifler.length ? 'checked' : '')
+            + ' onchange="tedSipSatirDegisti()" style="width:15px;height:15px;accent-color:var(--accent);"'
+            + (teklifler.length ? '' : ' title="Bu ürüne fiyat veren tedarikçi yok — yalnız manuel sipariş kaydına dahil edilebilir"') + '>')
       + '</td>'
       + '<td style="padding:8px 10px;">'
       + '<div style="font-size:13px;font-weight:500;">' + _tsEsc(k.aciklama) + '</div>'
@@ -18909,7 +18951,8 @@ function renderTedSiparis() {
       // yoksa başka tedarikçinin muadili gösterilip yanlış ürün sipariş edilebilir.
       + '<div id="tsip-alt-' + k.uIdx + '" style="font-size:11px;color:var(--accent2);">'
       + (altBilgi?.alt ? '↹ Muadil: ' + _tsEsc(altBilgi.alt) + (altBilgi.altkod ? ' (' + _tsEsc(altBilgi.altkod) + ')' : '') : '') + '</div>'
-      + (kayit ? '<div style="font-size:11px;color:var(--green);">✅ ' + _tsEsc(kayit.firma) + ' · ' + _tsEsc(kayit.sipNo || '') + ' · ' + (kayit.tarih ? new Date(kayit.tarih).toLocaleDateString('tr-TR') : '') + '</div>' : '')
+      + (kayit ? '<div style="font-size:11px;color:var(--green);">' + (kayit.manuel ? '☎️' : '✅') + ' ' + _tsEsc(kayit.firma) + ' · ' + _tsEsc(kayit.sipNo || '') + ' · ' + (kayit.tarih ? new Date(kayit.tarih).toLocaleDateString('tr-TR') : '')
+                 + (kayit.manuel ? ' <span style="color:var(--purple);">· manuel (' + _tsEsc(kayit.kanal || '') + ')</span>' : '') + '</div>' : '')
       + (revize ? '<div style="font-size:11px;color:var(--amber);" title="Revize fiyat gelince tedarikçi teklifini güncelleyin — sipariş bu talebi beklemez">💰 Revize istendi: ' + _tsEsc(revize.firma) + ' · ' + (revize.tarih ? new Date(revize.tarih).toLocaleDateString('tr-TR') : '') + '</div>' : '')
       + '</td>'
       + '<td style="padding:8px 10px;text-align:center;">'
@@ -18918,13 +18961,17 @@ function renderTedSiparis() {
       + '</td>'
       + '<td style="padding:8px 10px;">' + (kayit ? '<span style="font-size:12px;color:var(--text3);">—</span>' : secim) + '</td>'
       + '<td style="padding:8px 10px;text-align:right;">'
-      + (kayit ? '<span style="font-size:11px;color:var(--text3);">gönderildi</span>'
-               : (teklifler.length
-                   ? '<div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;">'
-                     + '<button class="btn btn-sm" onclick="tedRevizeModalAc(' + k.uIdx + ')" style="font-size:11px;" title="Sipariş öncesi bu kalem için son fiyat revizesi (indirim) iste">💰 Revize</button>'
-                     + '<button class="btn btn-sm" onclick="tedSiparisModalAc(' + k.uIdx + ')" style="font-size:11px;">🛒 Sipariş</button>'
-                     + '</div>'
-                   : ''))
+      + (kayit ? '<span style="font-size:11px;color:var(--text3);">' + (kayit.manuel ? 'manuel kayıt' : 'gönderildi') + '</span>'
+               : '<div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;">'
+                 + (teklifler.length
+                     ? '<button class="btn btn-sm" onclick="tedRevizeModalAc(' + k.uIdx + ')" style="font-size:11px;" title="Sipariş öncesi bu kalem için son fiyat revizesi (indirim) iste">💰 Revize</button>'
+                       + '<button class="btn btn-sm" onclick="tedSiparisModalAc(' + k.uIdx + ')" style="font-size:11px;">🛒 Sipariş</button>'
+                     : '')
+                 // Telefonla geçilen sipariş: mail gitmez ama kalem "sipariş edildi" sayılmalı,
+                 // yoksa bekleyen sipariş uyarısı hiç kapanmaz. Fiyat veren tedarikçi olmasa da
+                 // gösterilir — sistemde teklifi olmayan firmadan da sipariş geçilebilir.
+                 + '<button class="btn btn-sm" onclick="tedManuelModalAc(' + k.uIdx + ')" style="font-size:11px;color:var(--purple);border-color:rgba(167,139,250,0.4);" title="Sipariş telefonla/sistem dışında geçildiyse burayı kullanın — mail GÖNDERİLMEZ, kalem sipariş edildi sayılır">☎️ Manuel</button>'
+                 + '</div>')
       + '</td>'
       + '</tr>';
   }).join('');
@@ -18938,9 +18985,13 @@ function renderTedSiparis() {
           + '<span style="font-weight:500;">' + _tsEsc(s.firma) + '</span>'
           + '<span style="color:var(--text3);">' + (s.urunler || []).length + ' kalem · ' + _tsEsc(s.toplamStr || '—') + '</span>'
           + '<span style="color:var(--text3);">' + (s.tarih ? new Date(s.tarih).toLocaleString('tr-TR') : '') + '</span>'
-          + (s.zincirde ? '<span class="badge badge-green" style="font-size:10px;">↩ teklif zincirinde</span>'
-                        : '<span class="badge badge-amber" style="font-size:10px;">yeni mail</span>')
+          + (s.manuel ? '<span class="badge badge-purple" style="font-size:10px;" title="Sistem dışında geçilen sipariş — mail gönderilmedi">☎ manuel · ' + _tsEsc(s.kanal || '') + '</span>'
+             : s.zincirde ? '<span class="badge badge-green" style="font-size:10px;">↩ teklif zincirinde</span>'
+                          : '<span class="badge badge-amber" style="font-size:10px;">yeni mail</span>')
           + '<button class="btn btn-sm" onclick="tedSiparisGeriAl(' + i + ')" style="margin-left:auto;font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.3);" title="Kaydı sil — kalemler tekrar sipariş edilebilir olur (mail geri alınmaz)">🗑 Kaydı Sil</button>'
+          // Manuel kayıtta not TEK iz: telefonda kiminle konuşulduğu / tedarikçinin teyit no'su
+          // burada durur, gönderilmiş bir mail yok ki geri dönüp bakılsın.
+          + (s.not ? '<div style="flex-basis:100%;color:var(--text3);">📝 ' + _tsEsc(s.not) + '</div>' : '')
           + '</div>').join('')
       + '</div>'
     : '';
@@ -18984,6 +19035,7 @@ function renderTedSiparis() {
     + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">'
     + '<button class="btn" style="flex:1;min-width:230px;" onclick="tedRevizeModalAc()" title="Sipariş öncesi seçili kalemler için tedarikçilerden son indirim iste">💰 Seçili Kalemler İçin Son Revize İste</button>'
     + '<button class="btn btn-primary" style="flex:1;min-width:230px;" onclick="tedSiparisModalAc()">🛒 Seçili Kalemleri Tedarikçilere Sipariş Et</button>'
+    + '<button class="btn" style="flex:1;min-width:230px;color:var(--purple);border-color:rgba(167,139,250,0.4);" onclick="tedManuelModalAc()" title="Seçili kalemler sistem dışında (telefon vb.) sipariş edildiyse mail göndermeden kaydet">☎️ Seçili Kalemleri Manuel Sipariş Olarak İşaretle</button>'
     + '</div>'
     + revizeGecmis
     + gecmis;
@@ -19039,11 +19091,15 @@ function tedSipSatirDegisti() {
   });
   const gruplar = tedSipSecimToparla();
   const kalem = gruplar.reduce((a, g) => a + g.urunler.length, 0);
-  ozet.innerHTML = kalem
+  // Seçili ama fiyat veren tedarikçisi olmayan kalemler mail siparişine GİRMEZ (sessizce
+  // atlanırdı) — kaç tanesinin dışarıda kaldığını ve tek çıkışın manuel kayıt olduğunu söyle.
+  const fiyatsiz = tedManuelKalemToparla().filter(k => !k.firma).length;
+  ozet.innerHTML = (kalem
     ? '📦 <strong>' + kalem + ' kalem</strong> · <strong>' + gruplar.length + ' tedarikçi</strong>: '
       + gruplar.map(g => _tsEsc(g.firma) + ' (' + g.urunler.length + ')').join(' · ')
       + '<br><span style="color:var(--text3);">Her tedarikçiye tek mail gider.</span>'
-    : '<span style="color:var(--text3);">Sipariş edilecek kalem seçilmedi.</span>';
+    : '<span style="color:var(--text3);">Sipariş edilecek kalem seçilmedi.</span>')
+    + (fiyatsiz ? '<br><span style="color:var(--amber);">⚠ Seçili ' + fiyatsiz + ' kalemin fiyat veren tedarikçisi yok — mailli siparişe girmez, yalnız "☎️ Manuel" ile kaydedilebilir.</span>' : '');
 }
 
 // Her grup için tedarikçinin fiyat verdiği mailin zinciri + alıcı adreslerini hazırla.
@@ -19496,13 +19552,165 @@ async function tedRevizeGeriAl(i) {
   showToast('🗑 Revize talebi kaydı silindi.');
 }
 
+// ─── MANUEL SİPARİŞ KAYDI (telefon / WhatsApp / yüz yüze) ─────────────────
+// Sipariş her zaman sistemden mail ile geçilmiyor: acil işlerde telefonla hallediliyor.
+// O kalem sistemde "sipariş geçilmedi" olarak asılı kalıyor, bekleyen sipariş rozeti hiç
+// sıfırlanmıyor ve panel afişi gerçek eksiği gösteremez hale geliyordu. Bu akış mail
+// GÖNDERMEDEN sipariş kaydı açar; kayıt `manuel:true` ile işaretlenir, böylece raporda
+// "mail zincirinde giden sipariş" ile "sistem dışı geçilen sipariş" ayırt edilebilir.
+
+// Manuel kayıt için seçili kalemler. tedSipSecimToparla'dan İKİ farkı var:
+//  1. Fiyat veren tedarikçisi OLMAYAN kalemler de gelir — telefonla, hiç teklif alınmamış
+//     bir firmadan da sipariş geçilebilir (tedarikçi adı pencerede elle yazılır).
+//  2. Firma bazında gruplama YAPILMAZ; gruplama kaydetme anında, kullanıcının yazdığı
+//     firma adına göre yapılır (kalem kalem farklı tedarikçi girilebilir).
+function tedManuelKalemToparla(soloIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return [];
+  const solo = (soloIdx !== undefined && soloIdx !== null);
+  const urunSayisi = ((t.urunler && t.urunler.length) ? t.urunler : [1]).length;
+  const out = [];
+  tedSipKalemler(t).forEach(k => {
+    if (tedSipVerilmisKayit(t, k.uIdx)) return;
+    if (solo && k.uIdx !== soloIdx) return;
+    if (!solo) { const cb = document.getElementById('tsip-cb-' + k.uIdx); if (!cb || !cb.checked) return; }
+    const o = tedSipSeciliTeklif(tedSipUrunTeklifleri(t, k.uIdx, urunSayisi), k.uIdx);
+    out.push({
+      uIdx: k.uIdx, aciklama: k.aciklama, kod: k.kod, birim: k.birim,
+      adet: parseFloat(document.getElementById('tsip-adet-' + k.uIdx)?.value) || k.adet,
+      firma: o?.firma || '',
+      birimFiyat: (o && o.birimFiyat != null) ? o.birimFiyat : null,
+      para: o?.para || 'TRY',
+      alt: o?.alt || '', altkod: o?.altkod || '',
+    });
+  });
+  return out;
+}
+
+// Manuel kayıt penceresi. uIdx verilirse yalnız o kalem (ürün bazlı buton).
+function tedManuelModalAc(uIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) { showToast('⛔ Açık talep bulunamadı.'); return; }
+  const kalemler = tedManuelKalemToparla(uIdx);
+  if (!kalemler.length) { showToast('⚠ Önce manuel işaretlenecek kalemleri seçin.'); return; }
+  window._tedManuelKalemler = kalemler;
+
+  const ozet = document.getElementById('tedman-ozet');
+  if (ozet) {
+    ozet.innerHTML = '<strong>' + _tsEsc(t.no || '') + '</strong> — ' + _tsEsc(t.musteri || '')
+      + ' · ' + kalemler.length + ' kalem'
+      + '<br><span style="color:var(--text3);">Sipariş sistem dışında (telefon vb.) geçildiyse buradan işaretleyin. Fiyat pazarlıkla değiştiyse birim fiyatı güncelleyin — teklifteki fiyat otomatik doldurulmuştur.</span>';
+  }
+
+  // Tedarikçi adı serbest metin: teklif vermemiş firmadan da sipariş geçilebilir.
+  // Yazım hatası ayrı bir "firma" doğurmasın diye kayıtlı firmalar öneri listesine konur.
+  const dl = document.getElementById('tedman-firma-list');
+  if (dl) dl.innerHTML = Object.keys(rfqFirmaMap()).sort((a, b) => a.localeCompare(b, 'tr'))
+    .map(f => '<option value="' + _tsAttr(f) + '">').join('');
+
+  const kap = document.getElementById('tedman-kalemler');
+  if (kap) kap.innerHTML = kalemler.map((k, i) =>
+    '<div style="padding:8px 10px;background:var(--bg3);border-radius:var(--radius);">'
+    + '<div style="font-size:13px;font-weight:500;">' + _tsEsc(k.aciklama)
+    + (k.kod ? ' <span style="font-size:11px;color:var(--text3);font-family:monospace;">' + _tsEsc(k.kod) + '</span>' : '') + '</div>'
+    + (k.alt ? '<div style="font-size:11px;color:var(--accent2);">↹ Muadil: ' + _tsEsc(k.alt) + (k.altkod ? ' (' + _tsEsc(k.altkod) + ')' : '') + '</div>' : '')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:6px;">'
+    + '<div style="flex:2;min-width:190px;"><label style="font-size:10px;color:var(--text3);display:block;">Tedarikçi</label>'
+    + '<input type="text" id="tedman-firma-' + i + '" list="tedman-firma-list" value="' + _tsAttr(k.firma) + '" placeholder="Firma adı" style="width:100%;padding:4px 6px;font-size:12px;"></div>'
+    + '<div style="width:92px;"><label style="font-size:10px;color:var(--text3);display:block;">Miktar</label>'
+    + '<input type="number" id="tedman-adet-' + i + '" value="' + _tsAttr(String(k.adet)) + '" min="0" step="any" style="width:100%;padding:4px 6px;font-size:12px;text-align:center;"></div>'
+    + '<div style="width:110px;"><label style="font-size:10px;color:var(--text3);display:block;">Birim Fiyat</label>'
+    + '<input type="number" id="tedman-fiyat-' + i + '" value="' + (k.birimFiyat != null ? _tsAttr(String(k.birimFiyat)) : '') + '" min="0" step="any" placeholder="—" style="width:100%;padding:4px 6px;font-size:12px;text-align:right;"></div>'
+    + '<div style="width:82px;"><label style="font-size:10px;color:var(--text3);display:block;">Para</label>'
+    + '<select id="tedman-para-' + i + '" style="width:100%;padding:4px 6px;font-size:12px;">'
+    + ['TRY', 'USD', 'EUR'].map(p => '<option value="' + p + '"' + (k.para === p ? ' selected' : '') + '>' + p + '</option>').join('')
+    + '</select></div>'
+    + '<span style="font-size:11px;color:var(--text3);padding-bottom:5px;">' + _tsEsc(k.birim) + '</span>'
+    + '</div></div>').join('');
+
+  const trh = document.getElementById('tedman-tarih');
+  if (trh) trh.value = new Date().toLocaleDateString('en-CA');   // yerel bugün (YYYY-MM-DD)
+  const notEl = document.getElementById('tedman-not');
+  if (notEl) notEl.value = '';
+  const hata = document.getElementById('tedman-hata');
+  if (hata) hata.style.display = 'none';
+  openModal('tedManuel');
+}
+
+async function tedManuelKaydet() {
+  const t = TALEPLER[aktifTalepIdx];
+  const kalemler = window._tedManuelKalemler || [];
+  const hata = document.getElementById('tedman-hata');
+  const uyar = m => { if (hata) { hata.textContent = m; hata.style.display = 'block'; } else showToast(m); };
+  if (!t || !kalemler.length) { uyar('Kalem bilgisi kayboldu — pencereyi kapatıp tekrar açın.'); return; }
+
+  const okunan = kalemler.map((k, i) => {
+    const ham = document.getElementById('tedman-fiyat-' + i)?.value;
+    return Object.assign({}, k, {
+      firma: (document.getElementById('tedman-firma-' + i)?.value || '').trim(),
+      adet: parseFloat(document.getElementById('tedman-adet-' + i)?.value) || k.adet,
+      // Fiyat boş bırakılabilir (telefonda konuşulmamış olabilir) — 0 ile karıştırma.
+      birimFiyat: (ham === '' || ham == null) ? null : (parseFloat(ham) || 0),
+      para: document.getElementById('tedman-para-' + i)?.value || 'TRY',
+    });
+  });
+  const firmasiz = okunan.filter(x => !x.firma);
+  if (firmasiz.length) { uyar('Şu kalemler için tedarikçi adı girin: ' + firmasiz.map(x => x.aciklama).join(', ')); return; }
+  if (hata) hata.style.display = 'none';
+
+  const kanal = document.getElementById('tedman-kanal')?.value || 'Telefon';
+  const not   = (document.getElementById('tedman-not')?.value || '').trim();
+  const gun   = document.getElementById('tedman-tarih')?.value || '';
+  // Öğlen 12:00 yerel: saat dilimi kayması gün atlatmasın (sipariş bir gün önce görünmesin).
+  const tarih = gun ? new Date(gun + 'T12:00:00').toISOString() : new Date().toISOString();
+
+  // Firma adına göre grupla — kayıt yapısı sipariş mailiyle aynı (firma başına tek kayıt).
+  // Anahtar büyük harfe çevrilir ki "Anıl Telekom" / "ANIL TELEKOM" iki kayıt açmasın.
+  const gruplar = {};
+  okunan.forEach(x => {
+    const anahtar = x.firma.toLocaleUpperCase('tr');
+    if (!gruplar[anahtar]) gruplar[anahtar] = { firma: x.firma, urunler: [] };
+    gruplar[anahtar].urunler.push(x);
+  });
+
+  if (!Array.isArray(t.tedSiparisleri)) t.tedSiparisleri = [];
+  const eklenen = [];
+  Object.values(gruplar).forEach(g => {
+    const sipNo = tedSipNoUret(t);   // her döngüde tazelenir (kayıt sayısına bağlı)
+    const toplamlar = {};
+    g.urunler.forEach(u => { if (u.birimFiyat != null) toplamlar[u.para] = (toplamlar[u.para] || 0) + u.birimFiyat * u.adet; });
+    t.tedSiparisleri.push({
+      sipNo, firma: g.firma,
+      urunler: g.urunler.map(u => ({ uIdx: u.uIdx, aciklama: u.aciklama, kod: u.kod, adet: u.adet, birim: u.birim, birimFiyat: u.birimFiyat, para: u.para, alt: u.alt, altkod: u.altkod })),
+      alicilar: [], ccler: [], konu: '', not,
+      toplamStr: Object.keys(toplamlar).length ? Object.entries(toplamlar).map(([p, v]) => tedSipParaFmt(v, p)).join(' + ') : '—',
+      tarih,
+      kullanici: aktifKullanici?.ad || aktifKullanici?.email || '',
+      zincirde: false,
+      manuel: true, kanal,
+      kayitTarihi: new Date().toISOString(),   // siparişin geçildiği gün ≠ sisteme işlendiği an
+    });
+    eklenen.push(g.firma + ' (' + g.urunler.length + ')');
+  });
+
+  await kaliciVeriKaydet('Manuel tedarikçi siparişi');
+  closeModal('tedManuel');
+  renderTedSiparis();
+  tedSipBekleyenGuncelle();
+  showToast('✅ Manuel sipariş kaydedildi (' + kanal + '): ' + eklenen.join(' · '));
+}
+
 // Yanlış gönderim / iptal → kaydı sil, kalemler tekrar sipariş edilebilir olsun.
 // Mail geri alınmaz; bu yalnız sistemdeki sipariş kaydını temizler.
 async function tedSiparisGeriAl(i) {
   const t = TALEPLER[aktifTalepIdx];
   const s = t?.tedSiparisleri?.[i];
   if (!s) return;
-  if (!confirm('“' + s.sipNo + ' — ' + s.firma + '” sipariş kaydı silinsin mi?\n\nGönderilen mail GERİ ALINMAZ; yalnız sistemdeki kayıt silinir ve kalemler tekrar sipariş edilebilir olur.')) return;
+  // Manuel kayıtta gönderilmiş bir mail yok — "mail geri alınmaz" uyarısı yanıltıcı olur.
+  const uyari = s.manuel
+    ? '\n\nBu MANUEL bir kayıttır (' + (s.kanal || 'sistem dışı') + ') — mail gönderilmemişti. Kalemler tekrar sipariş edilebilir olur ve "sipariş geçilmedi" uyarısına geri döner.'
+    : '\n\nGönderilen mail GERİ ALINMAZ; yalnız sistemdeki kayıt silinir ve kalemler tekrar sipariş edilebilir olur.';
+  if (!confirm('“' + s.sipNo + ' — ' + s.firma + '” sipariş kaydı silinsin mi?' + uyari)) return;
   t.tedSiparisleri.splice(i, 1);
   await kaliciVeriKaydet('Tedarikçi sipariş kaydı silme');
   renderTedSiparis();
