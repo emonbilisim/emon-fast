@@ -11004,7 +11004,12 @@ async function teklifMailGonderEt() {
       }
 
       if (resp.ok || resp.status === 202) {
-        TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
+        // Durum GERİYE düşürülmez: sipariş alınmış bir talebe (admin sipariş sonrası fiyatı
+        // revize etti) teklif tekrar gönderilebiliyor. Koşulsuz 'Müşteriye İletildi' yazmak
+        // siparişi yok sayar — workflow adımı geri gider, "Sipariş Verildi" rozeti ve tedarikçi
+        // sipariş bölümünün dayandığı durum kaybolurdu.
+        const _ileriDurum = ['Sipariş Verildi', 'Tamamlandı'].includes(TALEPLER[aktifTalepIdx].durum);
+        if (!_ileriDurum) TALEPLER[aktifTalepIdx].durum = 'Müşteriye İletildi';
         TALEPLER[aktifTalepIdx].musteriTeklifGonderildi = true;
         TALEPLER[aktifTalepIdx].musteriTeklifTarih = new Date().toISOString();
         // Bu gönderim, O AN geçerli admin onayının damgası (fiyatOnaySira) altında yapıldı.
@@ -11019,10 +11024,14 @@ async function teklifMailGonderEt() {
           birimFiyat: u.birimFiyat, para: u.para, altAd: u.altAd || '', altKod: u.altKod || '',
           alternatifler: (u.alternatifler || []).map(a => ({ ad: a.ad, kod: a.kod, birimFiyat: a.birimFiyat, para: a.para })),
         }));
-        TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
+        // 'kabul' (müşteri siparişi onayladı) KORUNUR — revize fiyat göndermek onayı silmez,
+        // yoksa talep "yanıt bekliyor"a döner ve Teklifler sayfasında sipariş kaybolur.
+        if (TALEPLER[aktifTalepIdx].teklifDurumu !== 'kabul') {
+          TALEPLER[aktifTalepIdx].teklifDurumu = (TALEPLER[aktifTalepIdx].teklifDurumu === 'revize') ? 'revize_gonderildi' : 'bekliyor';
+        }
         TALEPLER[aktifTalepIdx].teklifGonderimSayisi = (TALEPLER[aktifTalepIdx].teklifGonderimSayisi || 0) + 1;
-        renderWorkflow('Müşteriye İletildi');
-        document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('Müşteriye İletildi');
+        renderWorkflow(TALEPLER[aktifTalepIdx].durum);
+        document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(TALEPLER[aktifTalepIdx].durum);
         renderTalepler(); veriKaydet();
         closeModal('teklifMailOnay');
         const ccNot = ccList.length ? ' (+' + ccList.length + ' CC)' : '';
@@ -12568,8 +12577,12 @@ function satisBolumunuGuncelle() {
 
     // Kargo butonu sadece "Sipariş Verildi" durumunda
     if (tamamla) tamamla.style.display = siparisVerildi ? 'flex' : 'none';
-    // Mail butonu sipariş verildiyse gizle
-    if (gonder) gonder.style.display = (siparisVerildi || siparisTamam) ? 'none' : 'flex';
+    // Mail butonu sipariş verildiyse gizlenir. TEK İSTİSNA: sipariş alındıktan SONRA fiyat
+    // revize edilip onaylandıysa (onayliGonderimBekliyorMu) müşteriye yeni fiyatın iletilmesi
+    // gerekir — buton koşulsuz gizlenince panel "✅ Gönder" diyor ama detayda gönderecek
+    // düğme olmuyor ve süreç çıkmaza giriyordu (#TLP-00142). Tamamlandı'da iş kapalı.
+    if (gonder) gonder.style.display =
+      (siparisTamam || (siparisVerildi && !onayliGonderimBekliyorMu(t))) ? 'none' : 'flex';
     // 💾 Kaydet: admin'in tablo revizyonunu MAİL ATMADAN sisteme yazan tek yol.
     // Onay bekleyen durumda gizli — orada karar "Onayla/Reddet" bandından verilir.
     if (kaydet) kaydet.style.display = (siparisVerildi || siparisTamam || onayDurumu === 'bekliyor') ? 'none' : 'flex';
@@ -12708,13 +12721,28 @@ function satisBolumunuGuncelle() {
       if (talepBtn) talepBtn.style.display = 'flex';
       if (subEl) subEl.textContent = 'Hesapla ve admin onayına gönder';
     }
-    // Sipariş verildiyse satıcı da kargo bilgisi girebilsin (gönder butonu gizlenir)
+    // Sipariş verildiyse satıcı da kargo bilgisi girebilsin (gönder butonu normalde gizlenir)
     if (t.durum === 'Sipariş Verildi') {
-      const g = document.getElementById('btn-satici-gonder'); if (g) g.style.display = 'none';
+      // İSTİSNA: admin fiyatı SİPARİŞTEN SONRA revize ettiyse müşteriye yeni fiyat
+      // iletilmelidir. Buton koşulsuz gizlenince panel/rozet "✅ Gönder" diyor ama detayda
+      // gönderecek düğme bulunmuyordu — satıcı için çıkmaz sokak (#TLP-00142).
+      const revizeGonderimi = onayliGonderimBekliyorMu(t);
+      const g = document.getElementById('btn-satici-gonder');
+      if (g) g.style.display = revizeGonderimi ? 'flex' : 'none';
       const tm = document.getElementById('btn-satici-tamamla'); if (tm) tm.style.display = 'flex';
       const pdfBtnS = document.getElementById('btn-pdf-indir-satici'); if (pdfBtnS) pdfBtnS.style.display = 'flex';
       if (hesapBol) hesapBol.style.display = 'block';
-      if (subEl) subEl.textContent = '📦 Sipariş verildi — kargo bilgisi girebilirsiniz';
+      if (subEl) subEl.textContent = revizeGonderimi
+        ? '📤 Sipariş sonrası fiyat revize edildi — güncel teklifi müşteriye gönderin'
+        : '📦 Sipariş verildi — kargo bilgisi girebilirsiniz';
+      // Sipariş alınmış bir talepte fiyat değiştiği açıkça yazılsın: müşteri onayladığı
+      // fiyattan farkı bilmeli, satıcı da "neden tekrar gönderiyorum" diye tereddüt etmesin.
+      if (revizeGonderimi && bandi) {
+        bandi.style.display = 'block';
+        bandi.innerHTML += '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">'
+          + '⚠ Bu talebin siparişi ZATEN ALINDI; fiyat sipariş sonrası değişti. Yeni fiyatı müşteriye iletin — '
+          + 'gönderim talebi "Sipariş Verildi" durumundan geri düşürmez.</span>';
+      }
     }
   }
 }
