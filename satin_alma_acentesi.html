@@ -7320,7 +7320,17 @@ function renderTalepler() {
     });
   }
 
-  siraliTalepler.forEach((t, idx) => {
+  // ARAMA YAPILIRKEN sonuçlar talep numarasına göre (yeniden eskiye) sıralanır — dağınık
+  // bir sonuç kümesi yerine numarayla taranabilir bir liste çıksın. Sıralama dropdown'ı
+  // yalnız aramasız görünümü yönetir; arama kutusu boşalınca eski sıra geri gelir.
+  // Panel'in "Aktif Talepler" ilk 5'i BİLEREK etkilenmez: orada arama kutusu yok, sıra
+  // kullanıcının seçtiği sıralama olmalı. Bu yüzden siraliTalepler'in kopyası sıralanır.
+  const tabloTalepler = q
+    ? [...siraliTalepler].sort((a, b) => talepNoSayi(b.no) - talepNoSayi(a.no)
+        || String(b.no || '').localeCompare(String(a.no || ''), 'tr'))   // geçici "-G" no'ları için kararlı
+    : siraliTalepler;
+
+  tabloTalepler.forEach((t, idx) => {
     const gercekIdx = TALEPLER.indexOf(t);
     const goster = listeAramaEsles(q, [t.no, t.musteri, t.urun, t.miktar, t.durum])
                    && (df===''||t.durum===df);
@@ -14858,6 +14868,12 @@ function renderMusteriTeklifleri() {
       (df === 'kabul' && t.teklifDurumu === 'kabul');
     return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
   });
+
+  // Arama yapılırken sonuçları talep numarasına göre (yeniden eskiye) sırala. Aramasız
+  // görünüm TALEPLER dizisinin kendi sırasında kalır — orası senkron/merge sırasıdır ve
+  // kullanıcının alışık olduğu görünümü değiştirmemek için dokunulmuyor.
+  if (q) filtrelenmis.sort((a, b) => talepNoSayi(b.no) - talepNoSayi(a.no)
+    || String(b.no || '').localeCompare(String(a.no || ''), 'tr'));
 
   const bekliyor = teklifTalepler.filter(t => !t.teklifDurumu || t.teklifDurumu === 'bekliyor').length;
   const kabul    = teklifTalepler.filter(t => t.teklifDurumu === 'kabul').length;
