@@ -866,7 +866,7 @@
     <div style="display:flex;gap:12px;margin-bottom:20px;align-items:center;flex-wrap:wrap;">
       <div class="search-wrap" style="flex:1;min-width:160px;">
         <span class="search-icon">🔍</span>
-        <input type="text" id="talepler-search" placeholder="Talep ara..." oninput="filterTalepler()">
+        <input type="text" id="talepler-search" placeholder="Talep no, müşteri veya ürün ara..." oninput="filterTalepler()">
       </div>
       <select id="talepler-durum-filter" style="width:160px;" onchange="filterTalepler()">
         <option value="">Tüm durumlar</option>
@@ -1262,7 +1262,7 @@
 
     <!-- Filtreler -->
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-      <input type="text" id="tof-search" placeholder="Müşteri veya ürün ara..." style="flex:1;min-width:180px;" oninput="renderMusteriTeklifleri()">
+      <input type="text" id="tof-search" placeholder="Talep no (TLP-00157), müşteri veya ürün ara..." style="flex:1;min-width:180px;" oninput="renderMusteriTeklifleri()">
       <select id="tof-durum-filter" onchange="renderMusteriTeklifleri()" style="padding:8px 12px;font-size:13px;">
         <option value="">Tüm Durumlar</option>
         <option value="bekliyor">Yanıt Bekleniyor</option>
@@ -7239,6 +7239,33 @@ function stzOtomatikHesapla(acilisSaati) {
   return { tarih: tarihStr, saat: hedefSaat };
 }
 
+// ── Liste aramalarında ortak eşleşme (Talepler / Teklifler / Arşiv) ──
+// Talep numarası ekranda "#TLP-00157" diye gösteriliyor; kullanıcı onu kopyalayıp
+// arama kutusuna yapıştırdığında baştaki "#" yüzünden HİÇBİR sonuç çıkmıyordu.
+// "TLP 00157" (boşluklu), "tlp00157" (tiresiz) ve "00157" yazımları da tutmuyordu.
+// Bu yüzden sorgu iki kez denenir: önce eski davranış (tüm alanlar tek metin — çok
+// kelimeli "acme kamera" aramaları bozulmasın), sonra noktalama/boşluktan arındırılmış
+// hâlleriyle ALAN ALAN. İkinci tur alanları birleştirmez: birleştirilse "acme" + "kamera"
+// bitişik sayılıp alakasız satırlar eşleşirdi.
+// Türkçe I/ı tuzağı: firma adları çoğunlukla BÜYÜK harf girilir ("ANIL TELEKOM").
+// toLowerCase() bunu "anil" yapar, kullanıcı ise doğru yazımla "anıl" arar → hiç tutmaz.
+// Bu yüzden sadeleştirilmiş turda i-ailesi tek harfe indirgenir ('İ'.toLowerCase()'in
+// bıraktığı birleşen nokta da atılır). Yalnız 2. turu etkiler; eski davranış korunur.
+function _aramaSade(s) {
+  return String(s == null ? '' : s).toLowerCase()
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/[\s#.,;:\-_/\\()]+/g, '');
+}
+function listeAramaEsles(q, alanlar) {
+  const ham = String(q == null ? '' : q).trim().toLowerCase();
+  if (!ham) return true;
+  const parcalar = (alanlar || []).map(x => String(x == null ? '' : x));
+  if (parcalar.join(' ').toLowerCase().includes(ham)) return true;
+  const sade = _aramaSade(ham);
+  return !!sade && parcalar.some(p => _aramaSade(p).includes(sade));
+}
+
 function renderTalepler() {
 
   const q   = (document.getElementById('talepler-search')?.value||'').toLowerCase();
@@ -7295,8 +7322,8 @@ function renderTalepler() {
 
   siraliTalepler.forEach((t, idx) => {
     const gercekIdx = TALEPLER.indexOf(t);
-    const text = [t.no, t.musteri, t.urun, t.miktar, t.durum].join(' ').toLowerCase();
-    const goster = (q===''||text.includes(q)) && (df===''||t.durum===df);
+    const goster = listeAramaEsles(q, [t.no, t.musteri, t.urun, t.miktar, t.durum])
+                   && (df===''||t.durum===df);
 
     // Talepler sayfası
     if (tbody && goster) {
@@ -14490,13 +14517,12 @@ function renderArsiv() {
 
   // Filtrele
   const filtrelenmis = kapaliTalepler.filter(t => {
-    const txt = [t.no, t.musteri, t.urun].join(' ').toLowerCase();
     const durumEsles = !df ||
       (df === 'Tamamlandı' && t.durum === 'Tamamlandı') ||
       (df === 'red'        && t.teklifDurumu === 'red')  ||
       (df === 'Karşılanamadı' && t.durum === 'Karşılanamadı') ||
       (df === 'İptal'      && t.durum === 'İptal');
-    return (q === '' || txt.includes(q)) && durumEsles;
+    return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
   }).sort((a,b) => new Date(b.siparisTarih||b.tarih||0) - new Date(a.siparisTarih||a.tarih||0));
 
   if (filtrelenmis.length === 0) {
@@ -14825,13 +14851,12 @@ function renderMusteriTeklifleri() {
   const simdi = new Date();
 
   const filtrelenmis = teklifTalepler.filter(t => {
-    const text = [t.no, t.musteri, t.urun].join(' ').toLowerCase();
     const durumEsles = !df ||
       (df === 'bekliyor' && (!t.teklifDurumu || t.teklifDurumu === 'bekliyor')) ||
       (df === 'revize' && t.teklifDurumu === 'revize') ||
       (df === 'revize_gonderildi' && t.teklifDurumu === 'revize_gonderildi') ||
       (df === 'kabul' && t.teklifDurumu === 'kabul');
-    return (q === '' || text.includes(q)) && durumEsles;
+    return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
   });
 
   const bekliyor = teklifTalepler.filter(t => !t.teklifDurumu || t.teklifDurumu === 'bekliyor').length;
