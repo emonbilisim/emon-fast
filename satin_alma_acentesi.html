@@ -7692,6 +7692,49 @@ function tedarikciBulByMail(mail, firmaMap) {
   return tedEslesmeBul(mail, firmaMap).firma;
 }
 
+// İLETİLEN (FW) mailde ASIL tedarikçiyi bul.
+// RFQ'yu gönderen satıcı ile talebi işleyen kişi çoğu zaman farklıdır; tedarikçinin yanıtı
+// RFQ'yu GÖNDEREN kişinin kutusuna düşer ve o kişi maili iletir. Gönderen kendi domainimiz
+// olduğu için doğrudan eşleşme tutmaz → mail listede "tedarikçisiz" görünür ve işlenemez.
+// Çözüm: gövdedeki alıntı başlığındaki ("From:/Gönderen: … <adres>") adresten tedarikçiyi çöz.
+// Dönüş: { firma, domainIle, adres } — adres doluysa mail İLETİLMİŞTİR; çağıran bunu zincir
+// yanıtı için KULLANMAMALI (cevap tedarikçiye değil ileten çalışana gider).
+function tedIletilenEslesmeBul(mail, firmaMap) {
+  const bos = { firma: '', domainIle: false, adres: '' };
+  const metin = String(mail?.bodyPreview || '') + ' ' + String(mail?.body?.content || '');
+  if (!metin.trim()) return bos;
+  const fm = firmaMap || rfqFirmaMap();
+  const adresler = metin.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g) || [];
+  const gorulen = new Set();
+  for (const ham of adresler) {
+    const adr = ham.toLowerCase();
+    if (gorulen.has(adr)) continue;
+    gorulen.add(adr);
+    if (icMailMi(adr)) continue;                 // kendi çalışanımız — tedarikçi değil
+    const e = tedEslesmeBul(adr, fm);
+    if (e.firma) return { firma: e.firma, domainIle: e.domainIle, adres: adr };
+  }
+  return bos;
+}
+
+// Bir teklif satırının kısa fiyat etiketi — "hangi satır güncellensin?" seçiminde ve
+// revize geçmişi notunda kullanılır. Aynı tedarikçinin birden çok satırı olabildiği için
+// (alternatif ürün teklifleri) satırlar fiyat/muadil ile ayırt edilir.
+function _tkSatirEtiket(tk, urunler) {
+  const uf = tk?.urunFiyatlari || {};
+  const parcalar = [];
+  (urunler || []).forEach((u, ix) => {
+    const ham = uf['fiyat_' + ix + '_ham'];
+    const deger = (ham === undefined || ham === null || ham === '') ? uf['fiyat_' + ix] : ham;
+    const sayi = parseFloat(deger) || 0;
+    if (sayi <= 0) return;
+    const para = (ham === undefined || ham === null || ham === '') ? 'TRY' : (uf['fiyat_' + ix + '_para'] || 'TRY');
+    parcalar.push((uf['fiyat_' + ix + '_alt'] ? '↹ ' : '')
+      + sayi.toLocaleString('tr-TR', { maximumFractionDigits: 2 }) + ' ' + para);
+  });
+  return parcalar.join(' · ') || 'fiyatsız';
+}
+
 function _htmlKacir(s) {
   return String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 }
@@ -17849,7 +17892,7 @@ async function outlookTumMaillerGoster() {
     icerik.innerHTML = `
       <div style="font-size:13px;color:var(--text2);margin-bottom:10px;">
         <strong>${tumMailler.length}</strong> mail bulundu <span style="font-size:11px;color:var(--text3);">(yalnızca <strong>${t.no}</strong> numaralı talebe ait)</span>.
-        ${mevcutMailler.size > 0 ? '<span style="font-size:11px;color:var(--amber);margin-left:8px;">⚠ Daha önce eklenmiş teklifler işaretli — yeniden eklenmeyecek.</span>' : ''}
+        ${mevcutMailler.size > 0 ? '<span style="font-size:11px;color:var(--accent2);margin-left:8px;">♻ Teklifi olan tedarikçiden yeni yanıt geldiyse revize fiyat olarak <b>mevcut satırı güncelleyebilirsiniz</b>.</span>' : ''}
         <span style="font-size:11px;color:var(--text3);margin-left:8px;">Fiyatları manuel girebilir veya AI ile otomatik çıkarabilirsiniz.</span>
       </div>
       <div id="outlook-mail-listesi" style="display:flex;flex-direction:column;gap:12px;"></div>
@@ -17868,15 +17911,35 @@ async function outlookTumMaillerGoster() {
 
       // Tam adres kayıtlı değilse kurumsal domain ile eşleş (izindeki yetkilinin yerine
       // yazan yeni kişi) — domainIle=true olduğunda kartta uyarı gösterilir.
-      const { firma: eslesen, domainIle: eslesenDomainIle } = tedEslesmeBul(gonderen, firmaMap);
+      let { firma: eslesen, domainIle: eslesenDomainIle } = tedEslesmeBul(gonderen, firmaMap);
+
+      // Gönderen kendi çalışanımızsa mail İLETİLMİŞtir (yanıt RFQ'yu gönderen kişinin
+      // kutusuna düşmüştü) → asıl tedarikçiyi gövdedeki alıntı başlığından bul.
+      let iletilenAdres = '';
+      if (!eslesen && icMailMi(gonderen)) {
+        const fw = tedIletilenEslesmeBul(mail, firmaMap);
+        if (fw.firma) { eslesen = fw.firma; eslesenDomainIle = fw.domainIle; iletilenAdres = fw.adres; }
+      }
 
       // Tedarikçinin EN YENİ yanıt mailini talebe iliştir — bu modal kapandıktan sonra
       // da (RFQ Durumu / karşılaştırma tablosundan) aynı zincire cevap yazılabilsin.
-      if (eslesen && tedCevapMailKaydet(t, eslesen, mail)) _cevapKaydiDegisti = true;
+      // İLETİLEN mail iliştirilmez: zincir yanıtı tedarikçiye değil ileten çalışana gider.
+      if (eslesen && !iletilenAdres && tedCevapMailKaydet(t, eslesen, mail)) _cevapKaydiDegisti = true;
 
-      // Bu mail daha önce eklendi mi?
-      const zatenEklendi = mevcutMailler.has(gonderen.toLowerCase()) ||
-        (eslesen && mevcutTedarikciler.has(eslesen));
+      // Bu tedarikçinin bu talepteki MEVCUT teklif satırları.
+      // Eskiden "zaten eklendi" ise kart tamamen kilitleniyordu (checkbox disabled, AI
+      // butonu yok) — oysa REVİZE yanıtları (sipariş öncesi indirim) tam olarak bu durumda
+      // gelir: fiyat veren tedarikçi ikinci kez, daha düşük fiyatla yazar. Kilit yüzünden
+      // revize fiyatı sisteme SOKULAMIYORDU. Artık kart açık kalır; kullanıcı mevcut satırı
+      // güncellemeyi ya da yeni satır açmayı seçer.
+      const mevcutSatirlar = eslesen
+        ? (talepTeklifleri[t.no] || []).map((tk, ix) => ({ tk, ix })).filter(x => x.tk.tedarikci === eslesen)
+        : [];
+      // Bu mail daha önce işlendi mi? (satıra yazılan kaynak mail tarihi)
+      const mailTarihMs = new Date(mail.receivedDateTime || 0).getTime() || 0;
+      const islenmis = mevcutSatirlar.some(x =>
+        x.tk.kaynakMailTarih && (new Date(x.tk.kaynakMailTarih).getTime() || 0) >= mailTarihMs);
+      const zatenEklendi = islenmis;   // yalnız AYNI mail tekrar işlenmesin diye
 
       const urunInputlari = urunler.map((u, uIdx) => `
         <div style="display:grid;grid-template-columns:1fr 130px 70px;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);">
@@ -17898,6 +17961,22 @@ async function outlookTumMaillerGoster() {
           placeholder="ℹ️ Bu ürünle ilgili not (marka, stok, termin, KDV...)"
           style="width:100%;margin:2px 0 6px;padding:4px 8px;font-size:11px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--bg2);color:var(--text);">`).join('');
 
+      // Tedarikçinin bu talepte teklifi varsa: yeni satır mı açılsın, mevcut satır mı
+      // güncellensin? Varsayılan GÜNCELLE — ikinci yanıt neredeyse her zaman revizedir ve
+      // yeni satır açmak karşılaştırma tablosunda aynı firmayı iki fiyatla gösterir.
+      // Satır seçimi FİYATLA yapılır: aynı firmanın alternatif ürün satırları da olabilir.
+      const hedefSecim = mevcutSatirlar.length
+        ? '<div style="margin-bottom:8px;padding:7px 9px;background:rgba(79,142,247,0.08);border:1px solid rgba(79,142,247,0.25);border-radius:var(--radius);">'
+          + '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--accent2);margin-bottom:4px;">♻ Bu tedarikçinin teklifi zaten var</div>'
+          + '<select id="mail-hedef-' + i + '" style="width:100%;padding:4px 6px;font-size:12px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--bg2);color:var(--text);">'
+          + mevcutSatirlar.map(x => '<option value="' + x.ix + '">♻ Mevcut satırı GÜNCELLE — '
+              + _htmlKacir(_tkSatirEtiket(x.tk, urunler)) + '</option>').join('')
+          + '<option value="">➕ Ayrı bir teklif satırı olarak ekle</option>'
+          + '</select>'
+          + '<div style="font-size:10px;color:var(--text3);margin-top:4px;">Revize fiyat geldiyse "GÜNCELLE" seçin — eski fiyat notta saklanır, karşılaştırma tablosu tek satır kalır.</div>'
+          + '</div>'
+        : '';
+
       const div = document.createElement('div');
       div.id = 'mail-kart-' + i;
       div.style.cssText = 'border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);overflow:hidden;'
@@ -17905,12 +17984,14 @@ async function outlookTumMaillerGoster() {
       div.innerHTML =
         '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg2);">'
         + '<input type="checkbox" data-mail-idx="' + i + '" style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0;" '
-        + (!zatenEklendi && eslesen ? 'checked' : '') + (zatenEklendi ? ' disabled' : '') + '>'
+        + (!zatenEklendi && eslesen ? 'checked' : '') + '>'
         + '<div style="flex:1;min-width:0;">'
-        + '<div style="font-size:13px;font-weight:500;' + (zatenEklendi ? 'text-decoration:line-through;color:var(--text3);' : '') + '">'
+        + '<div style="font-size:13px;font-weight:500;' + (zatenEklendi ? 'color:var(--text3);' : '') + '">'
         + (mail.subject||'(Konusuz)')
         + (eslesen ? '<span class="badge ' + (eslesenDomainIle ? 'badge-amber' : 'badge-blue') + '" style="font-size:10px;margin-left:4px;">'+eslesen+'</span>' : '')
-        + (zatenEklendi ? '<span style="font-size:10px;color:var(--amber);margin-left:6px;">✓ Zaten eklendi</span>' : '')
+        + (iletilenAdres ? '<span class="badge badge-amber" style="font-size:10px;margin-left:4px;" title="Gönderen kendi çalışanımız — tedarikçi gövdedeki ' + _htmlKacir(iletilenAdres) + ' adresinden bulundu">↪ iletilen</span>' : '')
+        + (zatenEklendi ? '<span style="font-size:10px;color:var(--amber);margin-left:6px;">✓ Bu yanıt işlendi</span>'
+             : (mevcutSatirlar.length ? '<span style="font-size:10px;color:var(--accent2);margin-left:6px;">♻ Revize yanıtı olabilir</span>' : ''))
         + '</div>'
         + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">📨 ' + gonderenAd + ' &nbsp;·&nbsp; 🕐 ' + tarih
         + (mail.hasAttachments ? ' &nbsp;·&nbsp; <span style="color:var(--accent2);">📎 Ek var</span>' : '')
@@ -17931,8 +18012,10 @@ async function outlookTumMaillerGoster() {
         + '<button class="btn btn-sm" onclick="mailIceriginiGoster(' + i + ')" style="font-size:11px;flex-shrink:0;">📄 Tam</button>'
         // Tedarikçi soru sorduysa (ör. "kablo kaç metre?") AYNI MAİL ZİNCİRİNDE cevap ver
         + '<button class="btn btn-sm" onclick="tedMailCevapla(' + i + ')" title="Bu mailin zincirinde cevap yaz — tedarikçi kendi sorusunun altında görür" style="font-size:11px;flex-shrink:0;color:var(--accent2);border-color:rgba(79,142,247,0.35);">↩️ Cevapla</button>'
-        + (!zatenEklendi ? '<button class="btn btn-sm btn-primary" onclick="aiMaildenFiyatDoldur(' + i + ')" style="font-size:11px;flex-shrink:0;">🤖 AI' + (mail.hasAttachments ? ' (📎 dahil)' : '') + '</button>' : '')
-        + (!zatenEklendi ? '<button class="btn btn-sm" onclick="revizeTalebiGonder(\'' + (mail.from?.emailAddress?.address||'') + '\',' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--amber);border-color:rgba(251,191,36,0.4);">✏️ Revize</button>' : '')
+        // AI ve Revize butonları teklifi olan tedarikçide de AÇIK: revize yanıtı yalnız
+        // fiyat vermiş tedarikçiden gelir, kapatılırsa revize akışı hiç kapanmaz.
+        + '<button class="btn btn-sm btn-primary" onclick="aiMaildenFiyatDoldur(' + i + ')" style="font-size:11px;flex-shrink:0;">🤖 AI' + (mail.hasAttachments ? ' (📎 dahil)' : '') + '</button>'
+        + '<button class="btn btn-sm" onclick="revizeTalebiGonder(\'' + (mail.from?.emailAddress?.address||'') + '\',' + i + ')" style="font-size:11px;flex-shrink:0;color:var(--amber);border-color:rgba(251,191,36,0.4);">✏️ Revize</button>'
         + '</div>'
         + '<div id="mail-onizleme-' + i + '" style="padding:10px 14px;font-size:12px;color:var(--text2);line-height:1.6;background:var(--bg2);border-bottom:1px solid var(--border);">'
         + (mail.bodyPreview||'').substring(0,300)
@@ -17940,6 +18023,7 @@ async function outlookTumMaillerGoster() {
         + '<div id="mail-tam-metin-' + i + '" style="display:none;background:var(--bg2);border-bottom:1px solid var(--border);"></div>'
         + '<div id="mail-ekler-' + i + '" style="display:none;"></div>'
         + '<div style="padding:10px 14px;">'
+        + hedefSecim
         + '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text3);margin-bottom:6px;">Urun Fiyatları</div>'
         + '<div id="ai-durum-' + i + '"></div>'
         + urunInputlari
@@ -18127,7 +18211,7 @@ async function mailIceriginiGoster(mailIdx) {
       const d = await resp.json();
       const bodyType = d.body?.contentType || 'text';
       const bodyContent = d.body?.content || '';
-      const temizMetin = bodyContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const temizMetin = mailHtmlDuzMetin(bodyContent);
       // AI için temiz metin sakla
       tamMetin.dataset.yuklendi = '1';
       tamMetin.dataset.icerik = temizMetin;
@@ -18192,19 +18276,51 @@ async function mailIceriginiGoster(mailIdx) {
 // at. Tedarikçiler genelde üstte yanıtlar, alıntı altta kalır → ilk "yanıt ayracından"
 // sonrasını keser. Hem çok-satırlı hem boşlukları sıkıştırılmış metinde çalışır (ayraçlar
 // satır başına bağlı değil). Üstte anlamlı içerik yoksa (ör. salt forward) tümünü korur.
-function mailAlintiyiAt(text) {
+// Graph'tan gelen HTML mail gövdesini düz metne çevir.
+// DİKKAT: yalnız `replace(/<[^>]+>/g,' ')` YETMEZ — Outlook mailleri gövdenin BAŞINDA
+// dev bir <style>/VML bloğu taşır; etiketler silinince CSS METNİ içerikte kalır ve
+// gövdenin ilk yüzlerce karakteri olur. mailAlintiyiAt bunu "gönderenin yeni yazdığı
+// metin" sanıp AI'ya yalnız CSS çöpünü gönderiyordu (fiyat asla bulunamıyordu).
+// Bu yüzden style/script/head/comment blokları İÇERİĞİYLE birlikte atılır.
+function mailHtmlDuzMetin(html) {
+  return String(html == null ? '' : html)
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(style|script|head)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<\/?(p|div|br|tr|li|h[1-6]|table)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/[ \t ]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n').replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function mailAlintiyiAt(text, _derinlik) {
   if (!text) return text;
   const t = String(text);
-  const idx = [];
-  const ekle = re => { const m = t.match(re); if (m) idx.push(m.index); };
+  const bul = [];
+  const ekle = re => { const m = t.match(re); if (m) bul.push({ bas: m.index, son: m.index + m[0].length }); };
   ekle(/_{6,}/);                                                                                  // Outlook alt-çizgi ayıracı
   ekle(/-{2,}\s*(Original Message|Özgün İleti|Forwarded message|İletilen ileti)\s*-{2,}/i);       // "-----Original Message-----"
-  ekle(/(Kimden|Gönderen|From)\s*:\s*\S.{0,200}?(Gönderilen|Gönderildi|Sent|Tarih|Date)\s*:/i);   // Outlook başlık bloğu
-  ekle(/\b\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}\b.{0,80}?(tarihinde|yazdı|wrote|schrieb)\b/i);           // "… 5.06.2026 … tarihinde … yazdı:"
-  if (!idx.length) return t;
-  const kes = Math.min.apply(null, idx);
-  const ust = t.slice(0, kes).trim();
-  return ust.length >= 15 ? ust : t;
+  // [\s\S] şart: başlık bloğu satır sonlarıyla ayrılır ("From: …\nSent: …"); `.` satır
+  // sonunu yakalamadığı için çok satırlı gövdelerde alıntı hiç bulunamıyordu.
+  ekle(/(Kimden|Gönderen|From)\s*:\s*\S[\s\S]{0,200}?(Gönderilen|Gönderildi|Sent|Tarih|Date)\s*:/i);
+  ekle(/\b\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4}\b[\s\S]{0,80}?(tarihinde|yazdı|wrote|schrieb)\b/i);      // "… 5.06.2026 … tarihinde … yazdı:"
+  if (!bul.length) return t;
+  bul.sort((a, b) => a.bas - b.bas);
+  const ilk = bul[0];
+  const ust = t.slice(0, ilk.bas).trim();
+  if (ust.length >= 15) return ust;
+  // İLETİLEN (FW) mail: gövde doğrudan alıntı başlığıyla BAŞLAR, üstünde metin yoktur.
+  // Eskiden bu durumda tüm gövde geri dönüyordu → AI zincirin tamamını (bizim revize
+  // talebimizdeki ESKİ fiyat tablosunu da) görüyor ve revize fiyat yerine eskisini
+  // okuyabiliyordu. Başlığı atlayıp İLETİLEN MESAJIN kendi metnini al.
+  if ((_derinlik || 0) < 2) {
+    const kalan = t.slice(ilk.son);
+    const ic = String(mailAlintiyiAt(kalan, (_derinlik || 0) + 1) || '').trim();
+    if (ic.length >= 15 && ic.length < t.trim().length) return ic;
+  }
+  return t;
 }
 
 // ═══════════════════════════════════════
@@ -19418,7 +19534,7 @@ async function aiMaildenFiyatDoldur(mailIdx, opts) {
         { headers: { 'Authorization': 'Bearer ' + msGraphToken } });
       if (resp.ok) {
         const d = await resp.json();
-        mailBody = (d.body?.content || mailBody).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+        mailBody = mailHtmlDuzMetin(d.body?.content || mailBody);
         if (tamMetin) tamMetin.dataset.icerik = mailBody;
       }
     } catch {}
@@ -19750,7 +19866,8 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
       '- Teslimat (lead time / sevkiyat süresi) ve ödeme koşulu (vade) varsa yaz, yoksa boş bırak.\n' +
       '- ALTERNATİF ÜRÜN: Tedarikçi, talep edilen ürün YERİNE FARKLI bir ürün (başka marka/model) teklif ediyorsa, o ürünün ADINI ilgili urunIdx için "alternatif" alanına, varsa STOK/PARÇA KODUNU "alternatifKod" alanına yaz (fiyatı yine birimFiyat\'a). Tam istenen ürünse ikisi de boş kalsın.\n' +
       '- BİRDEN FAZLA ALTERNATİF: Tedarikçi AYNI talep kalemi için 2 veya daha fazla farklı seçenek/alternatif sunduysa (ör. "X marka 1500₺ veya Y marka 1700₺"), BİRİNCİ seçeneği yukarıdaki gibi fiyatlar/alternatif alanına yaz; KALAN her ek seçeneği "alternatifler" dizisine ayrı bir nesne olarak ekle: {"urunIdx":hangi kalem, "ad":ürün adı, "kod":stok/parça kodu, "birimFiyat":sayı, "para":"TRY|USD|EUR"}. Her ek seçenek için fiyatını mutlaka yaz. Ek alternatif yoksa "alternatifler":[] bırak.\n' +
-      '- ÖNEMLİ: Mail bir YANIT olabilir ve altında alıntılanmış eski yazışma (bizim fiyatsız sorgu/talep mailimiz) bulunabilir. Bu alıntı kısmını YOK SAY; yalnızca gönderenin yeni yazdığı bölümdeki fiyatları al. Bizim ürün listemizi/sorgumuzu fiyat olarak alma — gerçek fiyat yoksa birimFiyat:0 bırak.\n\n' +
+      '- ÖNEMLİ: Mail bir YANIT olabilir ve altında alıntılanmış eski yazışma (bizim fiyatsız sorgu/talep mailimiz) bulunabilir. Bu alıntı kısmını YOK SAY; yalnızca gönderenin yeni yazdığı bölümdeki fiyatları al. Bizim ürün listemizi/sorgumuzu fiyat olarak alma — gerçek fiyat yoksa birimFiyat:0 bırak.\n' +
+      '- REVİZE YANITI: Mail, daha önce verilmiş bir fiyatın İNDİRİM/REVİZE talebine cevabı olabilir ("49 USD olur", "%5 indirim yapabiliriz", "son fiyatımız ..."). Bu durumda tedarikçinin EN SON/YENİ verdiği fiyatı al; alıntıda geçen ESKİ fiyatı ve bizim yazdığımız hedef/talep fiyatını ALMA. Yeni fiyat oran olarak verildiyse (ör. "%5 indirim") birimFiyat:0 bırak ve "not" alanına ne dediğini yaz.\n\n' +
       'MAİL İÇERİĞİ:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON formatında cevap ver (markdown veya açıklama yok):\n' +
       '{"fiyatlar":[{"urunIdx":0,"birimFiyat":1234.56,"para":"TRY","alternatif":"","alternatifKod":""}],"alternatifler":[{"urunIdx":0,"ad":"","kod":"","birimFiyat":0,"para":"TRY"}],"teslimat":"","odeme":"","not":""}';
@@ -20380,7 +20497,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       let govde = m.bodyPreview || '';
       try {
         const r = await fetch(GRAPH_API + '/me/messages/' + m.id + '?$select=body', { headers: { Authorization: 'Bearer ' + msGraphToken } });
-        if (r.ok) { const d = await r.json(); if (d.body?.content) govde = d.body.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
+        if (r.ok) { const d = await r.json(); if (d.body?.content) govde = mailHtmlDuzMetin(d.body.content); }
       } catch {}
       govde = mailGovdeKirp(govde, 2500);
       // Ekler (<5MB): PDF → AI'a document block; Excel/CSV → CSV metnine çevrilip mail'e eklenir.
@@ -21066,7 +21183,7 @@ async function otoMailIcerikEkCek(ts) {
   let govde = ts.ozet || '';
   try {
     const r = await fetch(GRAPH_API + '/me/messages/' + ts.mailId + '?$select=body,subject', { headers: { Authorization: 'Bearer ' + msGraphToken } });
-    if (r.ok) { const d = await r.json(); if (d.body && d.body.content) govde = d.body.content.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
+    if (r.ok) { const d = await r.json(); if (d.body && d.body.content) govde = mailHtmlDuzMetin(d.body.content); }
   } catch {}
   govde = (typeof mailGovdeKirp === 'function') ? mailGovdeKirp(govde, 4000) : String(govde).slice(0, 4000);
   const pdfler = [];
@@ -21320,7 +21437,7 @@ async function seciliOutlookTeklifleriEkle() {
     return fiyat; // TRY
   }
 
-  let eklenen = 0, atlanan = 0;
+  let eklenen = 0, atlanan = 0, guncellenen = 0;
 
   for (const cb of seciliCBlar) {
     const mailIdx = parseInt(cb.dataset.mailIdx);
@@ -21330,7 +21447,11 @@ async function seciliOutlookTeklifleriEkle() {
     const gonderen = mail.from?.emailAddress?.address || '';
     // Tam adres → kurumsal domain. Domain de tutmazsa teklif KİŞİ adına kaydedilir
     // (aşağıdaki tedAdi) ve karşılaştırma tablosunda ayrı bir tedarikçi gibi görünür.
-    const eslesen = tedarikciBulByMail(gonderen, firmaMap);
+    let eslesen = tedarikciBulByMail(gonderen, firmaMap);
+    // İLETİLEN (FW) mail: gönderen kendi çalışanımız. Kart bunu zaten gövdeden çözüyor;
+    // burada da çözmezsek teklif İLETEN ÇALIŞANIN adına kaydedilir (kartta "ANIL TELEKOM"
+    // yazarken tabloya "Zennube Varol" düşer).
+    if (!eslesen && icMailMi(gonderen)) eslesen = tedIletilenEslesmeBul(mail, firmaMap).firma;
 
     // Her ürün için fiyat ve para birimi oku
     const urunFiyatlari = {};
@@ -21382,10 +21503,50 @@ async function seciliOutlookTeklifleriEkle() {
 
     // Teklifin KAYNAK mailini teklif adıyla da iliştir: tedarikçi listesinde eşleşmeyen
     // gönderenlerde (tedAdi = mail adı) "↩️ Cevapla" yine aynı zincire yazabilsin.
-    tedCevapMailKaydet(t, tedAdi, mail);
+    // İletilen (FW) mail iliştirilmez — zincir yanıtı ileten çalışana gider.
+    if (!icMailMi(gonderen)) tedCevapMailKaydet(t, tedAdi, mail);
 
-    // Ana teklif (talep edilen ürünler) — yalnız fiyat girilmişse
-    if (fiyatlar.length) {
+    // ♻ REVİZE: mevcut satır güncelleniyor mu? (kartta hedef seçilmişse)
+    const hedefEl = document.getElementById('mail-hedef-' + mailIdx);
+    const hedefIx = (hedefEl && hedefEl.value !== '') ? parseInt(hedefEl.value, 10) : -1;
+    const hedef = (hedefIx >= 0) ? talepTeklifleri[t.no][hedefIx] : null;
+
+    if (hedef && fiyatlar.length) {
+      const eskiEtiket = _tkSatirEtiket(hedef, urunler);
+      if (!hedef.urunFiyatlari) hedef.urunFiyatlari = {};
+      // YALNIZ bu mailde fiyat girilen ürünler güncellenir; diğer kalemlerin fiyatı korunur
+      // (revize çoğu zaman tek kalem için gelir, tüm satırı sıfırlamak veri kaybı olur).
+      urunler.forEach((u, uIdx) => {
+        if (!(urunFiyatlari['fiyat_' + uIdx] > 0)) return;
+        hedef.urunFiyatlari['fiyat_' + uIdx]       = urunFiyatlari['fiyat_' + uIdx];
+        hedef.urunFiyatlari['fiyat_' + uIdx + '_ham']  = urunFiyatlari['fiyat_' + uIdx + '_ham'];
+        hedef.urunFiyatlari['fiyat_' + uIdx + '_para'] = urunFiyatlari['fiyat_' + uIdx + '_para'];
+        // Muadil bilgisi yalnız YENİSİ varsa değişir: alternatif ürün satırına gelen revize
+        // fiyat aynı muadil için verilmiştir, boş değerle silinmemeli.
+        ['_alt', '_altkod', '_not'].forEach(sfx => {
+          const v = urunFiyatlari['fiyat_' + uIdx + sfx];
+          if (v) hedef.urunFiyatlari['fiyat_' + uIdx + sfx] = v;
+        });
+      });
+      // birimFiyat satırın TÜM ürün fiyatlarından yeniden hesaplanır (karşılaştırma tablosu
+      // ve maliyet motoru tek ürünlü taleplerde bunu kullanır).
+      const tumu = Object.entries(hedef.urunFiyatlari)
+        .filter(([k]) => /^fiyat_\d+$/.test(k)).map(([, v]) => parseFloat(v) || 0).filter(v => v > 0);
+      hedef.birimFiyat = tumu.length ? tumu.reduce((a, b) => a + b, 0) / tumu.length : hedef.birimFiyat;
+      if (teslimat) hedef.teslimat = teslimat;
+      if (odeme)    hedef.odeme = odeme;
+      const yeniEtiket = _tkSatirEtiket(hedef, urunler);
+      hedef.revizeGecmisi = (hedef.revizeGecmisi || []).concat([{
+        tarih: mail.receivedDateTime, eski: eskiEtiket, yeni: yeniEtiket,
+      }]);
+      hedef.not = notMail + ' · 💰 revize: ' + eskiEtiket + ' → ' + yeniEtiket;
+      // Aynı mailin ikinci kez işlenip yeni fiyatı eskisiyle ezmesini engeller.
+      hedef.kaynakMailTarih = mail.receivedDateTime;
+      guncellenen++;
+    }
+
+    // Ana teklif (talep edilen ürünler) — yalnız fiyat girilmişse ve revize hedefi yoksa
+    if (fiyatlar.length && !hedef) {
       talepTeklifleri[t.no].push({
         tedarikci: tedAdi,
         birimFiyat: ortFiyat,
@@ -21394,6 +21555,7 @@ async function seciliOutlookTeklifleriEkle() {
         gecerlilik: '',
         odeme,
         not: notMail,
+        kaynakMailTarih: mail.receivedDateTime,
       });
       eklenen++;
     }
@@ -21416,6 +21578,7 @@ async function seciliOutlookTeklifleriEkle() {
         gecerlilik: '',
         odeme,
         not: notMail + ' · ↹ Alternatif: ' + (a.ad || a.kod),
+        kaynakMailTarih: mail.receivedDateTime,
       });
       eklenen++;
     });
@@ -21423,9 +21586,12 @@ async function seciliOutlookTeklifleriEkle() {
 
   renderTalepTeklifleri();
   veriKaydet();
-  if (eklenen > 0) {
+  if (eklenen > 0 || guncellenen > 0) {
     closeModal('outlookTeklifler');
-    showToast('✅ ' + eklenen + ' teklif eklendi!' + (atlanan ? ' (' + atlanan + ' mail fiyatsız olduğu için atlandı)' : ''));
+    const parcalar = [];
+    if (eklenen)     parcalar.push(eklenen + ' teklif eklendi');
+    if (guncellenen) parcalar.push('💰 ' + guncellenen + ' teklif revize fiyatla güncellendi');
+    showToast('✅ ' + parcalar.join(' · ') + (atlanan ? ' (' + atlanan + ' mail fiyatsız olduğu için atlandı)' : ''));
   } else {
     // Hiçbiri eklenmedi → pencereyi AÇIK tut ki fiyat girip tekrar deneyebilsinler
     showToast('⚠ Fiyat girilmediği için teklif eklenmedi. Fiyatları (AI veya manuel) doldurup tekrar deneyin.');
