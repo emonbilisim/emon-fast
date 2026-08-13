@@ -14533,7 +14533,11 @@ function renderArsiv() {
       (df === 'Karşılanamadı' && t.durum === 'Karşılanamadı') ||
       (df === 'İptal'      && t.durum === 'İptal');
     return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
-  }).sort((a,b) => new Date(b.siparisTarih||b.tarih||0) - new Date(a.siparisTarih||a.tarih||0));
+  }).sort((a,b) => q
+      // Arama varken Talepler/Teklifler ile aynı sıra: talep no yeniden eskiye.
+      // Eşitlikte no string'i ile kararlı — geçici "-G" no'ları aynı sayıyı taşır.
+      ? (talepNoSayi(b.no) - talepNoSayi(a.no) || String(b.no||'').localeCompare(String(a.no||''),'tr'))
+      : new Date(b.siparisTarih||b.tarih||0) - new Date(a.siparisTarih||a.tarih||0));
 
   if (filtrelenmis.length === 0) {
     liste.innerHTML = ''; empty.style.display = 'block'; return;
