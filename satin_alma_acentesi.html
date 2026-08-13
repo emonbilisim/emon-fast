@@ -18625,18 +18625,35 @@ function tedSipKalemler(t) {
   return secili.length ? secili : urunler.map((u, i) => map(u, i, null));
 }
 
-// Bir ürüne fiyat veren tedarikçiler — ucuzdan pahalıya (TL karşılığına göre).
+// Bir ürüne fiyat veren tedarikçiler — ucuzdan pahalıya.
+//
+// SIRALAMA satış tarafındaki fiyatlariBul/maliyetSec ile AYNI olmalı: gerçek maliyet
+// (ham + kargo payı + KK komisyonu). Ham fiyata göre sıralanırsa kargosu/komisyonu yüksek
+// bir tedarikçi listede öne geçebilir ve "satışta kullanılan maliyet" ile "sipariş önerisi"
+// farklı satırları gösterir.
+//
+// DÖNEN HER ADAY BİR SATIRDIR, bir firma DEĞİL: aynı tedarikçi bir ürüne hem asıl hem
+// muadil ürünle fiyat verdiyse talepTeklifleri'nde AYRI satırlar açılır (bkz. RFQ alternatif
+// ürün akışı). Bu yüzden her aday kendi `satirIdx`'ini taşır — seçim/eşleme firma adıyla
+// yapılırsa firmanın ilk satırı kazanır ve muadil satırı (u.alt) sessizce kaybolur.
 function tedSipUrunTeklifleri(t, uIdx, urunSayisi) {
   const liste = talepTeklifleri[t.no] || [];
-  return liste.map(tk => {
+  const urunler = (t.urunler && t.urunler.length) ? t.urunler
+                : [{ aciklama: t.urun, adet: t.miktar || 1, birim: 'Adet' }];
+  return liste.map((tk, satirIdx) => {
     const tlHam = tk.urunFiyatlari?.['fiyat_' + uIdx] || (urunSayisi === 1 ? tk.birimFiyat : 0);
     if (!tlHam || tlHam <= 0 || !tk.tedarikci) return null;
     const ham  = tk.urunFiyatlari?.['fiyat_' + uIdx + '_ham'];
     const para = tk.urunFiyatlari?.['fiyat_' + uIdx + '_para'] || 'TRY';
     const hamSayi = (ham === undefined || ham === null || ham === '') ? null : parseFloat(ham);
+    // fiyatlariBul ile birebir aynı gerçek maliyet hesabı
+    const nUrun = urunler.filter((u, i) => (tk.urunFiyatlari?.['fiyat_' + i] || 0) > 0).length || 1;
+    const tlFiyat = toplamBirimMaliyetTL(tk, tlHam, nUrun, tedSiparisToplamTL(tk, urunler));
     return {
+      satirIdx,
       firma: tk.tedarikci,
       tlHam,
+      tlFiyat,
       birimFiyat: (hamSayi !== null && !isNaN(hamSayi)) ? hamSayi : tlHam,
       para: (hamSayi !== null && !isNaN(hamSayi)) ? para : 'TRY',
       alt: tk.urunFiyatlari?.['fiyat_' + uIdx + '_alt'] || '',
@@ -18644,19 +18661,30 @@ function tedSipUrunTeklifleri(t, uIdx, urunSayisi) {
       teslimat: tk.teslimat || '',
       odeme: tk.odeme || '',
     };
-  }).filter(Boolean).sort((a, b) => a.tlHam - b.tlHam);
+  }).filter(Boolean).sort((a, b) => (a.tlFiyat - b.tlFiyat) || (a.tlHam - b.tlHam));
+}
+
+// Ekrandaki dropdown'da seçili SATIRI çöz (value = satirIdx). Firma adı anahtar DEĞİL:
+// aynı firmanın muadilli/muadilsiz satırları aynı ada sahiptir.
+function tedSipSeciliTeklif(teklifler, uIdx) {
+  const el = document.getElementById('tsip-firma-' + uIdx);
+  if (!el || el.value === '') return null;
+  const si = parseInt(el.value, 10);
+  return teklifler.find(x => x.satirIdx === si) || null;
 }
 
 // Satışta hangi tedarikçinin maliyeti kullanıldıysa sipariş de ona önerilir.
 // Kaynak sırası: onaylanan fiyat tablosu (adminSatisData) → ekrandaki canlı seçim.
 // Böylece müşteriye satılan fiyatın dayandığı tedarikçiyle sipariş edilen tedarikçi ayrışmaz.
-function tedSipVarsayilanFirma(t, uIdx, teklifler) {
-  if (!teklifler.length) return '';
+// Firma adı değil SATIR indeksi döner (muadil satırı ayırt edilebilsin).
+function tedSipVarsayilanSatir(t, uIdx, teklifler) {
+  if (!teklifler.length) return null;
   const kayit = t.fiyatOnayTalep?.adminSatisData || null;
   const baz = kayit?.baz || (typeof satisUrunBaz !== 'undefined' ? satisUrunBaz : {});
   const ikinciAll = kayit ? !!kayit.ikinciAll : !!document.getElementById('ikinci-fiyat-cb')?.checked;
   const ikinci = ikinciAll || baz?.[uIdx] === 'ikinci';
-  return (ikinci && teklifler.length > 1) ? teklifler[1].firma : teklifler[0].firma;
+  const o = (ikinci && teklifler.length > 1) ? teklifler[1] : teklifler[0];
+  return o.satirIdx;
 }
 
 // Bu kalem daha önce sipariş edildi mi? (aynı ürün indeksi geçen ilk sipariş)
@@ -18740,14 +18768,17 @@ function renderTedSiparis() {
     const teklifler = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi);
     const kayit = tedSipVerilmisKayit(t, k.uIdx);
     const revize = kayit ? null : tedRevizeSonKayit(t, k.uIdx);   // sipariş geçildiyse revize bilgisi anlamını yitirir
-    const varsayilan = tedSipVarsayilanFirma(t, k.uIdx, teklifler);
+    const varsayilan = tedSipVarsayilanSatir(t, k.uIdx, teklifler);
+    // Etikette muadil adı da görünür: aynı firma iki satırda olabilir, kullanıcı hangisini
+    // seçtiğini yalnız firma adından ayırt edemez.
     const opts = teklifler.map(o =>
-      '<option value="' + _tsAttr(o.firma) + '"' + (o.firma === varsayilan ? ' selected' : '') + '>'
-      + _tsEsc(o.firma) + ' — ' + tedSipParaFmt(o.birimFiyat, o.para) + '</option>').join('');
+      '<option value="' + o.satirIdx + '"' + (o.satirIdx === varsayilan ? ' selected' : '') + '>'
+      + _tsEsc(o.firma) + ' — ' + tedSipParaFmt(o.birimFiyat, o.para)
+      + (o.alt ? ' ↹ ' + _tsEsc(o.alt) : '') + '</option>').join('');
     const secim = teklifler.length
-      ? '<select id="tsip-firma-' + k.uIdx + '" onchange="tedSipSatirDegisti()" style="font-size:12px;padding:4px 6px;max-width:230px;">' + opts + '</select>'
+      ? '<select id="tsip-firma-' + k.uIdx + '" onchange="tedSipSatirDegisti()" style="font-size:12px;padding:4px 6px;max-width:280px;">' + opts + '</select>'
       : '<span style="font-size:11px;color:var(--amber);">⚠ Bu ürüne fiyat veren tedarikçi yok</span>';
-    const altBilgi = teklifler.find(o => o.firma === varsayilan);
+    const altBilgi = teklifler.find(o => o.satirIdx === varsayilan);
     return '<tr style="border-bottom:1px solid var(--border);' + (kayit ? 'opacity:0.6;' : '') + '">'
       + '<td style="padding:8px 10px;text-align:center;">'
       + (kayit
@@ -18863,10 +18894,11 @@ function tedSipSecimToparla(soloIdx) {
     if (solo && k.uIdx !== soloIdx) return;
     const cb = document.getElementById('tsip-cb-' + k.uIdx);
     if (!solo && (!cb || !cb.checked)) return;
-    const firma = document.getElementById('tsip-firma-' + k.uIdx)?.value || '';
-    if (!firma) return;
+    // Seçim SATIR bazlı çözülür; gruplama (firma başına tek mail) firma adıyla kalır.
+    const o = tedSipSeciliTeklif(tedSipUrunTeklifleri(t, k.uIdx, urunSayisi), k.uIdx);
+    if (!o) return;
+    const firma = o.firma;
     const adet = parseFloat(document.getElementById('tsip-adet-' + k.uIdx)?.value) || k.adet;
-    const o = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi).find(x => x.firma === firma) || {};
     if (!gruplar[firma]) gruplar[firma] = { firma, urunler: [] };
     gruplar[firma].urunler.push({
       uIdx: k.uIdx, aciklama: k.aciklama, kod: k.kod, adet, birim: k.birim,
@@ -18885,9 +18917,8 @@ function tedSipSatirDegisti() {
   const urunSayisi = ((t.urunler && t.urunler.length) ? t.urunler : [1]).length;
   tedSipKalemler(t).forEach(k => {
     const el = document.getElementById('tsip-alt-' + k.uIdx);
-    const firma = document.getElementById('tsip-firma-' + k.uIdx)?.value;
-    if (!el || !firma) return;
-    const o = tedSipUrunTeklifleri(t, k.uIdx, urunSayisi).find(x => x.firma === firma);
+    if (!el) return;
+    const o = tedSipSeciliTeklif(tedSipUrunTeklifleri(t, k.uIdx, urunSayisi), k.uIdx);
     el.innerHTML = o?.alt ? '↹ Muadil: ' + _tsEsc(o.alt) + (o.altkod ? ' (' + _tsEsc(o.altkod) + ')' : '') : '';
   });
   const gruplar = tedSipSecimToparla();
