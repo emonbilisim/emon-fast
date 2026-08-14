@@ -12598,6 +12598,13 @@ function satisBolumunuGuncelle() {
         + '<div style="margin-top:6px;font-size:12px;color:var(--text2);">'
         + '💡 İstersen aşağıdaki tablodan <strong>marj %</strong>, <strong>birim satış</strong>, KDV veya nakliye değerlerini değiştirip öyle onaylayabilirsin. Onayladığın değerler satıcıya aynen yansır.'
         + '</div>'
+        // Sipariş alınmış talepte onay = müşterinin onayladığı fiyatın değişmesi demek.
+        // Satıcı "🔄 Yeni Onaya Gönder" ile buraya sipariş SONRASI da gelebiliyor (#TLP-00142).
+        + (crmSiparisMi(t)
+            ? '<div style="margin-top:6px;padding:6px 8px;background:rgba(240,96,96,0.10);border:1px solid rgba(240,96,96,0.30);border-radius:var(--radius);font-size:12px;color:var(--red);font-weight:600;">'
+              + '🛒 Bu talebin müşteri siparişi ZATEN ALINDI'
+              + (t.siparisTarih ? ' (' + new Date(t.siparisTarih).toLocaleDateString('tr-TR') + ')' : '')
+              + '. Onaylayacağın fiyat müşterinin onayladığından farklıysa <u>müşteriye tekrar iletilmesi gerekir</u>.</div>' : '')
         + '<div style="margin-top:8px;display:flex;gap:8px;">'
         + '<button class="btn btn-primary btn-sm" onclick="adminFiyatOnayla()">✅ Onayla</button>'
         + '<button class="btn btn-sm" style="color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="adminFiyatReddet()">❌ Reddet</button>'
@@ -12611,6 +12618,12 @@ function satisBolumunuGuncelle() {
       const revize = !!t.fiyatOnayTalep?.adminDegisiklik;
       const gonderimBekliyor = onayliGonderimBekliyorMu(t);
       bandi.innerHTML = '✅ <strong>Fiyat onaylandı</strong> — satıcı müşteriye gönderebilir.'
+        // Sipariş alınmış talepte fiyat oynamak müşterinin onayladığı fiyatı değiştirir —
+        // admin bunu confirm'i görmeden ÖNCE bilsin.
+        + (crmSiparisMi(t)
+            ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">🛒 Müşteri siparişi alınmış'
+              + (t.siparisTarih ? ' (' + new Date(t.siparisTarih).toLocaleDateString('tr-TR') + ')' : '')
+              + ' — fiyatı değiştirirseniz müşterinin onayladığı fiyattan farklı olur ve yeni fiyatın müşteriye iletilmesi gerekir.</span>' : '')
         + (revize ? '<br><span style="font-size:12px;color:var(--amber);font-weight:600;">✏ Admin fiyatları revize etti.</span>' : '')
         + (t.fiyatOnayTalep?.adminNot ? '<br><span style="font-size:12px;color:var(--text2);">Not: ' + t.fiyatOnayTalep.adminNot + '</span>' : '')
         + (gonderimBekliyor && t.musteriTeklifGonderildi
@@ -13612,9 +13625,10 @@ async function adminFiyatOnayla() {
   const saticiData = t.fiyatOnayTalep?.saticiSatisData;
   const degisiklikVar = saticiData ? satisDurumFarkliMi(saticiData, adminData) : false;
 
-  const onayMsg = degisiklikVar
-    ? 'Tablodaki fiyatları değiştirdiniz. Admin\'in girdiği değerlerle onaylansın mı?\n\nYeni toplam: ' + adminData.toplamStr
-    : 'Fiyatları olduğu gibi onaylamak istiyor musunuz?\n\nToplam: ' + adminData.toplamStr;
+  const onayMsg = siparisSonrasiFiyatUyarisi(t, adminData.toplamStr)
+    + (degisiklikVar
+        ? 'Tablodaki fiyatları değiştirdiniz. Admin\'in girdiği değerlerle onaylansın mı?\n\nYeni toplam: ' + adminData.toplamStr
+        : 'Fiyatları olduğu gibi onaylamak istiyor musunuz?\n\nToplam: ' + adminData.toplamStr);
   if (!confirm(onayMsg)) return;
 
   const not = prompt(degisiklikVar
@@ -13701,7 +13715,8 @@ async function adminFiyatRevizyonKaydet() {
   const sorumlu   = (typeof talepSorumluKullanici === 'function') ? talepSorumluKullanici(t) : null;
   const saticiAdi = t.fiyatOnayTalep?.satici || sorumlu?.ad || sorumlu?.email || '';
 
-  const mesaj = (zatenOnayli
+  const mesaj = siparisSonrasiFiyatUyarisi(t, yeni.toplamStr)
+    + (zatenOnayli
       ? 'Onaylı fiyat tablosu güncellensin mi?'
       : 'Revize fiyat sisteme kaydedilsin ve ONAYLI fiyat olarak işaretlensin mi?')
     + '\n\nYeni toplam: ' + yeni.toplamStr
@@ -13804,6 +13819,29 @@ function onayliGonderimBekliyorMu(t) {
   const gonderimT = t.musteriTeklifTarih ? Date.parse(t.musteriTeklifTarih) : 0;
   return onayT > 0 && onayT > gonderimT;
 }
+// Müşteri siparişi ALINMIŞ bir talepte fiyatı onaylamak/revize etmek özel bir durumdur:
+// müşterinin onayladığı fiyattan farklı bir fiyat oluşur ve bunun müşteriye İLETİLMESİ
+// gerekir. Sessizce kaydedilince fark yalnız satıcının dikkatine kalıyordu (#TLP-00142).
+// Admin'in onay/revizyon confirm'ine eklenecek uyarı metnini üretir; sipariş yoksa boş.
+// DİKKAT: sipariş varken "💾 Fiyatı Kaydet" butonu gizli olduğundan bu duruma pratikte
+// ONAY yolundan gelinir (satıcı "🔄 Yeni Onaya Gönder" → admin "✅ Onayla"); bu yüzden
+// uyarı iki yola da bağlanmıştır.
+function siparisSonrasiFiyatUyarisi(t, yeniToplamStr) {
+  if (!t || typeof crmSiparisMi !== 'function' || !crmSiparisMi(t)) return '';
+  const eski = t.fiyatOnayTalep?.adminSatisData?.toplamStr || '';
+  const gun  = t.siparisTarih ? new Date(t.siparisTarih).toLocaleDateString('tr-TR') : '';
+  const farkli = !!(eski && yeniToplamStr && eski !== yeniToplamStr);
+  return '⚠ DİKKAT: Bu talebin MÜŞTERİ SİPARİŞİ ZATEN ALINDI' + (gun ? ' (' + gun + ')' : '') + '.\n\n'
+    + (farkli
+        ? 'Fiyat, müşterinin onayladığından FARKLI olacak:\n'
+          + '   onaylanan : ' + eski + '\n'
+          + '   yeni      : ' + yeniToplamStr + '\n\n'
+        : 'Onaylı fiyat kaydı yenilenecek.\n\n')
+    + 'Kaydettikten sonra sorumlu satıcının panelinde "müşteriye gönder" uyarısı çıkar;\n'
+    + 'yeni fiyatın müşteriye iletilmesi gerekir.\n\n'
+    + '────────────────────────────────\n\n';
+}
+
 // Talep listesi durum hücresine küçük "✅ Gönder" rozeti
 function onayliRozet(t) {
   return onayliGonderimBekliyorMu(t)
