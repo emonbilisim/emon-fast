@@ -876,8 +876,11 @@
         <option value="Teklif Hazır">Teklif Hazır</option>
         <option value="Müşteriye İletildi">Müşteriye İletildi</option>
       </select>
-      <select id="talepler-siralama" style="width:160px;" onchange="renderTalepler()">
-        <option value="tarih">📅 Yeniden Eskiye</option>
+      <select id="talepler-siralama" style="width:190px;" onchange="siralamaDegisti('talepler-siralama','renderTalepler')" title="Sıralama">
+        <option value="tarih">📅 Tarih: Yeniden Eskiye</option>
+        <option value="tarih_eski">📅 Tarih: Eskiden Yeniye</option>
+        <option value="no_yeni">🔢 Talep No: Büyükten Küçüğe</option>
+        <option value="no_eski">🔢 Talep No: Küçükten Büyüğe</option>
         <option value="stz">⏰ STZ'ye Göre</option>
         <option value="musteri">🏢 Müşteriye Göre</option>
         <option value="durum">📊 Duruma Göre</option>
@@ -1270,6 +1273,15 @@
         <option value="revize_gonderildi">Revize Gönderildi</option>
         <option value="kabul">Kabul Edildi</option>
       </select>
+      <select id="tof-siralama" onchange="siralamaDegisti('tof-siralama','renderMusteriTeklifleri')" style="padding:8px 12px;font-size:13px;" title="Sıralama">
+        <option value="">↕️ Sıralama: Varsayılan</option>
+        <option value="no_yeni">🔢 Talep No: Büyükten Küçüğe</option>
+        <option value="no_eski">🔢 Talep No: Küçükten Büyüğe</option>
+        <option value="teklif_yeni">🕐 Teklif Tarihi: Yeniden Eskiye</option>
+        <option value="teklif_eski">⏳ En Uzun Bekleyen</option>
+        <option value="tarih">📅 Talep Tarihi: Yeniden Eskiye</option>
+        <option value="musteri">🏢 Müşteriye Göre</option>
+      </select>
       <span style="font-size:11px;color:var(--text3);">Tamamlanan / reddedilen teklifler <b>Arşiv</b>'de görünür.</span>
       <button class="btn btn-sm" onclick="anlikGuncelle('teklifler')" style="font-size:12px;" title="Listeyi yenile + gelen mailleri tara">🔄 Güncelle</button>
     </div>
@@ -1425,6 +1437,14 @@
         <option value="90">Son 90 Gün</option>
         <option value="180">Son 180 Gün</option>
         <option value="365">Son 1 Yıl</option>
+      </select>
+      <select id="arsiv-siralama" onchange="siralamaDegisti('arsiv-siralama','renderArsiv')" style="padding:8px 12px;font-size:13px;" title="Sıralama">
+        <option value="">↕️ Sıralama: Varsayılan</option>
+        <option value="kapanis_yeni">📅 Kapanış: Yeniden Eskiye</option>
+        <option value="kapanis_eski">📅 Kapanış: Eskiden Yeniye</option>
+        <option value="no_yeni">🔢 Talep No: Büyükten Küçüğe</option>
+        <option value="no_eski">🔢 Talep No: Küçükten Büyüğe</option>
+        <option value="musteri">🏢 Müşteriye Göre</option>
       </select>
     </div>
 
@@ -7278,41 +7298,88 @@ function listeAramaEsles(q, alanlar) {
   return !!sade && parcalar.some(p => _aramaSade(p).includes(sade));
 }
 
+// ════════════════════════════════════════════════════════════════
+// LİSTE SIRALAMA — Talepler / Teklifler / Arşiv ortak
+// Her listenin dropdown'ında VARSAYILAN seçenek bugünkü davranışı birebir korur
+// (arama yapılırken talep no'ya göre sıralama dahil). Kullanıcı açıkça bir sıra
+// seçerse artık o geçerlidir; arama onu bozmaz — "seçtiğim sıra neden değişti?"
+// sorusu doğmasın. Seçim CİHAZ-YERELdir (localStorage): görünüm tercihi paylaşımlı
+// veriye (emonfast_v1) girmez, kullanıcılar birbirinin sırasını değiştirmez.
+// ════════════════════════════════════════════════════════════════
+const TALEP_DURUM_SIRA = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','Karşılanamadı','İptal'];
+const _srMs   = v => { const d = v ? new Date(v).getTime() : 0; return isNaN(d) ? 0 : d; };
+const _srKapanis = t => _srMs(t.siparisTarih || t.tarih);
+// Talep no sayısal; eşitlikte no string'i ile kararlı (geçici "-G" no'ları aynı sayıyı taşır)
+const _srNoDesc = (a,b) => talepNoSayi(b.no) - talepNoSayi(a.no) || String(b.no||'').localeCompare(String(a.no||''),'tr');
+const _srNoAsc  = (a,b) => talepNoSayi(a.no) - talepNoSayi(b.no) || String(a.no||'').localeCompare(String(b.no||''),'tr');
+// Son teklif zamanına (STZ) kalan süre — tarihsizler her zaman en sonda
+const _srStz = t => {
+  if (!t.sonTeklifTarih) return Infinity;
+  return new Date(t.sonTeklifTarih + 'T' + (t.sonTeklifSaat || '17:00')) - new Date();
+};
+
+// Anahtardan karşılaştırıcı. Bilinmeyen/boş anahtar → null (çağıran kendi
+// varsayılanına düşer). Array.sort modern tarayıcılarda kararlı olduğundan
+// eşit kayıtların göreli sırası korunur.
+function listeSiralayici(key) {
+  switch (key) {
+    case 'no_yeni':      return _srNoDesc;
+    case 'no_eski':      return _srNoAsc;
+    case 'tarih':        return (a,b) => _srMs(b.tarih) - _srMs(a.tarih);
+    case 'tarih_eski':   return (a,b) => _srMs(a.tarih) - _srMs(b.tarih);
+    case 'musteri':      return (a,b) => String(a.musteri||'').localeCompare(String(b.musteri||''),'tr');
+    case 'durum':        return (a,b) => TALEP_DURUM_SIRA.indexOf(a.durum) - TALEP_DURUM_SIRA.indexOf(b.durum);
+    case 'stz':          return (a,b) => {
+      const fa = _srStz(a), fb = _srStz(b);
+      if (fa === Infinity && fb === Infinity) return 0;
+      if (fa === Infinity) return 1;
+      if (fb === Infinity) return -1;
+      return fa - fb;                                   // en yakın üste
+    };
+    case 'teklif_yeni':  return (a,b) => _srMs(b.musteriTeklifTarih) - _srMs(a.musteriTeklifTarih);
+    // "En uzun bekleyen": teklifi en eski gönderilen üstte. Teklif tarihi olmayan
+    // kayıt en sona atılır (0 olsaydı yanlışlıkla "en uzun bekleyen" görünürdü).
+    case 'teklif_eski':  return (a,b) => (_srMs(a.musteriTeklifTarih) || Infinity) - (_srMs(b.musteriTeklifTarih) || Infinity);
+    case 'kapanis_eski': return (a,b) => _srKapanis(a) - _srKapanis(b);
+    case 'kapanis_yeni': return (a,b) => _srKapanis(b) - _srKapanis(a);
+    default:             return null;
+  }
+}
+
+// Dropdown değeri (varsa cihazda saklanan tercihi select'e uygulayarak) okur.
+function siralamaSec(selectId) {
+  const el = document.getElementById(selectId);
+  let kayitli = '';
+  try { kayitli = localStorage.getItem('emonfast_sira_' + selectId) || ''; } catch (_) {}
+  if (!el) return kayitli;
+  // Saklanan değer hâlâ geçerli bir seçenekse uygula (sayfa ilk açıldığında)
+  if (kayitli && el.value !== kayitli && Array.from(el.options).some(o => o.value === kayitli)) el.value = kayitli;
+  return el.value || '';
+}
+
+function siralamaDegisti(selectId, renderAdi) {
+  try { localStorage.setItem('emonfast_sira_' + selectId, document.getElementById(selectId)?.value || ''); } catch (_) {}
+  const fn = window[renderAdi];
+  if (typeof fn === 'function') fn();
+}
+
 function renderTalepler() {
 
   const q   = (document.getElementById('talepler-search')?.value||'').toLowerCase();
   const df  = document.getElementById('talepler-durum-filter')?.value||'';
-  const srt = document.getElementById('talepler-siralama')?.value||'tarih';
+  const srt = siralamaSec('talepler-siralama') || 'tarih';
   const tbody      = document.getElementById('talepler-tbody');
   const panelTbody = document.getElementById('panel-talepler-tbody');
   if (tbody) tbody.innerHTML = '';
   if (panelTbody) panelTbody.innerHTML = '';
   let count = 0;
 
-  // Sırala
-  const sttFarki = t => {
-    if (!t.sonTeklifTarih) return Infinity;
-    return new Date(t.sonTeklifTarih+'T'+(t.sonTeklifSaat||'17:00')) - new Date();
-  };
-  const durumSira = ['Yeni','RFQ Gönderildi','Teklifler Bekleniyor','Teklif Hazır','Müşteriye İletildi','Tamamlandı','Karşılanamadı','İptal'];
-
   // Satıcı izolasyonu + kapanmış işleri ele: Tamamlandı talepler yalnızca Arşiv'de gösterilir.
   // Müşteriye teklif gönderilen talepler yalnızca "Teklifler" kısmında görünür (burada gizlenir).
   const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı'
     && t.durum !== 'Karşılanamadı'   // karşılanamayan talep arşive düşer, açık listede durmaz
     && !t.musteriTeklifGonderildi);
-  const siraliTalepler = [...gorunurTalepler].sort((a,b) => {
-    if (srt === 'stz') {
-      const fa = sttFarki(a), fb = sttFarki(b);
-      if (fa === Infinity && fb === Infinity) return 0;
-      if (fa === Infinity) return 1;
-      if (fb === Infinity) return -1;
-      return fa - fb; // En yakın üste
-    }
-    if (srt === 'musteri') return (a.musteri||'').localeCompare(b.musteri||'','tr');
-    if (srt === 'durum')   return durumSira.indexOf(a.durum) - durumSira.indexOf(b.durum);
-    return new Date(b.tarih||0) - new Date(a.tarih||0); // tarih: yeniden eskiye
-  });
+  const siraliTalepler = [...gorunurTalepler].sort(listeSiralayici(srt) || listeSiralayici('tarih'));
 
   // Panel "Aktif Talepler" — yönetici olmayan kullanıcı YALNIZCA kendine atanmış talepleri görür
   // (talepBenim: admin→hepsi, diğer→sadece atanmış; sahipsiz/eski paylaşımlı hariç). İlk 5.
@@ -7332,14 +7399,13 @@ function renderTalepler() {
     });
   }
 
-  // ARAMA YAPILIRKEN sonuçlar talep numarasına göre (yeniden eskiye) sıralanır — dağınık
-  // bir sonuç kümesi yerine numarayla taranabilir bir liste çıksın. Sıralama dropdown'ı
-  // yalnız aramasız görünümü yönetir; arama kutusu boşalınca eski sıra geri gelir.
+  // ARAMA YAPILIRKEN, sıralama VARSAYILANDA ise sonuçlar talep numarasına göre (yeniden
+  // eskiye) sıralanır — dağınık bir sonuç kümesi yerine numarayla taranabilir liste çıksın.
+  // Kullanıcı dropdown'dan açıkça bir sıra seçtiyse ona DOKUNULMAZ (seçim aramada da geçerli).
   // Panel'in "Aktif Talepler" ilk 5'i BİLEREK etkilenmez: orada arama kutusu yok, sıra
   // kullanıcının seçtiği sıralama olmalı. Bu yüzden siraliTalepler'in kopyası sıralanır.
-  const tabloTalepler = q
-    ? [...siraliTalepler].sort((a, b) => talepNoSayi(b.no) - talepNoSayi(a.no)
-        || String(b.no || '').localeCompare(String(a.no || ''), 'tr'))   // geçici "-G" no'ları için kararlı
+  const tabloTalepler = (q && srt === 'tarih')
+    ? [...siraliTalepler].sort(listeSiralayici('no_yeni'))
     : siraliTalepler;
 
   tabloTalepler.forEach((t, idx) => {
@@ -14578,6 +14644,7 @@ function renderArsiv() {
   const q      = (document.getElementById('arsiv-search')?.value || '').toLowerCase();
   const df     = document.getElementById('arsiv-durum-filter')?.value || '';
   const sureFlt = parseInt(document.getElementById('arsiv-sure-filter')?.value || '0');
+  const srt    = siralamaSec('arsiv-siralama');
   const liste  = document.getElementById('arsiv-listesi');
   const empty  = document.getElementById('arsiv-empty');
   if (!liste) return;
@@ -14614,11 +14681,10 @@ function renderArsiv() {
       (df === 'Karşılanamadı' && t.durum === 'Karşılanamadı') ||
       (df === 'İptal'      && t.durum === 'İptal');
     return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
-  }).sort((a,b) => q
-      // Arama varken Talepler/Teklifler ile aynı sıra: talep no yeniden eskiye.
-      // Eşitlikte no string'i ile kararlı — geçici "-G" no'ları aynı sayıyı taşır.
-      ? (talepNoSayi(b.no) - talepNoSayi(a.no) || String(b.no||'').localeCompare(String(a.no||''),'tr'))
-      : new Date(b.siparisTarih||b.tarih||0) - new Date(a.siparisTarih||a.tarih||0));
+  }).sort(listeSiralayici(srt)                       // kullanıcı seçimi her şeyin önünde
+      // Seçim yoksa eski davranış: aramada Talepler/Teklifler ile aynı sıra (talep no
+      // yeniden eskiye), aramasızsa kapanış tarihi yeniden eskiye.
+      || listeSiralayici(q ? 'no_yeni' : 'kapanis_yeni'));
 
   if (filtrelenmis.length === 0) {
     liste.innerHTML = ''; empty.style.display = 'block'; return;
@@ -14937,6 +15003,7 @@ function renderMusteriTeklifleri() {
   if (typeof teklifMusteriYanitlariRender === 'function') teklifMusteriYanitlariRender();
   const q = (document.getElementById('tof-search')?.value || '').toLowerCase();
   const df = document.getElementById('tof-durum-filter')?.value || '';
+  const srt = siralamaSec('tof-siralama');
   const liste = document.getElementById('musteri-teklifler-listesi');
   const empty = document.getElementById('musteri-teklifler-empty');
   if (!liste) return;
@@ -14954,11 +15021,12 @@ function renderMusteriTeklifleri() {
     return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
   });
 
-  // Arama yapılırken sonuçları talep numarasına göre (yeniden eskiye) sırala. Aramasız
-  // görünüm TALEPLER dizisinin kendi sırasında kalır — orası senkron/merge sırasıdır ve
-  // kullanıcının alışık olduğu görünümü değiştirmemek için dokunulmuyor.
-  if (q) filtrelenmis.sort((a, b) => talepNoSayi(b.no) - talepNoSayi(a.no)
-    || String(b.no || '').localeCompare(String(a.no || ''), 'tr'));
+  // Sıralama: kullanıcı dropdown'dan seçtiyse o geçerli (arama da bozmaz). Seçmediyse
+  // eski davranış — arama yapılırken talep no yeniden eskiye, aramasız görünüm TALEPLER
+  // dizisinin kendi sırasında (senkron/merge sırası) kalır.
+  const cmp = listeSiralayici(srt);
+  if (cmp) filtrelenmis.sort(cmp);
+  else if (q) filtrelenmis.sort(listeSiralayici('no_yeni'));
 
   const bekliyor = teklifTalepler.filter(t => !t.teklifDurumu || t.teklifDurumu === 'bekliyor').length;
   const kabul    = teklifTalepler.filter(t => t.teklifDurumu === 'kabul').length;
