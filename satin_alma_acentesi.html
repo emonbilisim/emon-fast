@@ -3336,6 +3336,14 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
       </select>
     </div>
     <div class="form-group">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="mf-hatirlatma-kapali" style="width:16px;height:16px;margin-top:2px;cursor:pointer;flex-shrink:0;">
+        <span style="font-size:13px;color:var(--text2);">🔕 Teklif hatırlatma maili gönderme
+          <span style="display:block;font-size:11px;color:var(--text3);font-weight:400;">Bu müşteri hatırlatma istemiyor: otomatik hatırlatmalar atlanır, elle gönderimde onay sorulur.</span>
+        </span>
+      </label>
+    </div>
+    <div class="form-group">
       <label class="form-label">Sorumlu Satıcı <span id="mf-satici-yetki-uyari" style="font-size:11px;color:var(--text3);font-weight:400;display:none;">(yalnızca admin değiştirebilir)</span></label>
       <select id="mf-satici"></select>
     </div>
@@ -6074,6 +6082,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-sektor').value=''; document.getElementById('mf-fiyatgrup').value=''; document.getElementById('mf-durum').value='Aktif';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value='ilk'; } // yeni müşteri → varsayılan İlk Kayıt
+    { const hk=document.getElementById('mf-hatirlatma-kapali'); if(hk) hk.checked=false; }
     { const dk=document.getElementById('mf-doviz-kuru-tipi'); if(dk) dk.value='satis'; } // varsayılan: TCMB Günlük Satış Kuru
     // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
     if (saticiSel) saticiSel.value = (aktifKullanici?.email || '').toLowerCase();
@@ -6094,6 +6103,7 @@ function musteriFormAc(idx) {
     document.getElementById('mf-durum').value=m.durum||'Aktif'; document.getElementById('mf-not').value=m.not||'';
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=m.kaynak||''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value=m.musteriTipi||''; }
+    { const hk=document.getElementById('mf-hatirlatma-kapali'); if(hk) hk.checked=!!m.hatirlatmaKapali; }
     { const dk=document.getElementById('mf-doviz-kuru-tipi'); if(dk) dk.value=m.dovizKuruTipi||'satis'; } // eski kayıtlar → varsayılan Satış
     if (saticiSel) { const _sk = saticiKullaniciBul(m.satici); saticiSel.value = _sk ? (_sk.email||'').toLowerCase() : ''; }
     const o=m.odeme||{};
@@ -6313,6 +6323,7 @@ async function musteriKaydet() {
     ozelSartlar, fiyatgrup:document.getElementById('mf-fiyatgrup').value, durum:document.getElementById('mf-durum').value,
     kaynak:document.getElementById('mf-kaynak')?.value || '',
     musteriTipi:document.getElementById('mf-musteritipi')?.value || '',
+    hatirlatmaKapali: !!document.getElementById('mf-hatirlatma-kapali')?.checked,
     dovizKuruTipi:document.getElementById('mf-doviz-kuru-tipi')?.value || 'satis',
     not:document.getElementById('mf-not').value.trim(), tarih:new Date().toISOString().slice(0,10),
     fpKurallari: fpKurallariOku(),
@@ -6485,7 +6496,7 @@ function filterMusteriler() {
         : `<div style="font-size:10px;color:var(--amber);margin-top:2px;">👤 Atanmamış</div>`;
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${m.musteriTipi==='demo' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);color:#a78bfa;white-space:nowrap;">Demo</span>' : ''}${saticiSatir}</td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${m.musteriTipi==='demo' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);color:#a78bfa;white-space:nowrap;">Demo</span>' : ''}${m.hatirlatmaKapali ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;" title="Teklif hatırlatma maili gönderilmiyor">🔕</span>' : ''}${saticiSatir}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
@@ -6685,6 +6696,7 @@ function crmRender() {
     + satir('Tamamlanan', tamamlanan)
     + (m.kaynak ? satir('Kaynak', m.kaynak) : '')
     + (m.musteriTipi ? satir('Müşteri kaydı', musteriTipiAd(m.musteriTipi)) : '')
+    + (m.hatirlatmaKapali ? satir('Teklif hatırlatma', '<span style="color:var(--text3);">🔕 Kapalı</span>') : '')
     + (m.crmAsama === 'kaybedildi' && m.kaybetmeNedeni ? satir('Kaybetme nedeni', '<span style="color:var(--red);">' + m.kaybetmeNedeni + '</span>') : '')
     + satir('Etkileşim sayısı', akt.length)
     + satir('Son etkileşim', akt[0] ? tarihFmt(akt[0].tarih) : '—');
@@ -12120,6 +12132,9 @@ function musteriDiffHtml(eski, yeni) {
   cmp('Vergi Dairesi', eski?.vergidaire, yeni?.vergidaire);
   cmp('Durum', eski?.durum, yeni?.durum);
   cmp('Not', eski?.not, yeni?.not);
+  // Boole alan: cmp ('' vs false) farkını yutmasın diye metne çevrilir — yoksa yalnız bu
+  // değiştiğinde admin "Değişiklik tespit edilmedi" görüp habersiz onaylar.
+  cmp('Teklif hatırlatma', eski?.hatirlatmaKapali ? '🔕 Kapalı' : 'Açık', yeni?.hatirlatmaKapali ? '🔕 Kapalı' : 'Açık');
   diff.push(..._objDiff(eski?.odeme, yeni?.odeme, MUS_ODEME_LABELS));
   if (JSON.stringify(eski?.yetkililer) !== JSON.stringify(yeni?.yetkililer)) {
     diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">Yetkililer:</span> <span style="text-decoration:line-through;color:var(--red);">' + ((eski?.yetkililer||[]).map(y=>y.ad).join(', ') || '—') + '</span> → <span style="color:var(--green);">' + ((yeni?.yetkililer||[]).map(y=>y.ad).join(', ') || '—') + '</span></div>');
@@ -15004,6 +15019,7 @@ function renderMusteriTeklifleri() {
       + '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:'+dc.bg+';color:'+dc.renk+';border:1px solid '+dc.brd+';font-weight:600;">'+dc.etiket+'</span>'
       + '<span style="font-size:11px;color:var(--text3);">#'+t.no+'</span>'
       + (t.teklifGonderimSayisi > 1 ? '<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(79,142,247,0.15);color:var(--accent2);">'+t.teklifGonderimSayisi+'. gönderim</span>' : '')
+      + (musteriHatirlatmaKapaliMi(t.musteri) ? '<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);" title="Bu müşteri hatırlatma maili istemiyor — otomatik hatırlatma gönderilmez">🔕 hatırlatma kapalı</span>' : '')
       + '</div>'
       + '<div style="font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+urunOzet+'</div>'
       + '</div>'
@@ -15115,6 +15131,12 @@ async function teklifHatirlatGonder(idx) {
   const mail = yetkili?.mail || '';
   if (!mail) { showToast('Musteri e-posta adresi bulunamadi!'); return; }
   const adSoyad = yetkili?.ad || 'Ilgili';
+
+  // Hatırlatma istemeyen müşteri: elle gönderim ENGELLENMEZ, sorulur (istisnalar oluyor).
+  if (musteriHatirlatmaKapaliMi(t.musteri)) {
+    if (!confirm('🔕 "' + (t.musteri || '') + '" hatırlatma maili istemiyor olarak işaretli.\n\n'
+      + 'Yine de bu teklif için hatırlatma gönderilsin mi?')) return;
+  }
 
   // MS365 bağlı → onay pop-up'ı (To/CC). Gönderim teklifHatirlatGonderEt'te.
   if (aktifKullanici?.msAccount && msGraphToken) {
@@ -15368,6 +15390,20 @@ function otoHatirlatMesaiIcindeMi(cfg) {
   return s >= cfg.mesaiBas && s < cfg.mesaiBit;
 }
 
+// ── "Hatırlatma istemeyen müşteri" ────────────────────────────────────────
+// Bayrak MÜŞTERİ KAYDINDA tutulur (m.hatirlatmaKapali), talep bazında değil:
+// karar müşteriyle yapılan anlaşmadır, tek tek tekliflerle değil. Etkisi:
+//   • otomatik/panel hatırlatma adaylarından SESSİZCE düşer (liste dolmasın),
+//   • elle "📧 Hatırlat" engellenmez — onay sorulur (istisnalar oluyor),
+//   • teklif kartında ve müşteri kartında "🔕" rozeti → "neden hatırlatma
+//     gitmedi?" sorusu doğmasın.
+function musteriHatirlatmaKapaliMi(musteriAd) {
+  if (!musteriAd) return false;
+  const n = _musteriNorm(musteriAd);
+  const m = MUSTERILER.find(x => x && _musteriNorm(x.firma) === n);
+  return !!(m && m.hatirlatmaKapali);
+}
+
 // Hatırlatma zamanı gelmiş teklifler (yalnız aktif kullanıcıya ait, açık teklifler).
 // Dönen: [{ t, idx, sayi, dueMs }] — dueMs geçmiş olanlar "şimdi gönderilebilir".
 function otoHatirlatAdaylari() {
@@ -15382,6 +15418,7 @@ function otoHatirlatAdaylari() {
     if (!t.musteriTeklifGonderildi) return;           // teklif müşteriye gitmemiş
     if (!acikTeklif.includes(t.teklifDurumu)) return; // kabul/red/revize-istendi → dur
     if (kapaliDurum.includes(t.durum)) return;
+    if (musteriHatirlatmaKapaliMi(t.musteri)) return; // müşteri hatırlatma istemiyor → sessizce atla
     const sayi = t.hatirlatmaSayisi || 0;
     if (sayi >= (cfg.araliklar || []).length) return; // takvim bitti → dur
     const referans = t.teklifSonHatirlatma || t.musteriTeklifTarih;
