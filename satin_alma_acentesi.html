@@ -1422,6 +1422,11 @@
         <b>Müşteriye hiçbir mail gönderilmez.</b> Admin istediğinde Arşiv'den geri alabilir.
       </div>
 
+      <div id="ars-siparis-uyari" style="display:none;font-size:12px;color:var(--red);padding:8px 10px;background:rgba(240,96,96,0.1);border:1px solid rgba(240,96,96,0.25);border-radius:6px;margin-bottom:14px;">
+        ⛔ Bu talepte <b>müşteri siparişi alınmış</b>. Arşive alırsanız sipariş ve kargo/fatura adımları
+        açık listelerden çıkar, yalnız Arşiv'den erişilir — tedarikçi sipariş uyarıları da susar.
+      </div>
+
       <div id="ars-gonderildi-uyari" style="display:none;font-size:12px;color:var(--amber);padding:8px 10px;background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.25);border-radius:6px;margin-bottom:14px;">
         ⚠ Bu talep için müşteriye <b>teklif gönderilmiş</b>. Arşive alınırsa takibi ve hatırlatmaları durur — müşteri tarafında teklif hâlâ açık olabilir.
       </div>
@@ -10902,8 +10907,11 @@ function arsivleAc() {
   set('ars-not', '');
   document.getElementById('ars-talep-bilgi').textContent =
     '#' + t.no + ' · ' + (t.musteri || '—') + ' · ' + (t.urun || '');
+  const siparisAlindi = t.teklifDurumu === 'kabul' || t.durum === 'Sipariş Verildi';
+  const sipUyari = document.getElementById('ars-siparis-uyari');
+  if (sipUyari) sipUyari.style.display = siparisAlindi ? 'block' : 'none';
   const uyari = document.getElementById('ars-gonderildi-uyari');
-  if (uyari) uyari.style.display = (t.musteriTeklifGonderildi || t.durum === 'Müşteriye İletildi') ? 'block' : 'none';
+  if (uyari) uyari.style.display = (!siparisAlindi && (t.musteriTeklifGonderildi || t.durum === 'Müşteriye İletildi')) ? 'block' : 'none';
   document.getElementById('ars-hata').style.display = 'none';
   openModal('arsivle');
 }
@@ -10943,6 +10951,10 @@ function arsivleOnayla() {
   if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
   if (typeof hatirlatmaUyarilariGoster === 'function') hatirlatmaUyarilariGoster();
   if (typeof sonTeklifUyarilariGoster === 'function') sonTeklifUyarilariGoster();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  if (typeof onayBekleyenBadgeGuncelle === 'function') onayBekleyenBadgeGuncelle();
+  if (typeof renderPanelFiyatOnaylari === 'function') renderPanelFiyatOnaylari();
+  if (typeof tedSipBekleyenGuncelle === 'function') tedSipBekleyenGuncelle();
   showToast('🗂 #' + t.no + ' arşive alındı — hatırlatma ve uyarı üretmeyecek.');
   goPage('arsiv', document.querySelector('[onclick*=arsiv]'));
 }
@@ -10978,6 +10990,10 @@ function arsivGeriAl(idx) {
   renderTalepler();
   if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
   if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  if (typeof onayBekleyenBadgeGuncelle === 'function') onayBekleyenBadgeGuncelle();
+  if (typeof renderPanelFiyatOnaylari === 'function') renderPanelFiyatOnaylari();
+  if (typeof tedSipBekleyenGuncelle === 'function') tedSipBekleyenGuncelle();
   showToast('↩ #' + t.no + ' arşivden çıkarıldı — durum: ' + yeniDurum);
 }
 
@@ -14025,7 +14041,7 @@ async function adminFiyatReddet() {
 
 // Sidebar badge
 function onayBekleyenBadgeGuncelle() {
-  const sayisi = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor').length;
+  const sayisi = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor' && !talepKapaliMi(t)).length;
   const badge = document.getElementById('onay-bekleyen-badge');
   if (badge) {
     badge.textContent = sayisi;
@@ -14037,6 +14053,8 @@ function onayBekleyenBadgeGuncelle() {
 // Revize sonrası tekrar onayda da görünür: onay tarihi son gönderimden yeniyse.
 function onayliGonderimBekliyorMu(t) {
   if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
+  if (talepKapaliMi(t)) return false;   // arşiv/iptal/karşılanamadı → gönderilecek teklif yok
+  if (t.teklifDurumu === 'red') return false;
   if (!t.musteriTeklifGonderildi) return true;         // hiç gönderilmedi
   // GÖNDERİLDİ → yalnızca son gönderimden SONRA YENİ bir admin onayı (revize) geldiyse
   // tekrar "gönderilmeyi bekliyor" göster. Eskiden bu, adminTarih (admin cihazı saati) ile
@@ -14126,7 +14144,7 @@ function renderFiyatOnaylari() {
   const icerik = document.getElementById('fiyat-onaylari-icerik');
   if (!icerik) return;
 
-  const bekleyenler = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor');
+  const bekleyenler = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor' && !talepKapaliMi(t));
   const gecmis = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu))
     .sort((a,b) => new Date(b.fiyatOnayTalep?.adminTarih||0) - new Date(a.fiyatOnayTalep?.adminTarih||0))
     .slice(0, 10);
@@ -15307,7 +15325,7 @@ function renderMusteriTeklifleri() {
           '<button class="btn btn-sm" onclick="talepDetayAc('+idx+')" style="font-size:12px;">↩ Revize Et</button>'
           + '<button class="btn btn-sm" onclick="teklifPdfIndir('+idx+')" style="font-size:12px;">📥 PDF</button>'
         : '')
-      + ((aktifKullanici?.rol === 'admin' && durum !== 'kabul' && durum !== 'red') ?
+      + ((aktifKullanici?.rol === 'admin' && durum !== 'red') ?
           '<button class="btn btn-sm" onclick="teklifArsivleAc('+idx+')" style="font-size:12px;" title="Teklifi/talebi arşive al — hatırlatma ve uyarı üretmeyi bırakır">🗂 Arşive Al</button>'
         : '')
       + '</div>'
@@ -17380,7 +17398,7 @@ function renderPanelFiyatOnaylari() {
   const icerik = document.getElementById('panel-fiyat-onay-icerik');
   if (!kart || !icerik) return;
   const isAdmin = aktifKullanici?.rol === 'admin';
-  const bekleyen = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor');
+  const bekleyen = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor' && !talepKapaliMi(t));
   if (!isAdmin || bekleyen.length === 0) { kart.style.display = 'none'; return; }
   kart.style.display = 'block';
   icerik.innerHTML = bekleyen.map(t => {
