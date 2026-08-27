@@ -102,6 +102,7 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  #arsiv-ozet-kartlar { grid-template-columns: repeat(5, 1fr); }
   .card {
     background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg);
     padding: 20px;
@@ -919,6 +920,8 @@
       <div id="td-durum-badge"></div>
       <button class="btn btn-sm" id="btn-karsilanamadi" onclick="karsilanamadiAc()" style="display:none;color:var(--red);border-color:rgba(240,96,96,0.3);"
         title="Ürün tedarik edilemiyorsa: müşteriye bilgilendirme maili gönder ve talebi arşive al">🚫 Karşılanamadı</button>
+      <button class="btn btn-sm" id="btn-arsivle" onclick="arsivleAc()" style="display:none;"
+        title="Talebi müşteriye mail göndermeden arşive al — açık listelerden ve tüm hatırlatma/uyarılardan düşer">🗂 Arşive Al</button>
     </div>
 
     <!-- Talep özeti -->
@@ -1408,6 +1411,49 @@
     </div>
   </div>
 
+  <!-- TALEBİ ARŞİVE AL — mail YOK, yalnız kapatma (admin) -->
+  <div class="modal-overlay" id="modal-arsivle">
+    <div class="modal" style="width:min(92vw,560px);max-height:90vh;overflow-y:auto;">
+      <div class="modal-title">🗂 Talebi Arşive Al</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;" id="ars-talep-bilgi"></div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+        Talep <b>“Arşive Alındı”</b> statüsüyle kapatılır. Açık talep ve teklif listelerinden çıkar;
+        satıcı ve admin tarafında <b>hatırlatma, son teklif zamanı ve panel uyarısı üretmez</b>.
+        <b>Müşteriye hiçbir mail gönderilmez.</b> Admin istediğinde Arşiv'den geri alabilir.
+      </div>
+
+      <div id="ars-gonderildi-uyari" style="display:none;font-size:12px;color:var(--amber);padding:8px 10px;background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.25);border-radius:6px;margin-bottom:14px;">
+        ⚠ Bu talep için müşteriye <b>teklif gönderilmiş</b>. Arşive alınırsa takibi ve hatırlatmaları durur — müşteri tarafında teklif hâlâ açık olabilir.
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Arşive Alma Nedeni <span style="color:var(--red);">*</span>
+          <span style="font-size:11px;color:var(--text3);font-weight:400;">(iç kayıt)</span></label>
+        <select id="ars-neden">
+          <option value="">Seçin...</option>
+          <option value="Müşteri vazgeçti">Müşteri vazgeçti</option>
+          <option value="Müşteriden yanıt gelmiyor">Müşteriden yanıt gelmiyor</option>
+          <option value="Proje/bütçe ertelendi">Proje/bütçe ertelendi</option>
+          <option value="Rakip firmada kaldı">Rakip firmada kaldı</option>
+          <option value="Mükerrer talep">Mükerrer talep</option>
+          <option value="Geçersiz / takip edilmeyecek">Geçersiz / takip edilmeyecek</option>
+          <option value="Diğer">Diğer</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Not <span style="font-size:11px;color:var(--text3);font-weight:400;">(isteğe bağlı)</span></label>
+        <input type="text" id="ars-not" placeholder="örn. müşteri 2027 bütçesinde tekrar değerlendirecek">
+      </div>
+
+      <div id="ars-hata" style="display:none;color:var(--red);font-size:12px;padding:8px;background:rgba(240,96,96,0.1);border-radius:6px;margin-bottom:8px;"></div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('arsivle')">Vazgeç</button>
+        <button class="btn btn-primary" id="ars-onay-btn" onclick="arsivleOnayla()">🗂 Arşive Al</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-siparisOnayla">
     <div class="modal" style="width:min(90vw,640px);max-height:90vh;overflow-y:auto;">
       <div class="modal-title">✅ Siparişi Onayla</div>
@@ -1429,6 +1475,7 @@
         <option value="Tamamlandı">✅ Tamamlandı</option>
         <option value="red">❌ Reddedildi</option>
         <option value="Karşılanamadı">📵 Karşılanamadı</option>
+        <option value="Arşivlendi">🗂 Arşive Alındı</option>
         <option value="İptal">🚫 İptal</option>
       </select>
       <select id="arsiv-sure-filter" onchange="renderArsiv()" style="padding:8px 12px;font-size:13px;">
@@ -1461,6 +1508,10 @@
       <div style="background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.25);border-radius:var(--radius);padding:14px;">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Karşılanamayan</div>
         <div style="font-size:24px;font-weight:700;color:var(--amber);" id="arsiv-k-karsilanamadi">—</div>
+      </div>
+      <div style="background:rgba(79,142,247,0.08);border:1px solid rgba(79,142,247,0.25);border-radius:var(--radius);padding:14px;">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Arşive Alınan</div>
+        <div style="font-size:24px;font-weight:700;color:var(--accent2);" id="arsiv-k-arsivlendi">—</div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">İptal Edilen</div>
@@ -7184,7 +7235,7 @@ function taleplerDurumMigrate() {
 }
 
 function durumTalepBadge(d) {
-  const m = { 'Yeni':'badge-red','RFQ Gönderildi':'badge-amber','Teklifler Bekleniyor':'badge-blue','Teklif Hazır':'badge-green','Müşteriye İletildi':'badge-purple','Sipariş Verildi':'badge-blue','Tamamlandı':'badge-gray','Karşılanamadı':'badge-amber' };
+  const m = { 'Yeni':'badge-red','RFQ Gönderildi':'badge-amber','Teklifler Bekleniyor':'badge-blue','Teklif Hazır':'badge-green','Müşteriye İletildi':'badge-purple','Sipariş Verildi':'badge-blue','Tamamlandı':'badge-gray','Karşılanamadı':'badge-amber','Arşivlendi':'badge-gray' };
   return `<span class="badge ${m[d]||'badge-gray'}">${d}</span>`;
 }
 
@@ -7192,7 +7243,7 @@ function durumTalepBadge(d) {
 // panel sayaçlarından düşerler, yalnız Arşiv'de görünürler.
 // ('Reddedildi' eski kayıtlar için korunuyor; yeni akış teklif reddini teklifDurumu='red'
 //  ile işaretliyor.)
-const TALEP_KAPALI_DURUMLAR = ['Tamamlandı','İptal','Reddedildi','Karşılanamadı'];
+const TALEP_KAPALI_DURUMLAR = ['Tamamlandı','İptal','Reddedildi','Karşılanamadı','Arşivlendi'];
 function talepKapaliMi(t) { return !!t && TALEP_KAPALI_DURUMLAR.includes(t.durum); }
 function talepTarihFmt(iso) {
   if (!iso) return '—';
@@ -7378,6 +7429,7 @@ function renderTalepler() {
   // Müşteriye teklif gönderilen talepler yalnızca "Teklifler" kısmında görünür (burada gizlenir).
   const gorunurTalepler = TALEPLER.filter(t => talepGorunur(t) && t.durum !== 'Tamamlandı'
     && t.durum !== 'Karşılanamadı'   // karşılanamayan talep arşive düşer, açık listede durmaz
+    && t.durum !== 'Arşivlendi'      // admin elle arşive aldı → açık listede durmaz
     && !t.musteriTeklifGonderildi);
   const siraliTalepler = [...gorunurTalepler].sort(listeSiralayici(srt) || listeSiralayici('tarih'));
 
@@ -7597,6 +7649,7 @@ function talepDetayAc(idx) {
   document.getElementById('td-alt').textContent = `${t.musteri} · ${t.miktar||''} · Oluşturma: ${talepTarihFmt(t.tarih)}`;
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(t.durum);
   karsilanamadiButonGuncelle(t);
+  arsivleButonGuncelle(t);
 
   // Özet
   document.getElementById('td-musteri').textContent = t.musteri;
@@ -7743,11 +7796,16 @@ function talepDetayAc(idx) {
 function renderWorkflow(mevcutDurum) {
   // Kapanan statüler adım çizelgesinde yer almaz — aksi halde `?? 0` yüzünden "Yeni"
   // aktifmiş gibi görünür ve kapanmış talep süreç başındaymış sanılır.
-  if (['İptal','Reddedildi','Karşılanamadı'].includes(mevcutDurum)) {
+  if (['İptal','Reddedildi','Karşılanamadı','Arşivlendi'].includes(mevcutDurum)) {
+    const _ars = mevcutDurum === 'Arşivlendi';
+    const _bg  = _ars ? 'rgba(79,142,247,0.1)'  : 'rgba(245,166,35,0.1)';
+    const _brd = _ars ? 'rgba(79,142,247,0.25)' : 'rgba(245,166,35,0.25)';
+    const _clr = _ars ? 'var(--accent2)'        : 'var(--amber)';
     document.getElementById('td-workflow').innerHTML =
-      '<div style="padding:10px 12px;border-radius:var(--radius);background:rgba(245,166,35,0.1);'
-      + 'border:1px solid rgba(245,166,35,0.25);font-size:13px;color:var(--amber);font-weight:600;">'
-      + '📵 ' + mevcutDurum + ' — süreç kapatıldı</div>';
+      '<div style="padding:10px 12px;border-radius:var(--radius);background:' + _bg + ';'
+      + 'border:1px solid ' + _brd + ';font-size:13px;color:' + _clr + ';font-weight:600;">'
+      + (_ars ? '🗂 Arşive alındı — takip durduruldu' : '📵 ' + mevcutDurum + ' — süreç kapatıldı')
+      + '</div>';
     return;
   }
   const durumSira = {
@@ -10787,6 +10845,7 @@ async function karsilanamadiOnayla() {
     document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(t.durum);
     renderWorkflow(t.durum);
     karsilanamadiButonGuncelle(t);
+    arsivleButonGuncelle(t);
     renderTalepler();
     showToast(mailOk
       ? '📵 #' + t.no + ' karşılanamadı olarak kapatıldı — müşteriye bilgi maili gönderildi.'
@@ -10822,6 +10881,104 @@ function karsilanamadiGeriAl(idx) {
   renderArsiv();
   renderTalepler();
   showToast('↩ #' + t.no + ' yeniden açıldı — durum: ' + yeniDurum);
+}
+
+// ═══════════════════════════════════════
+// TALEBİ ARŞİVE AL — mail göndermeden kapatma (admin)
+// ═══════════════════════════════════════
+// "Karşılanamadı"dan farkı: müşteriye HİÇBİR mail gitmez ve bu bir tedarik başarısızlığı
+// değildir — takip edilmeyecek işi açık listeden ve uyarı üretiminden düşürmek içindir.
+// Statü TALEP_KAPALI_DURUMLAR'a dahil olduğu için hatırlatmalar (otomatik gönderim +
+// panel kartı), STZ uyarıları/popup'ı, panel sayaçları ve teklif rozetleri kendiliğinden
+// susar — bu dosyada uyarı üreten her yer o tek sabite bakıyor.
+
+function arsivleAc() {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin arşive alabilir.'); return; }
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  if (talepKapaliMi(t)) { showToast('Bu talep zaten kapalı (' + t.durum + ').'); return; }
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('ars-neden', '');
+  set('ars-not', '');
+  document.getElementById('ars-talep-bilgi').textContent =
+    '#' + t.no + ' · ' + (t.musteri || '—') + ' · ' + (t.urun || '');
+  const uyari = document.getElementById('ars-gonderildi-uyari');
+  if (uyari) uyari.style.display = (t.musteriTeklifGonderildi || t.durum === 'Müşteriye İletildi') ? 'block' : 'none';
+  document.getElementById('ars-hata').style.display = 'none';
+  openModal('arsivle');
+}
+
+function arsivleOnayla() {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin arşive alabilir.'); return; }
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const hata = document.getElementById('ars-hata');
+  const neden = (document.getElementById('ars-neden')?.value || '').trim();
+  if (!neden) {
+    hata.textContent = 'Arşive alma nedenini seçin.';
+    hata.style.display = 'block';
+    return;
+  }
+  if (talepKapaliMi(t)) { showToast('Bu talep zaten kapalı (' + t.durum + ').'); return; }
+
+  // Geri alma için önceki durumu SAKLA — aksi halde arşivden çıkarırken talebin
+  // süreçte nerede kaldığı kaybolur ve baştan başlamış gibi görünür.
+  t.arsivlendi = {
+    tarih: new Date().toISOString(),
+    kullanici: aktifKullanici?.ad || '',
+    neden,
+    not: (document.getElementById('ars-not')?.value || '').trim(),
+    oncekiDurum: t.durum,
+    oncekiTeklifDurumu: t.teklifDurumu || '',
+  };
+  t.durum = 'Arşivlendi';
+  kaliciVeriKaydet('Talep arşive alındı');
+  closeModal('arsivle');
+  document.getElementById('td-durum-badge').innerHTML = durumTalepBadge(t.durum);
+  renderWorkflow(t.durum);
+  karsilanamadiButonGuncelle(t);
+  arsivleButonGuncelle(t);
+  renderTalepler();
+  if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
+  if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
+  if (typeof hatirlatmaUyarilariGoster === 'function') hatirlatmaUyarilariGoster();
+  if (typeof sonTeklifUyarilariGoster === 'function') sonTeklifUyarilariGoster();
+  showToast('🗂 #' + t.no + ' arşive alındı — hatırlatma ve uyarı üretmeyecek.');
+  goPage('arsiv', document.querySelector('[onclick*=arsiv]'));
+}
+
+// Başlıktaki "Arşive Al" butonu: yalnız admin, yalnız açık talep. Teklifi reddedilmiş
+// talep zaten Arşiv'de göründüğü için orada da gizlenir.
+function arsivleButonGuncelle(t) {
+  const btn = document.getElementById('btn-arsivle');
+  if (!btn) return;
+  const gorunur = !!t && aktifKullanici?.rol === 'admin'
+    && !talepKapaliMi(t) && t.teklifDurumu !== 'red';
+  btn.style.display = gorunur ? '' : 'none';
+}
+
+// Arşivden çıkar (admin) — talep arşive alınmadan önceki durumuna döner.
+function arsivGeriAl(idx) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin arşivden çıkarabilir.'); return; }
+  const t = TALEPLER[idx];
+  if (!t || t.durum !== 'Arşivlendi') return;
+  // Eski/bozuk kayıtta önceki durum yoksa Karşılanamadı geri-alma ile aynı çıkarımı yap.
+  const yedek = (talepTeklifleri[t.no] || []).length > 0
+    ? 'Teklifler Bekleniyor'
+    : (t.rfqTedarikciler?.length ? 'RFQ Gönderildi' : 'Yeni');
+  const yeniDurum = t.arsivlendi?.oncekiDurum || yedek;
+  if (!confirm('#' + t.no + ' talebi arşivden çıkarılsın mı?\n\nDurum: ' + yeniDurum
+    + '\n\nTalep açık listeye döner; hatırlatma ve son teklif zamanı uyarıları yeniden başlar.')) return;
+  t.durum = yeniDurum;
+  if (t.arsivlendi) {
+    t.arsivlendi.geriAlindi = { tarih: new Date().toISOString(), kullanici: aktifKullanici?.ad || '' };
+  }
+  kaliciVeriKaydet('Talep arşivden çıkarıldı');
+  renderArsiv();
+  renderTalepler();
+  if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
+  if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
+  showToast('↩ #' + t.no + ' arşivden çıkarıldı — durum: ' + yeniDurum);
 }
 
 async function musteriTeklifMaili() {
@@ -14653,11 +14810,12 @@ function renderArsiv() {
   const simdi   = new Date();
   const sinirTarih = sureFlt ? new Date(simdi - sureFlt*86400000) : null;
 
-  // Kapanan talepler: Tamamlandı + teklifDurumu=red + İptal + Karşılanamadı (yalnızca görünür)
+  // Kapanan talepler: Tamamlandı + teklifDurumu=red + İptal + Karşılanamadı + Arşivlendi
+  // (yalnızca görünür). 'Arşivlendi' = admin'in açık talebi elle arşive alması.
   const gorunurTalepler = TALEPLER.filter(talepGorunur);
   const kapaliTalepler = gorunurTalepler.filter(t => {
     const kapali = t.durum === 'Tamamlandı' || t.durum === 'İptal'
-      || t.durum === 'Karşılanamadı' || t.teklifDurumu === 'red';
+      || t.durum === 'Karşılanamadı' || t.durum === 'Arşivlendi' || t.teklifDurumu === 'red';
     if (!kapali) return false;
     if (sinirTarih) {
       const tTarih = new Date(t.siparisTarih || t.tarih || 0);
@@ -14672,6 +14830,7 @@ function renderArsiv() {
   setEl('arsiv-k-red',        gorunurTalepler.filter(t=>t.teklifDurumu==='red').length);
   setEl('arsiv-k-karsilanamadi', gorunurTalepler.filter(t=>t.durum==='Karşılanamadı').length);
   setEl('arsiv-k-iptal',      gorunurTalepler.filter(t=>t.durum==='İptal').length);
+  setEl('arsiv-k-arsivlendi', gorunurTalepler.filter(t=>t.durum==='Arşivlendi').length);
 
   // Filtrele
   const filtrelenmis = kapaliTalepler.filter(t => {
@@ -14679,6 +14838,7 @@ function renderArsiv() {
       (df === 'Tamamlandı' && t.durum === 'Tamamlandı') ||
       (df === 'red'        && t.teklifDurumu === 'red')  ||
       (df === 'Karşılanamadı' && t.durum === 'Karşılanamadı') ||
+      (df === 'Arşivlendi' && t.durum === 'Arşivlendi') ||
       (df === 'İptal'      && t.durum === 'İptal');
     return listeAramaEsles(q, [t.no, t.musteri, t.urun]) && durumEsles;
   }).sort(listeSiralayici(srt)                       // kullanıcı seçimi her şeyin önünde
@@ -14712,6 +14872,9 @@ function renderArsiv() {
     } else if (t.durum === 'Karşılanamadı') {
       durumIkon='📵'; durumEtiket='Karşılanamadı'; durumRenk='var(--amber)';
       durumBg='rgba(245,166,35,0.08)'; durumBrd='rgba(245,166,35,0.25)';
+    } else if (t.durum === 'Arşivlendi') {
+      durumIkon='🗂'; durumEtiket='Arşive Alındı'; durumRenk='var(--accent2)';
+      durumBg='rgba(79,142,247,0.08)'; durumBrd='rgba(79,142,247,0.25)';
     } else if (t.teklifDurumu === 'red') {
       durumIkon='❌'; durumEtiket='Reddedildi'; durumRenk='var(--red)';
       durumBg='rgba(240,96,96,0.08)'; durumBrd='rgba(240,96,96,0.25)';
@@ -14741,6 +14904,7 @@ function renderArsiv() {
       <span style="font-size:13px;font-weight:700;color:var(--accent2);min-width:100px;text-align:right;flex-shrink:0;">${tutarHtml}</span>
       <span style="font-size:11px;color:var(--text3);min-width:84px;text-align:right;flex-shrink:0;">${gecen}</span>
       ${isAdmin && t.durum === 'Karşılanamadı' ? `<button class="btn btn-sm" onclick="event.stopPropagation();karsilanamadiGeriAl(${idx})" title="Talebi yeniden aç" style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
+      ${isAdmin && t.durum === 'Arşivlendi' ? `<button class="btn btn-sm" onclick="event.stopPropagation();arsivGeriAl(${idx})" title="Arşivden çıkar — talep tekrar açık listeye döner" style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
       ${isAdmin ? `<button class="btn btn-sm" onclick="event.stopPropagation();arsivTalepSil(${idx})" title="Talebi arşivden sil" style="padding:2px 8px;font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);flex-shrink:0;">🗑</button>` : ''}
       <span style="color:var(--text3);font-size:18px;flex-shrink:0;">›</span>
     </div>`;
@@ -15143,9 +15307,21 @@ function renderMusteriTeklifleri() {
           '<button class="btn btn-sm" onclick="talepDetayAc('+idx+')" style="font-size:12px;">↩ Revize Et</button>'
           + '<button class="btn btn-sm" onclick="teklifPdfIndir('+idx+')" style="font-size:12px;">📥 PDF</button>'
         : '')
+      + ((aktifKullanici?.rol === 'admin' && durum !== 'kabul' && durum !== 'red') ?
+          '<button class="btn btn-sm" onclick="teklifArsivleAc('+idx+')" style="font-size:12px;" title="Teklifi/talebi arşive al — hatırlatma ve uyarı üretmeyi bırakır">🗂 Arşive Al</button>'
+        : '')
       + '</div>'
       + '</div>';
   }).join('');
+}
+
+// Teklifler sayfasından arşive alma — talep detayına gitmeden aynı modali açar.
+function teklifArsivleAc(idx) {
+  const t = TALEPLER[idx];
+  if (!t) return;
+  aktifTalepIdx = idx;
+  aktifTalepNo = t.no ?? null;
+  arsivleAc();
 }
 
 function teklifRevizeIste(idx) {
