@@ -1,0 +1,195 @@
+name: Sertifika Kontrol
+
+# fast.emon.com.tr TLS sertifikasi doldugunda site TAMAMEN kapanir (HSTS max-age=31536000
+# nedeniyle tarayicida "yine de devam et" secenegi YOKTUR). Yenileme 2026-05-13'ten
+# 2026-08-11'e kadar 3 ay boyunca sessizce hata verdi; ilk sinyal kullanici sikayeti oldu.
+# Bu is o sessiz basarisizligi erken yakalar.
+#
+# Neden SSH ile? 443 public'e kapali (yalniz WireGuard 10.0.0.0/24), runner disaridan
+# sertifikayi GOREMEZ. Bu yuzden 22 uzerinden baglanip sertifikayi sunucunun kendi
+# uzerinde okuyoruz.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'      # her gun 06:00 UTC = 09:00 TR
+  workflow_dispatch:          # Actions sekmesinden elle calistirmak icin
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  ALAN: fast.emon.com.tr
+  ESIK: 20                    # kalan gun bu degerin altina dusunce alarm
+  BASLIK: '[sertifika] fast.emon.com.tr yenilenmedi'
+
+jobs:
+  kontrol:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH anahtarini hazirla
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sertifikayi sunucuda oku
+        id: oku
+        run: |
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 \
+              root@${{ secrets.SSH_HOST }} 'bash -s' > rapor.txt <<'UZAK'
+            set -u
+            ALAN=fast.emon.com.tr
+            CERT="/etc/letsencrypt/live/$ALAN/fullchain.pem"
+            # cert-name farkli olabilir: yoksa en yeni live dizinini kullan
+            if [ ! -f "$CERT" ]; then
+              CERT=$(ls -t /etc/letsencrypt/live/*/fullchain.pem 2>/dev/null | head -1)
+            fi
+            if [ -z "${CERT:-}" ] || [ ! -f "$CERT" ]; then
+              echo "DURUM=SERTIFIKA_YOK"
+              exit 0
+            fi
+            BITIS=$(openssl x509 -enddate -noout -in "$CERT" | cut -d= -f2)
+            KALAN=$(( ( $(date -d "$BITIS" +%s) - $(date +%s) ) / 86400 ))
+            echo "DURUM=OK"
+            echo "CERT=$CERT"
+            echo "BITIS=$BITIS"
+            echo "KALAN=$KALAN"
+            # Yenileme mekanizmasi gercekten ayakta mi? (apt ve snap kurulumlarinin ikisi de)
+            for T in certbot.timer snap.certbot.renew.timer; do
+              if systemctl list-unit-files "$T" >/dev/null 2>&1 && systemctl cat "$T" >/dev/null 2>&1; then
+                echo "TIMER=$T:$(systemctl is-active "$T" 2>&1)"
+              fi
+            done
+            # Hook'lar renewal conf'ta duruyor mu? (2026-08-11 kalici cozumu)
+            RC="/etc/letsencrypt/renewal/$ALAN.conf"
+            if [ -f "$RC" ]; then
+              echo "PREHOOK=$(grep -c '^pre_hook' "$RC")"
+              echo "POSTHOOK=$(grep -c '^post_hook' "$RC")"
+              echo "AUTH=$(grep -E '^authenticator' "$RC" | tr -d ' ')"
+            fi
+            # 80 disariya kapali kaldi mi?
+            echo "UFW80=$(ufw status 2>/dev/null | grep -E '^80(/tcp)?[[:space:]]+ALLOW[[:space:]]+Anywhere' | wc -l)"
+          UZAK
+
+          echo "--- sunucu raporu ---"
+          cat rapor.txt
+          # rapor.txt'yi step ciktisina tasi
+          {
+            echo "rapor<<EOF"
+            cat rapor.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          KALAN=$(grep -E '^KALAN=' rapor.txt | cut -d= -f2)
+          DURUM=$(grep -E '^DURUM=' rapor.txt | cut -d= -f2)
+          echo "kalan=${KALAN:--1}" >> "$GITHUB_OUTPUT"
+          echo "durum=${DURUM:-BILINMIYOR}" >> "$GITHUB_OUTPUT"
+
+      - name: Degerlendir
+        id: karar
+        run: |
+          KALAN="${{ steps.oku.outputs.kalan }}"
+          DURUM="${{ steps.oku.outputs.durum }}"
+          if [ "$DURUM" != "OK" ] || [ "$KALAN" -lt "${{ env.ESIK }}" ]; then
+            echo "alarm=evet" >> "$GITHUB_OUTPUT"
+            echo "::warning::Sertifika alarmi: durum=$DURUM kalan=$KALAN gun"
+          else
+            echo "alarm=hayir" >> "$GITHUB_OUTPUT"
+            echo "Sertifika saglikli: $KALAN gun kaldi."
+          fi
+
+      - name: Alarm - issue ac / guncelle
+        if: steps.karar.outputs.alarm == 'evet'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          KALAN="${{ steps.oku.outputs.kalan }}"
+          GOVDE=$(cat <<EOF
+          @selimemon — **fast.emon.com.tr sertifikasi icin islem gerekiyor.**
+
+          Kalan gun: **$KALAN** (esik: ${{ env.ESIK }})
+
+          Sertifika dolarsa site **tamamen kapanir**: HSTS \`max-age=31536000\` acik oldugu
+          icin Chrome'da "yine de devam et" secenegi cikmaz, kullaniciya gecici cozum
+          verilemez.
+
+          Elle yenileme (hook'lar 80'i yalniz dogrulama suresince acar):
+
+          \`\`\`bash
+          certbot renew --cert-name fast.emon.com.tr
+          # calismazsa zorla:
+          certbot certonly --nginx --cert-name fast.emon.com.tr -d fast.emon.com.tr --force-renewal \\
+            --pre-hook  'ufw allow 80/tcp' \\
+            --post-hook 'ufw delete allow 80/tcp; systemctl reload nginx'
+          \`\`\`
+
+          <details><summary>Sunucu raporu</summary>
+
+          \`\`\`
+          ${{ steps.oku.outputs.rapor }}
+          \`\`\`
+          </details>
+
+          _Bu issue Sertifika Kontrol is'i tarafindan acildi. Sorun cozulunce otomatik kapanir._
+          EOF
+          )
+          MEVCUT=$(gh issue list --state open --limit 100 --json number,title \
+                   --jq ".[] | select(.title | startswith(\"${{ env.BASLIK }}\")) | .number" | head -1)
+          if [ -n "$MEVCUT" ]; then
+            gh issue comment "$MEVCUT" --body "$GOVDE"
+            echo "Mevcut issue #$MEVCUT guncellendi."
+          else
+            gh issue create --title "${{ env.BASLIK }} ($KALAN gun kaldi)" --body "$GOVDE"
+          fi
+
+      - name: Alarm - mail gonder (SMTP secret'i varsa)
+        if: steps.karar.outputs.alarm == 'evet'
+        env:
+          SMTP_KULLANICI: ${{ secrets.SMTP_KULLANICI }}
+          SMTP_SIFRE: ${{ secrets.SMTP_SIFRE }}
+          ALICI: selim@emon.com.tr
+          KALAN: ${{ steps.oku.outputs.kalan }}
+        run: |
+          if [ -z "${SMTP_KULLANICI:-}" ] || [ -z "${SMTP_SIFRE:-}" ]; then
+            echo "SMTP secret'i tanimli degil - mail adimi atlandi (issue yine de acildi)."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import os, smtplib
+          from email.message import EmailMessage
+          m = EmailMessage()
+          m["Subject"] = f"[EMON FAST] Sertifika {os.environ['KALAN']} gun sonra doluyor"
+          m["From"] = os.environ["SMTP_KULLANICI"]
+          m["To"] = os.environ["ALICI"]
+          m.set_content(
+              f"fast.emon.com.tr sertifikasinda {os.environ['KALAN']} gun kaldi.\n\n"
+              "Dolarsa site tamamen kapanir (HSTS nedeniyle bypass yok).\n\n"
+              "Yenileme:\n"
+              "  certbot renew --cert-name fast.emon.com.tr\n\n"
+              "Ayrinti icin repodaki acik 'sertifika' issue'suna bakin."
+          )
+          s = smtplib.SMTP("smtp.office365.com", 587, timeout=30)
+          s.starttls(); s.login(os.environ["SMTP_KULLANICI"], os.environ["SMTP_SIFRE"])
+          s.send_message(m); s.quit()
+          print("Mail gonderildi:", os.environ["ALICI"])
+          PY
+
+      - name: Sorun cozulduyse acik issue'yu kapat
+        if: steps.karar.outputs.alarm == 'hayir'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          MEVCUT=$(gh issue list --state open --limit 100 --json number,title \
+                   --jq ".[] | select(.title | startswith(\"${{ env.BASLIK }}\")) | .number" | head -1)
+          if [ -n "$MEVCUT" ]; then
+            gh issue close "$MEVCUT" --comment "Sertifika yenilendi: ${{ steps.oku.outputs.kalan }} gun kaldi. Otomatik kapatildi."
+          fi
+
+      - name: Alarm varsa is'i fail et
+        if: steps.karar.outputs.alarm == 'evet'
+        run: |
+          echo "Sertifika esigin altinda - Actions hata bildirimi icin is fail ediliyor."
+          exit 1
