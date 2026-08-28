@@ -19801,8 +19801,8 @@ async function tedRevizeModalAc(uIdx) {
   openModal('tedRevize');
 }
 
-const TEDREV_VARSAYILAN_NOT = 'Siparişe çıkmadan önce fiyatlarınızı son bir kez değerlendirmenizi rica ederiz. '
-  + 'Vereceğiniz revize fiyat sonrasında siparişi ivedilikle geçmeyi planlıyoruz.';
+const TEDREV_VARSAYILAN_NOT = 'Fiyatlarınızı son bir kez değerlendirmenizi rica ederiz. '
+  + 'Vereceğiniz revize fiyat doğrultusunda süreci ivedilikle sonuçlandırmayı planlıyoruz.';
 
 // Bir tedarikçiye gidecek revize talebi gövdesi (zincir yanıtına da, yeni maile de aynı fragment).
 function tedRevizeMailFragment(t, g, not, hedef, fiyatGoster) {
@@ -19828,11 +19828,14 @@ function tedRevizeMailFragment(t, g, not, hedef, fiyatGoster) {
 
   return '<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;">'
     + '<p>Sayın İlgili,</p>'
-    + '<p>Vermiş olduğunuz teklif için teşekkür ederiz. Siparişi vermeden önce aşağıdaki kalemler için '
+    + '<p>Vermiş olduğunuz teklif için teşekkür ederiz. Aşağıdaki kalemler için '
     + '<strong>son bir fiyat revizesi</strong> yapmanızı rica ediyoruz.</p>'
+    + (hedef ? '<p style="margin:12px 0 4px;font-size:14px;"><span style="color:#757575;">Hedefimiz:</span> <strong>'
+        + _tsEsc(hedef) + '</strong></p>' : '')
+    + (not ? '<div style="background:#f1f8ff;border-left:4px solid #1565C0;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;white-space:pre-wrap;font-size:13px;">'
+        + _tsEsc(not) + '</div>' : '')
     + '<table style="font-size:13px;margin:12px 0;border-collapse:collapse;">'
     + '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Talep No</td><td><strong>' + _tsEsc(t.no || '—') + '</strong></td></tr>'
-    + (hedef ? '<tr><td style="padding:2px 14px 2px 0;color:#757575;">Hedefimiz</td><td><strong>' + _tsEsc(hedef) + '</strong></td></tr>' : '')
     + '</table>'
     + '<table style="border-collapse:collapse;width:100%;font-size:13px;margin:14px 0;">'
     + '<thead><tr style="background:#1565C0;color:#ffffff;">'
@@ -19850,8 +19853,6 @@ function tedRevizeMailFragment(t, g, not, hedef, fiyatGoster) {
         : '')
     + '</table>'
     + '<p style="font-size:12px;color:#757575;">Sağdaki <strong>Revize Fiyat</strong> sütununu doldurup bu mail üzerinden yanıtlamanız yeterlidir.</p>'
-    + (not ? '<div style="background:#f1f8ff;border-left:4px solid #1565C0;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;white-space:pre-wrap;font-size:13px;">'
-        + _tsEsc(not) + '</div>' : '')
     + imzaHtml()
     + '</div>';
 }
