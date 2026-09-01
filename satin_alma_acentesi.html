@@ -8545,12 +8545,42 @@ async function rfqMailGonder() {
 }
 
 // ── GELEN TEKLİFLERİ GİR ──
+/* Tedarikçi bu kalem için bir şey söylemiş mi? (fiyat / alternatif ürün / not / HP iskonto)
+   Söylememişse satır "boş" sayılır ve varsayılan olarak GİZLENİR — 20 kalemlik bir talepte
+   2 kalem fiyatlayan tedarikçi 18 boş satırla sayfayı şişirmesin (bkz. tkSatirlariAcKapa). */
+function _tkSatirDolu(tk, urunIdx) {
+  const uf = tk.urunFiyatlari || {};
+  const p  = 'fiyat_' + urunIdx;
+  return !!(uf[p] > 0 || parseFloat(uf[p + '_ham']) > 0
+    || String(uf[p + '_alt'] || '').trim() || String(uf[p + '_altkod'] || '').trim()
+    || String(uf[p + '_not'] || '').trim()
+    || String(tk.hpIskonto?.[urunIdx] ?? '').trim());
+}
+
+// Hangi tedarikçilerin boş satırları elle açıldı — sadece ekran durumu (veriye yazılmaz)
+let teklifBosSatirAcik = new Set();
+function tkSatirlariAcKapa(tkIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const k = t.no + '|' + tkIdx;
+  if (teklifBosSatirAcik.has(k)) teklifBosSatirAcik.delete(k); else teklifBosSatirAcik.add(k);
+  renderTalepTeklifleri();
+}
+
 function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama: t.urun, adet: t.miktar||1, birim:'Adet' }];
-  const satirSayisi = urunler.length;
   const paraSembolu = { TRY:'₺', USD:'$', EUR:'€' };
 
-  urunler.forEach((urun, urunIdx) => {
+  // Fiyatlanmış satırlar; hiç yoksa (elle eklenen boş teklif) hepsi açık kalır — yoksa fiyat girilemez
+  const dolular  = urunler.map((u, i) => i).filter(i => _tkSatirDolu(tk, i));
+  const gizlenir = dolular.length > 0 && dolular.length < urunler.length;
+  const acik     = !gizlenir || teklifBosSatirAcik.has(t.no + '|' + tkIdx);
+  const gorunen  = acik ? urunler.map((u, i) => i) : dolular;
+  const satirSayisi = gorunen.length + (gizlenir ? 1 : 0);   // +1 = aç/kapa satırı
+
+  gorunen.forEach((urunIdx, _sira) => {
+    const urun = urunler[urunIdx];
+    const _ilkSatir = _sira === 0;
     const tr = tbody.insertRow();
     const fiyatKey  = 'fiyat_' + urunIdx;
     const hamKey    = 'fiyat_' + urunIdx + '_ham';
@@ -8562,7 +8592,7 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     const gosterFiyat = (hamFiyat && para !== 'TRY') ? hamFiyat : tlFiyat;
 
     // Tedarikçi adı — sadece ilk ürün satırında, rowspan ile
-    if (urunIdx === 0) {
+    if (_ilkSatir) {
       const td0 = tr.insertCell();
       td0.rowSpan = satirSayisi;
       td0.style.cssText = 'padding:8px 10px;vertical-align:middle;font-size:13px;border-right:1px solid var(--border2);min-width:140px;';
@@ -8646,7 +8676,7 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     }
 
     // İlk satırda teslim, geçerlilik, ödeme, not — rowspan
-    if (urunIdx === 0) {
+    if (_ilkSatir) {
       const td3 = tr.insertCell(); td3.rowSpan = satirSayisi;
       td3.style.cssText = 'padding:5px 8px;vertical-align:middle;';
       td3.innerHTML = `<input type="text" value="${tk.teslimat||''}" placeholder="3 iş günü" style="width:90px;" oninput="talepTeklifGuncelle(${tkIdx},'teslimat',this.value)">`;
@@ -8671,6 +8701,20 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
       </div>`;
     }
   });
+
+  // Fiyat verilmemiş satırlar için tek satırlık aç/kapa (Ürün + Birim Fiyat + Toplam sütunları)
+  if (gizlenir) {
+    const trAc = tbody.insertRow();
+    const tdAc = trAc.insertCell();
+    tdAc.colSpan = 3;
+    tdAc.style.cssText = 'padding:5px 10px;font-size:11px;color:var(--text3);cursor:pointer;background:var(--bg2);'
+      + 'border-top:1px dashed var(--border2);';
+    tdAc.title = 'Bu tedarikçinin fiyat vermediği kalemler';
+    tdAc.onclick = () => tkSatirlariAcKapa(tkIdx);
+    tdAc.innerHTML = acik
+      ? '▲ Fiyatlanmamış ' + (urunler.length - dolular.length) + ' satırı gizle'
+      : '▼ Fiyat verilmeyen ' + (urunler.length - dolular.length) + ' satır gizlendi — göster';
+  }
 }
 
 function talepTeklifParaDegistir(tkIdx, urunIdx, yeniPara) {
