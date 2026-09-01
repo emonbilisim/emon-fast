@@ -8567,13 +8567,73 @@ function tkSatirlariAcKapa(tkIdx) {
   renderTalepTeklifleri();
 }
 
+// Tedarikçi adı hücresi — tedarikçi bloğunun ilk satırında, rowspan ile
+function _tkTedarikciHucresi(tr, tk, tkIdx, satirSayisi) {
+    const td0 = tr.insertCell();
+    td0.rowSpan = satirSayisi;
+    td0.style.cssText = 'padding:8px 10px;vertical-align:middle;font-size:13px;border-right:1px solid var(--border2);min-width:140px;';
+
+    // Kayıtlı tedarikçi mi yoksa manuel mi?
+    const kayitliMi = !tk._manuelMod && TEDARIKCILER.some(r => r[0] === tk.tedarikci);
+
+    td0.innerHTML = '<div style="display:flex;flex-direction:column;gap:4px;">'
+      + '<div style="display:flex;gap:4px;align-items:center;">'
+      + (kayitliMi
+          ? '<div style="font-weight:500;font-size:12px;">' + (tk.tedarikci||'\u2014') + '</div>'
+            + '<button onclick=\'tkManuelModa(' + tkIdx + ')\' title="Manuel d\u00fczenle" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0;">\u270f\ufe0f</button>'
+          : '<input type="text" value="' + (tk.tedarikci||'') + '" placeholder="Tedarik\u00e7i ad\u0131..." '
+            + 'style="font-size:12px;padding:4px 6px;border:1px solid var(--border2);border-radius:4px;width:100%;background:var(--bg3);color:var(--text);" '
+            + 'oninput="talepTeklifGuncelle(' + tkIdx + ',\'tedarikci\',this.value)">'
+        )
+      + '</div>'
+      + '<div style="display:flex;gap:4px;align-items:center;">'
+      + (tk.webLink
+          ? '<a href="' + tk.webLink + '" target="_blank" style="font-size:11px;color:var(--accent2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;" title="' + tk.webLink + '">\ud83d\udd17 ' + tk.webLink.replace(/^https?:\/\/(www\.)?/,'').substring(0,20) + '\u2026</a>'
+            + '<button onclick=\'tkWebSil(' + tkIdx + ')\' style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:10px;padding:0;">\u2715</button>'
+          : '<input type="url" placeholder="https://..." id="tk-web-' + tkIdx + '" '
+            + 'style="font-size:11px;padding:3px 5px;border:1px solid var(--border2);border-radius:4px;width:100%;background:var(--bg3);color:var(--text3);" '
+            + 'onblur="tkWebKaydet(' + tkIdx + ',this.value)" onkeydown="if(event.key===\'Enter\')tkWebKaydet(' + tkIdx + ',this.value)">'
+        )
+      + '</div>'
+      + '</div>'
+      + '<button onclick=\'talepTeklifSil(' + tkIdx + ')\' style="position:absolute;top:4px;right:4px;background:none;border:none;cursor:pointer;color:var(--text3);font-size:12px;padding:2px;" title="Teklifi Sil">\ud83d\uddd1</button>';
+    td0.style.position = 'relative';
+}
+
+// Teslim / geçerlilik / ödeme / not / işlem hücreleri — blok başına bir kez, rowspan ile
+function _tkYanHucreler(tr, tk, tkIdx, satirSayisi) {
+    const td3 = tr.insertCell(); td3.rowSpan = satirSayisi;
+    td3.style.cssText = 'padding:5px 8px;vertical-align:middle;';
+    td3.innerHTML = `<input type="text" value="${tk.teslimat||''}" placeholder="3 iş günü" style="width:90px;" oninput="talepTeklifGuncelle(${tkIdx},'teslimat',this.value)">`;
+
+    const td4 = tr.insertCell(); td4.rowSpan = satirSayisi;
+    td4.style.cssText = 'padding:5px 8px;vertical-align:middle;';
+    td4.innerHTML = `<input type="date" value="${tk.gecerlilik||''}" style="width:120px;" oninput="talepTeklifGuncelle(${tkIdx},'gecerlilik',this.value)">`;
+
+    const td5 = tr.insertCell(); td5.rowSpan = satirSayisi;
+    td5.style.cssText = 'padding:5px 8px;vertical-align:middle;';
+    td5.innerHTML = `<input type="text" value="${tk.odeme||''}" placeholder="30 gün" style="width:80px;" oninput="talepTeklifGuncelle(${tkIdx},'odeme',this.value)">`;
+
+    const td6 = tr.insertCell(); td6.rowSpan = satirSayisi;
+    td6.style.cssText = 'padding:5px 8px;vertical-align:middle;';
+    td6.innerHTML = `<input type="text" value="${(tk.not||'').replace(/"/g,'&quot;')}" placeholder="Not..." style="width:90px;" oninput="talepTeklifGuncelle(${tkIdx},'not',this.value)">`;
+
+    const td7 = tr.insertCell(); td7.rowSpan = satirSayisi;
+    td7.style.cssText = 'padding:5px 8px;vertical-align:middle;';
+    td7.innerHTML = `<div style="display:flex;gap:4px;">
+      <button class="btn btn-sm btn-primary" style="padding:3px 8px;font-size:11px;" onclick="teklifiFiyataAktar(${tkIdx})" title="→₺">→₺</button>
+      <button class="btn btn-sm" style="padding:3px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="talepTeklifSil(${tkIdx})">🗑</button>
+    </div>`;
+}
+
 function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
   const urunler = t.urunler && t.urunler.length > 0 ? t.urunler : [{ aciklama: t.urun, adet: t.miktar||1, birim:'Adet' }];
   const paraSembolu = { TRY:'₺', USD:'$', EUR:'€' };
 
-  // Fiyatlanmış satırlar; hiç yoksa (elle eklenen boş teklif) hepsi açık kalır — yoksa fiyat girilemez
+  // Fiyatlanmış satırlar. Tedarikçi HİÇ fiyat vermediyse de katlanır (blok tek şeride iner);
+  // şeride tıklayınca açılır, fiyat elle girilebilir. Tek ürünlü talepte katlamanın anlamı yok.
   const dolular  = urunler.map((u, i) => i).filter(i => _tkSatirDolu(tk, i));
-  const gizlenir = dolular.length > 0 && dolular.length < urunler.length;
+  const gizlenir = urunler.length > 1 && dolular.length < urunler.length;
   const acik     = !gizlenir || teklifBosSatirAcik.has(t.no + '|' + tkIdx);
   const gorunen  = acik ? urunler.map((u, i) => i) : dolular;
   const satirSayisi = gorunen.length + (gizlenir ? 1 : 0);   // +1 = aç/kapa satırı
@@ -8591,38 +8651,7 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     const sembol    = paraSembolu[para] || '₺';
     const gosterFiyat = (hamFiyat && para !== 'TRY') ? hamFiyat : tlFiyat;
 
-    // Tedarikçi adı — sadece ilk ürün satırında, rowspan ile
-    if (_ilkSatir) {
-      const td0 = tr.insertCell();
-      td0.rowSpan = satirSayisi;
-      td0.style.cssText = 'padding:8px 10px;vertical-align:middle;font-size:13px;border-right:1px solid var(--border2);min-width:140px;';
-
-      // Kayıtlı tedarikçi mi yoksa manuel mi?
-      const kayitliMi = !tk._manuelMod && TEDARIKCILER.some(r => r[0] === tk.tedarikci);
-
-      td0.innerHTML = '<div style="display:flex;flex-direction:column;gap:4px;">'
-        + '<div style="display:flex;gap:4px;align-items:center;">'
-        + (kayitliMi
-            ? '<div style="font-weight:500;font-size:12px;">' + (tk.tedarikci||'\u2014') + '</div>'
-              + '<button onclick=\'tkManuelModa(' + tkIdx + ')\' title="Manuel d\u00fczenle" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0;">\u270f\ufe0f</button>'
-            : '<input type="text" value="' + (tk.tedarikci||'') + '" placeholder="Tedarik\u00e7i ad\u0131..." '
-              + 'style="font-size:12px;padding:4px 6px;border:1px solid var(--border2);border-radius:4px;width:100%;background:var(--bg3);color:var(--text);" '
-              + 'oninput="talepTeklifGuncelle(' + tkIdx + ',\'tedarikci\',this.value)">'
-          )
-        + '</div>'
-        + '<div style="display:flex;gap:4px;align-items:center;">'
-        + (tk.webLink
-            ? '<a href="' + tk.webLink + '" target="_blank" style="font-size:11px;color:var(--accent2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;" title="' + tk.webLink + '">\ud83d\udd17 ' + tk.webLink.replace(/^https?:\/\/(www\.)?/,'').substring(0,20) + '\u2026</a>'
-              + '<button onclick=\'tkWebSil(' + tkIdx + ')\' style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:10px;padding:0;">\u2715</button>'
-            : '<input type="url" placeholder="https://..." id="tk-web-' + tkIdx + '" '
-              + 'style="font-size:11px;padding:3px 5px;border:1px solid var(--border2);border-radius:4px;width:100%;background:var(--bg3);color:var(--text3);" '
-              + 'onblur="tkWebKaydet(' + tkIdx + ',this.value)" onkeydown="if(event.key===\'Enter\')tkWebKaydet(' + tkIdx + ',this.value)">'
-          )
-        + '</div>'
-        + '</div>'
-        + '<button onclick=\'talepTeklifSil(' + tkIdx + ')\' style="position:absolute;top:4px;right:4px;background:none;border:none;cursor:pointer;color:var(--text3);font-size:12px;padding:2px;" title="Teklifi Sil">\ud83d\uddd1</button>';
-      td0.style.position = 'relative';
-    }
+    if (_ilkSatir) _tkTedarikciHucresi(tr, tk, tkIdx, satirSayisi);
 
     // Ürün adı (+ tedarikçi alternatif ürün — manuel girilebilir ad + kod)
     const _attr = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
@@ -8675,36 +8704,13 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
       td2.textContent = '—';
     }
 
-    // İlk satırda teslim, geçerlilik, ödeme, not — rowspan
-    if (_ilkSatir) {
-      const td3 = tr.insertCell(); td3.rowSpan = satirSayisi;
-      td3.style.cssText = 'padding:5px 8px;vertical-align:middle;';
-      td3.innerHTML = `<input type="text" value="${tk.teslimat||''}" placeholder="3 iş günü" style="width:90px;" oninput="talepTeklifGuncelle(${tkIdx},'teslimat',this.value)">`;
-
-      const td4 = tr.insertCell(); td4.rowSpan = satirSayisi;
-      td4.style.cssText = 'padding:5px 8px;vertical-align:middle;';
-      td4.innerHTML = `<input type="date" value="${tk.gecerlilik||''}" style="width:120px;" oninput="talepTeklifGuncelle(${tkIdx},'gecerlilik',this.value)">`;
-
-      const td5 = tr.insertCell(); td5.rowSpan = satirSayisi;
-      td5.style.cssText = 'padding:5px 8px;vertical-align:middle;';
-      td5.innerHTML = `<input type="text" value="${tk.odeme||''}" placeholder="30 gün" style="width:80px;" oninput="talepTeklifGuncelle(${tkIdx},'odeme',this.value)">`;
-
-      const td6 = tr.insertCell(); td6.rowSpan = satirSayisi;
-      td6.style.cssText = 'padding:5px 8px;vertical-align:middle;';
-      td6.innerHTML = `<input type="text" value="${(tk.not||'').replace(/"/g,'&quot;')}" placeholder="Not..." style="width:90px;" oninput="talepTeklifGuncelle(${tkIdx},'not',this.value)">`;
-
-      const td7 = tr.insertCell(); td7.rowSpan = satirSayisi;
-      td7.style.cssText = 'padding:5px 8px;vertical-align:middle;';
-      td7.innerHTML = `<div style="display:flex;gap:4px;">
-        <button class="btn btn-sm btn-primary" style="padding:3px 8px;font-size:11px;" onclick="teklifiFiyataAktar(${tkIdx})" title="→₺">→₺</button>
-        <button class="btn btn-sm" style="padding:3px 8px;color:var(--red);border-color:rgba(240,96,96,0.3);" onclick="talepTeklifSil(${tkIdx})">🗑</button>
-      </div>`;
-    }
+    if (_ilkSatir) _tkYanHucreler(tr, tk, tkIdx, satirSayisi);
   });
 
   // Fiyat verilmemiş satırlar için tek satırlık aç/kapa (Ürün + Birim Fiyat + Toplam sütunları)
   if (gizlenir) {
     const trAc = tbody.insertRow();
+    if (gorunen.length === 0) _tkTedarikciHucresi(trAc, tk, tkIdx, satirSayisi);
     const tdAc = trAc.insertCell();
     tdAc.colSpan = 3;
     tdAc.style.cssText = 'padding:5px 10px;font-size:11px;color:var(--text3);cursor:pointer;background:var(--bg2);'
@@ -8713,7 +8719,10 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     tdAc.onclick = () => tkSatirlariAcKapa(tkIdx);
     tdAc.innerHTML = acik
       ? '▲ Fiyatlanmamış ' + (urunler.length - dolular.length) + ' satırı gizle'
-      : '▼ Fiyat verilmeyen ' + (urunler.length - dolular.length) + ' satır gizlendi — göster';
+      : (dolular.length === 0
+          ? '▼ Bu tedarikçiden fiyat gelmedi — ' + urunler.length + ' satırı aç / elle gir'
+          : '▼ Fiyat verilmeyen ' + (urunler.length - dolular.length) + ' satır gizlendi — göster');
+    if (gorunen.length === 0) _tkYanHucreler(trAc, tk, tkIdx, satirSayisi);
   }
 }
 
@@ -9277,6 +9286,15 @@ function talepTeklifSil(i) {
 
 
 // ── TEKLİF KARŞILAŞTIRMASI ──
+// Karşılaştırmada fiyatsız kalemler elle açıldı mı — sadece ekran durumu (veriye yazılmaz)
+let karsFiyatsizAcik = new Set();
+function karsFiyatsizAcKapa() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  if (karsFiyatsizAcik.has(t.no)) karsFiyatsizAcik.delete(t.no); else karsFiyatsizAcik.add(t.no);
+  teklifleriKarsilastir();
+}
+
 function teklifleriKarsilastir() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -9432,8 +9450,16 @@ function teklifleriKarsilastir() {
   html += '<th style="text-align:center;padding:9px 12px;border-bottom:2px solid var(--border);font-size:11px;color:var(--accent2);min-width:110px;"><a href="https://www.akakce.com" target="_blank" style="color:var(--accent2);text-decoration:none;">🔍 Akakçe</a></th>';
   html += '</tr></thead><tbody>';
 
+  // Hiçbir tedarikçinin fiyat vermediği kalemler tabloyu şişirmesin — tek şeride katlanır.
+  // (Bilgi kaybolmuyor: kaç kalemin fiyatsız kaldığı şeritte yazılı ve tek tıkla açılıyor.)
+  const fiyatliUrunIdx = urunler.map((u, i) => i).filter(i => liste.some(tk => getTL(tk, i) !== null));
+  const karsGizlenir   = urunler.length > 1 && fiyatliUrunIdx.length < urunler.length && fiyatliUrunIdx.length > 0;
+  const karsAcik       = !karsGizlenir || karsFiyatsizAcik.has(t.no);
+  const gorunenUrunIdx = karsAcik ? urunler.map((u, i) => i) : fiyatliUrunIdx;
+
   // Her ürün = bir satır
-  urunler.forEach((u, uIdx) => {
+  gorunenUrunIdx.forEach(uIdx => {
+    const u = urunler[uIdx];
     const enIyiTed = enIyiler[uIdx].tedarikci;
     const enIyiFiyat = enIyiler[uIdx].fiyat;
 
@@ -9495,6 +9521,17 @@ function teklifleriKarsilastir() {
 
     html += '</tr>';
   });
+
+  // Fiyat gelmeyen kalemler için aç/kapa şeridi
+  if (karsGizlenir) {
+    html += '<tr><td colspan="' + (liste.length + 3) + '" onclick="karsFiyatsizAcKapa()" '
+      + 'style="padding:7px 12px;font-size:11px;color:var(--text3);background:var(--bg2);cursor:pointer;'
+      + 'border-bottom:1px solid var(--border);" title="Hiçbir tedarikçinin fiyat vermediği kalemler">'
+      + (karsAcik
+          ? '▲ Fiyat gelmeyen ' + (urunler.length - fiyatliUrunIdx.length) + ' kalemi gizle'
+          : '▼ Hiç fiyat gelmeyen ' + (urunler.length - fiyatliUrunIdx.length) + ' kalem gizlendi — göster')
+      + '</td></tr>';
+  }
 
   // Toplam satırı
   html += '<tr style="background:var(--bg3);border-top:2px solid var(--border);font-weight:600;">';
