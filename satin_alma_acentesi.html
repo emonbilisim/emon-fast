@@ -22585,6 +22585,7 @@ async function apiVeriYukle() {
     }
     // Merge temeli = sunucudan az önce gelen durum (in-memory artık buna eşit)
     _sunucuBaz = JSON.parse(JSON.stringify(veri));
+    _yerelKopyaKismi = null;   // bellek sunucudan tam geldi → kısmi-kopya uyarısı düşsün
     return true;
   } catch (e) {
     console.warn('API veri yükleme hatası:', e);
@@ -23203,7 +23204,12 @@ function _senkronBandGuncelle(durum) {
           + 'Sunucuya yazma sürüyor, ama sayfayı yenilemeden önce yer açın.</span>'
           + '<button id="senkron-yerac-btn" style="background:#fff;color:#b45309;border:0;border-radius:6px;'
           + 'padding:5px 14px;font-weight:700;cursor:pointer;font-size:13px;">🧹 Yer Aç</button>'
-        : '<span>⚠ Sunucuya bağlanılamıyor — değişiklikleriniz yerelde bekliyor, bağlantı gelince otomatik gönderilecek.</span>');
+        : (durum === 'kismi'
+            ? '<span>ℹ Bu cihazdaki yerel kopya KISMİ — depo sınırı nedeniyle '
+              + (_yerelKopyaKismi ? _yerelKopyaKismi.atlanan : 0) + ' eski talep saklanamadı'
+              + ((_yerelKopyaKismi && _yerelKopyaKismi.acikAtlandi) ? ' (açık talepler dahil)' : ' (hepsi kapalı talep)')
+              + '. Sunucudaki veri EKSİKSİZ; bağlanınca tamamı gelir.</span>'
+            : '<span>⚠ Sunucuya bağlanılamıyor — değişiklikleriniz yerelde bekliyor, bağlantı gelince otomatik gönderilecek.</span>'));
   if (!mevcut) document.body.appendChild(bant);
   if (kirmizi) {
     const b = document.getElementById('senkron-giris-btn');
@@ -23221,6 +23227,9 @@ function _senkronBandDegerlendir() {
   // depo dolmuşsa yine de uyar: yenileme/çevrimdışı anında bellekteki veri uçar.
   if (_kayitGerekli) { _senkronBandGuncelle(apiTokenAl() ? 'baglanti' : 'token'); return; }
   if (_yerelKayitBozuk) { _senkronBandGuncelle('yerel'); return; }
+  // Ekranda GERÇEKTEN eksik veri varsa (kısmi yerel kopyadan açıldı, sunucu henüz
+  // gelmedi) bilgilendir. Çevrimiçiyken kopyanın kısmi yazılması görünmez ve zararsız.
+  if (_bellekKismiMi()) { _senkronBandGuncelle('kismi'); return; }
   _senkronBandGuncelle('ok');
 }
 
@@ -23261,7 +23270,7 @@ function veriKaydet() {
     // "✅ kaydedildi" toast'ı görüyordu. Sunucu asıl doğruluk kaynağı → yerel kopya
     // yazılamasa bile push YAPILMALI.
     _sonKayitVeri = veri; // flush için en son snapshot — yerel yazmadan BAĞIMSIZ
-    const _yerelOk = _yerelKopyaYaz(JSON.stringify(veri));
+    const _yerelOk = _yerelKopyaYaz(veri);   // obje: yer bitince küçültebilmesi için
     if (!_yerelOk) { try { _senkronBandDegerlendir(); } catch (_) {} }
 
     // KRİTİK: Sunucu temeli kurulmadan (açılışta apiVeriYukle bitmeden tetiklenen
@@ -23282,21 +23291,93 @@ function veriKaydet() {
   }
 }
 
-/* Yerel kopyayı yaz. Kota dolduysa eski günlük snapshot'ları budayıp BİR KEZ daha dener;
-   yine olmazsa kalıcı hata olarak işaretler (uyarı bandı) ve false döner. Sunucu yolu
-   bu fonksiyonun sonucundan bağımsız ilerler — bkz veriKaydet'teki sıra notu. */
-var _yerelKayitBozuk = false;   // var: TDZ riski yok (veriKaydet bu satırdan ÖNCE tanımlı)
-function _yerelKopyaYaz(json) {
-  try { localStorage.setItem(LS_KEY, json); _yerelKayitBozuk = false; return true; }
-  catch (e) {
-    // Kotayı çoğunlukla günlük yedek snapshot'ları doldurur (her biri TAM kopya).
-    try { yedekSnapshotBuda(1); } catch (_) {}
-    try { localStorage.setItem(LS_KEY, json); _yerelKayitBozuk = false; return true; } catch (_) {}
-    _yerelKayitBozuk = true;
-    console.warn('Yerel kayıt başarısız (kota?):', e && e.message);
-    return false;
+/* Yerel kopyayı yaz. Sunucu asıl doğruluk kaynağı; localStorage yalnızca ÇEVRİMDIŞI /
+   token'sız açılış için bir yedektir. Bu yüzden yer bittiğinde doğru davranış "hiç
+   yazmamak" değil, KOPYAYI KÜÇÜLTMEKTİR: kapanmış talepler yerel yedekte gerekmez.
+
+   Kademe: (1) tam kopya → (2) snapshot'ları 1'e buda, tam kopyayı yine dene →
+   (3) TÜM snapshot'ları düşür, tam kopyayı bir daha dene → (4) kısmi kopya
+   merdiveni → (5) hiçbiri olmazsa kalıcı hata (uyarı bandı).
+   Sıra bilinçli: önce YEDEK feda edilir, veri en son küçültülür.
+   Böylece yerel kopya talep sayısıyla sınırsız büyümez; ~400 talepte kotayı
+   doldurup kayıt yolunu kapatan uzun vadeli açık kapanır. */
+var _yerelKayitBozuk = false;    // var: TDZ riski yok (veriKaydet bu satırdan ÖNCE tanımlı)
+var _yerelKismiAtlanan = 0;      // son yerel yazımda kopyadan düşürülen talep sayısı (0 = tam)
+var _yerelKopyaKismi = null;     // AÇILIŞTA yüklenen yerel kopyanın kısmilik bilgisi ({atlanan,...})
+
+/* Küçültme basamakları — her basamak bir öncekinden agresif.
+   kapali: yerel kopyada tutulacak KAPALI talep sayısı (en yeniler)
+   acik  : (son çare) tutulacak AÇIK talep sayısı — normalde hepsi tutulur
+   crm   : (son çare) tutulacak CRM aktivite sayısı (en yeniler) */
+const YEREL_KISMI_MERDIVEN = [
+  { kapali: 150 },
+  { kapali: 50 },
+  { kapali: 0 },
+  { kapali: 0, acik: 80, crm: 200 },
+];
+
+/* Kayıt objesinin küçültülmüş bir kopyasını üret. Düşen taleplerin teklifleri de
+   düşer — asıl yeri onlar kaplar. ÖZGÜN SIRA korunur (render sırası bozulmasın). */
+function _yerelKopyaKucult(veri, basamak) {
+  const kopya = { ...veri };
+  const hepsi = Array.isArray(veri.TALEPLER) ? veri.TALEPLER : [];
+  const yeniOnce = (a, b) => String(b.tarih || '').localeCompare(String(a.tarih || ''));
+  const kapali = hepsi.filter(t => talepKapaliMi(t)).sort(yeniOnce);
+  const acik   = hepsi.filter(t => !talepKapaliMi(t)).sort(yeniOnce);
+  const tutulan = new Set([
+    ...kapali.slice(0, Math.max(0, basamak.kapali)),
+    ...(basamak.acik == null ? acik : acik.slice(0, Math.max(0, basamak.acik))),
+  ].map(t => t.no));
+
+  kopya.TALEPLER = hepsi.filter(t => tutulan.has(t.no));
+  if (veri.talepTeklifleri) {
+    const tk = {};
+    Object.keys(veri.talepTeklifleri).forEach(no => { if (tutulan.has(no)) tk[no] = veri.talepTeklifleri[no]; });
+    kopya.talepTeklifleri = tk;
   }
+  // CRM aktiviteleri push ile eklenir → en yeniler SONDA
+  if (basamak.crm != null && Array.isArray(veri.CRM_AKTIVITELER)) {
+    kopya.CRM_AKTIVITELER = veri.CRM_AKTIVITELER.slice(-basamak.crm);
+  }
+
+  const atlanan = hepsi.length - kopya.TALEPLER.length;
+  if (atlanan > 0) {
+    kopya._kismi = {
+      atlanan, toplam: hepsi.length,
+      acikAtlandi: kopya.TALEPLER.filter(t => !talepKapaliMi(t)).length < acik.length,
+      tarih: new Date().toISOString(),
+    };
+  }
+  return { kopya, atlanan };
 }
+
+function _yerelKopyaYaz(veri) {
+  const dene = obj => { try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); return true; } catch (_) { return false; } };
+  const tamam = atlanan => { _yerelKayitBozuk = false; _yerelKismiAtlanan = atlanan; return true; };
+
+  if (dene(veri)) return tamam(0);                                  // 1) tam kopya
+  try { yedekSnapshotBuda(1); } catch (_) {}                        // 2) günlük snapshot'lar TAM kopyadır
+  if (dene(veri)) return tamam(0);
+  try { yedekSnapshotBuda(0); } catch (_) {}                        // 3) TÜM snapshot'ları düşür
+  if (dene(veri)) return tamam(0);                                  //    → tam kopya yine sığabilir
+  for (const basamak of YEREL_KISMI_MERDIVEN) {                     // 4) ancak şimdi küçült
+    const { kopya, atlanan } = _yerelKopyaKucult(veri, basamak);
+    if (!atlanan) continue;                                         // bu basamak bir şey düşürmüyor
+    if (dene(kopya)) {
+      console.warn('[yerel] Depo dolu — kopya küçültüldü: ' + atlanan + '/' + kopya._kismi.toplam
+        + ' talep yerel yedekten düşürüldü (sunucudaki veri EKSİKSİZ).');
+      return tamam(atlanan);
+    }
+  }
+  _yerelKayitBozuk = true; _yerelKismiAtlanan = 0;                   // 5) en küçük kopya bile sığmadı
+  console.warn('Yerel kayıt başarısız (kota?) — en küçük kopya bile sığmadı.');
+  return false;
+}
+
+/* Bellekteki veri, kısmi bir YEREL kopyadan gelmiş ve sunucudan tazelenmemiş mi?
+   Öyleyse buradan üretilecek her yedek (snapshot / dosya / OneDrive) EKSİK olur —
+   tam bir yedeğin üzerine yazması sessiz veri kaybıdır. */
+function _bellekKismiMi() { return !!_yerelKopyaKismi && !_sunucuBaz; }
 
 /* Tarayıcı deposunda bu origin'in kapladığı GERÇEK yer (MB).
    ⚠ Tarayıcılar kotayı UTF-16 ile sayar: karakter başına 2 BAYT. Karakter sayısını
@@ -23327,7 +23408,9 @@ function yerelAlanAc() {
   showToast(_yerelKayitBozuk
     ? '⛔ Yer açılamadı — depo hâlâ dolu (' + sonraMB.toFixed(1) + ' / ~' + YEREL_DEPO_LIMIT_MB + ' MB).'
     : '✅ Yer açıldı: ' + onceMB.toFixed(1) + ' → ' + sonraMB.toFixed(1) + ' MB (sınır ~'
-      + YEREL_DEPO_LIMIT_MB + ' MB), kayıt yeniden denendi.');
+      + YEREL_DEPO_LIMIT_MB + ' MB), kayıt yeniden denendi.'
+      + (_yerelKismiAtlanan ? ' Yerel kopya kısmi: ' + _yerelKismiAtlanan
+          + ' kapalı talep hariç (sunucudaki veri eksiksiz).' : ''));
 }
 
 function veriYukle() {
@@ -23335,6 +23418,9 @@ function veriYukle() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return false;
     const veri = JSON.parse(raw);
+    // Depo dolduğu için küçültülmüş kopya olabilir → kullanıcıya dürüst ol ve
+    // bu veriden yedek ÜRETME (bkz _bellekKismiMi). Sunucu yüklemesi bunu temizler.
+    _yerelKopyaKismi = (veri._kismi && veri._kismi.atlanan) ? veri._kismi : null;
 
     if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
@@ -23504,6 +23590,9 @@ function _yedekDosyaAdi() {
 
 function yedekIndir() {
   try {
+    // Kısmi bellekten alınan "yedek" eksik olur; kullanıcı bunu tam yedek sanmasın.
+    if (_bellekKismiMi() && !confirm('Bu cihazdaki veri KISMİ (' + _yerelKopyaKismi.atlanan
+        + ' talep eksik) — sunucuya bağlanılamadı.\n\nEksik bir yedek indirilecek. Devam edilsin mi?')) return;
     const data = _yedekVeriObje();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
@@ -23558,6 +23647,9 @@ function yedekSnapshotAl(zorla, ekKey) {
   const bugun = _yedekTarihiBugun();
   const key = YEDEK_PREFIX + bugun + (ekKey || '');
   if (!zorla && localStorage.getItem(key)) return false; // bugün zaten alınmış
+  // Bellek kısmi bir yerel kopyadan geldiyse snapshot EKSİK olur ve dünkü TAM
+  // snapshot'ın üzerine yazar → sessiz veri kaybı. Sunucu tazelenene kadar alma.
+  if (_bellekKismiMi()) { console.warn('Snapshot atlandı: bellekteki veri kısmi yerel kopyadan geldi.'); return false; }
   try {
     const data = _yedekVeriObje();
     const json = JSON.stringify(data);
@@ -23695,9 +23787,12 @@ function yedekDurumMiniGuncelle() {
   const el = document.getElementById('yedek-durum-mini');
   if (!el) return;
   const liste = yedekSnapshotListesi();
-  if (!liste.length) { el.textContent = 'LocalStorage · henüz yedek yok'; return; }
+  // Depo doluluğu görünür olsun — kotaya yaklaşmak yerel kopyayı küçültür.
+  const depo = ` · depo ${_yerelDepoBoyutMB().toFixed(1)}/~${YEREL_DEPO_LIMIT_MB} MB`
+    + (_yerelKismiAtlanan ? ` (kopya kısmi: ${_yerelKismiAtlanan} talep hariç)` : '');
+  if (!liste.length) { el.textContent = 'LocalStorage · henüz yedek yok' + depo; return; }
   const sonuncu = liste[0];
-  el.textContent = `${liste.length} lokal yedek · son: ${sonuncu.tarih.replace('_onceki','')}`;
+  el.textContent = `${liste.length} lokal yedek · son: ${sonuncu.tarih.replace('_onceki','')}` + depo;
 }
 
 // Sayfa açılışında: bugünün snapshot'ı yoksa al, eski olanları temizle
@@ -23803,6 +23898,12 @@ async function oneDriveSil(itemId) {
 
 async function oneDriveYedekAl(elle) {
   try {
+    // Buluttaki yedek rotasyonu eskiyi siler → eksik bir yedek yüklemek TAM yedekleri
+    // zamanla düşürür. Bellek kısmiyken asla yükleme.
+    if (_bellekKismiMi()) {
+      if (elle) showToast('⛔ Yedek alınmadı: bu cihazdaki veri kısmi (sunucuya bağlanılamadı).');
+      return false;
+    }
     const data = _yedekVeriObje();
     const json = JSON.stringify(data);
     const d = new Date();
