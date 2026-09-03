@@ -954,11 +954,9 @@ jobs:
             const fs = require('fs');
             const f = '/var/www/emonfast/server.js';
             let s = fs.readFileSync(f, 'utf8');
-            if (s.includes('// veri-etag v1')) { console.log('veri-etag zaten var'); process.exit(0); }
-            const cipa = "app.get('/api/veri'";
-            if (!s.includes(cipa)) { console.log('UYARI: app.get(/api/veri) bulunamadi, veri-etag EKLENMEDI'); process.exit(0); }
+            if (s.includes('// veri-etag v2')) { console.log('veri-etag v2 zaten var'); process.exit(0); }
             const mw =
-              "app.use('/api/veri', (req, res, next) => { // veri-etag v1\n" +
+              "app.use('/api/veri', (req, res, next) => { // veri-etag v2\n" +
               "  // GET /api/veri her cagrida TUM blobu (MB'larca) gonderiyor; istemci ayrica 45 sn'de\n" +
               "  // bir yokluyor ve her kayittan once bir kez daha cekiyor. Govde DEGISMEDIYSE 304 don:\n" +
               "  // tek bayt govde gitmez. ETag govdenin HASH'i oldugundan 'degismedi' hukmu tanim geregi\n" +
@@ -972,18 +970,43 @@ jobs:
               "      const etag = '\"vd1-' + require('crypto').createHash('sha1').update(metin).digest('hex') + '\"';\n" +
               "      res.set('ETag', etag);\n" +
               "      res.set('Cache-Control', 'no-cache');\n" +
+              "      // 304 YALNIZ basarili yanitta: 401/500 govdesi sabittir, ETag'i de sabit olur —\n" +
+              "      // status kapisi olmasa ikinci bir 401 istegi 304'e donusurdu (Express'in req.fresh\n" +
+              "      // kontrolu de ayni nedenle 2xx sarti arar).\n" +
               "      // nginx gzip'lerken guclu ETag'i zayiflatabilir (W/\"...\") — karsilastirmadan once soy.\n" +
               "      const gelen = String(req.headers['if-none-match'] || '').replace(/^W\\//, '');\n" +
-              "      if (gelen && gelen === etag) return res.status(304).end();\n" +
-              "      return res.type('application/json').send(metin);\n" +
+              "      if (res.statusCode === 200 && gelen && gelen === etag) return res.status(304).end();\n" +
+              "      // res.send() DEGIL: Express send() govdeden kendi weak ETag'ini hesaplayip\n" +
+              "      // yukarida set ettigimizi EZER — o zaman istemci bizim ETag'i hic gormez ve\n" +
+              "      // yukaridaki karsilastirma asla tutmaz (olu kod). res.end() bu adimi atlar.\n" +
+              "      res.set('Content-Length', String(Buffer.byteLength(metin)));\n" +
+              "      res.type('application/json');\n" +
+              "      return res.end(metin);\n" +
               "    } catch (e) { return orij(govde); }\n" +
               "  };\n" +
               "  next();\n" +
               "});\n";
             fs.writeFileSync(f + '.bak.etag', s);
-            s = s.replace(cipa, mw + "\n" + cipa);
+            const eBas = s.indexOf("app.use('/api/veri'");
+            if (eBas >= 0) {
+              // v1 middleware yerinde: suslu parantez esleyerek sinirlarini bul ve degistir.
+              let d = 0, eSon = -1;
+              for (let k = s.indexOf('{', eBas); k < s.length; k++) {
+                if (s[k] === '{') d++;
+                else if (s[k] === '}') { d--; if (!d) { eSon = k; break; } }
+              }
+              if (eSon < 0 || s.slice(eSon + 1, eSon + 3) !== ');') {
+                console.log('UYARI: v1 middleware sinirlari cozulemedi — DEGISIKLIK YAPILMADI'); process.exit(0);
+              }
+              s = s.slice(0, eBas) + mw + s.slice(eSon + 3);
+              console.log('veri-etag v1 -> v2 guncellendi');
+            } else if (s.includes("app.get('/api/veri'")) {
+              s = s.replace("app.get('/api/veri'", mw + "\napp.get('/api/veri'");
+              console.log('veri-etag v2 eklendi');
+            } else {
+              console.log('UYARI: app.get(/api/veri) bulunamadi, veri-etag EKLENMEDI'); process.exit(0);
+            }
             fs.writeFileSync(f, s);
-            console.log('veri-etag v1 eklendi');
             PATCH
             node /tmp/emon-patch-etag.js
 

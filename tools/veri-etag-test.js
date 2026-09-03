@@ -21,15 +21,20 @@ const KAYNAK = HTML.slice(HTML.indexOf('let _veriEtag = null, _veriEtagGovde = n
 
 /* Sahte backend: enjekte edilen middleware'in mantığı (sha1 ETag + If-None-Match → 304). */
 function backendKur(veri, opts = {}) {
-  const st = { veri, istek: 0, govdeBayt: 0, kod304: 0, etagVer: opts.etagVer !== false, zayif: !!opts.zayif };
+  const st = { veri, istek: 0, govdeBayt: 0, kod304: 0, etagVer: opts.etagVer !== false,
+               zayif: !!opts.zayif, hataKodu: opts.hataKodu || 0 };
   st.fetch = async (url, cfg) => {
     st.istek++;
     const metin = JSON.stringify(st.veri);
     const etag = '"vd1-' + crypto.createHash('sha1').update(metin).digest('hex') + '"';
-    const gelen = String((cfg.headers || {})['If-None-Match'] || '');
-    if (st.etagVer && gelen && gelen === etag) {
+    // Gerçek middleware gibi: karşılaştırmadan ÖNCE W/ önekini soy.
+    const gelen = String((cfg.headers || {})['If-None-Match'] || '').replace(/^W\//, '');
+    if (st.etagVer && !st.hataKodu && gelen && gelen === etag) {
       st.kod304++;
       return { ok: false, status: 304, headers: { get: () => etag }, text: async () => '' };
+    }
+    if (st.hataKodu) {   // status kapısı: hata gövdesi ASLA 304'e dönüşmemeli
+      return { ok: false, status: st.hataKodu, headers: { get: k => k === 'ETag' ? etag : null }, text: async () => metin };
     }
     st.govdeBayt += metin.length;
     return {
@@ -116,8 +121,19 @@ const iddia = (ad, k, ek) => { k ? (gecti++, console.log('  ✓ ' + ad)) : (kald
     const a = await cek(ctx);
     const b = await cek(ctx);
     iddia('★ veri her hâlükârda doğru', b.v === 1 && JSON.stringify(a) === JSON.stringify(b));
-    // W/ öneki gönderilse sunucu eşleştiremez → 200 döner; doğruluk bozulmaz, yalnız kazanç azalır
-    console.log('     (not: W/ öneki sunucuda soyuluyor; istemci ham ETag saklıyor)');
+    // İstemci ham (W/ önekli) ETag saklar, sunucu karşılaştırmadan önce soyar → eşleşme tutar.
+    iddia('★ zayıf ETag ile de 304 alınıyor (kazanç korunuyor)', st.kod304 === 1, st.kod304);
+  }
+
+  console.log('\n=== T5b: ★ status kapısı — hata gövdesi 304\'e dönüşmemeli ===');
+  {
+    // 401 gövdesi sabittir → ETag'i de sabit. Status kapısı olmasaydı ikinci 401
+    // isteği 304 olur, istemci onu "değişmedi" sanıp önbellekteki VERİYİ döndürürdü.
+    const st = backendKur({ hata: 'Token gerekli' }, { hataKodu: 401 });
+    const ctx = ortam(st);
+    await cek(ctx); await cek(ctx);
+    iddia('★ hiçbir 401 304\'e dönüşmedi', st.kod304 === 0, st.kod304);
+    iddia('önbellek kurulmadı', vm.runInContext('_veriEtagGovde === null', ctx));
   }
 
   console.log('\n=== T6: 401 → oturum düşürülür, veri dönmez ===');
