@@ -22685,10 +22685,19 @@ async function apiVeriKaydet(veri) {
    ölür. Bu yol gövdeyi değişiklik kadar küçültür ve duvarı kaldırır.
    Endpoint yoksa/başarısızsa null döner → çağıran BUGÜNKÜ tam gövde yoluna düşer,
    yani en kötü ihtimalle davranış değişmez. */
+/* ⚠ GÜVENLİK ANAHTARI — 2026-09-03 tarihli senkron değişikliklerinin TAMAMINI kapatır
+   (talep/teklif delta yazımı + GET ETag/304 önbelleği). false = uygulama, aylardır
+   çalışan "her kayıtta tam gövde" yoluna döner.
+   Neden kapalı: "onayladım ama müşteri hiçbir yerde yok" vakası açıldı. Onay kaydı
+   tüketilmiş olması, kaliciVeriKaydet'in BAŞARI döndürdüğü hâlde yazımın sunucuya
+   ulaşmadığı anlamına gelir — bu yolun kimlikli yazımı hiç test edilemedi (SSH/token
+   yoktu). Kök neden ölçülüp doğrulanana kadar AÇILMAYACAK. */
+const YENI_SENKRON_YOLU = false;
+
 let _deltaDestekli = true;   // 404 alınca kapanır; sayfa yenilenince yeniden denenir
 async function apiTalepDeltaKaydet(delta) {
   const token = apiTokenAl();
-  if (!token || !_deltaDestekli) return null;
+  if (!token || !_deltaDestekli || !YENI_SENKRON_YOLU) return null;
   try {
     const r = await fetch(API_URL + '/api/veri-delta', {
       method: 'POST',
@@ -22765,13 +22774,15 @@ async function _veriGetirEtagli() {
   const token = apiTokenAl();
   if (!token) return null;
   const basliklar = { 'Authorization': 'Bearer ' + token };
-  if (_veriEtag && _veriEtagGovde) basliklar['If-None-Match'] = _veriEtag;
+  // Anahtar kapalıyken If-None-Match GÖNDERME → sunucu asla 304 dönmez, gövde her
+  // seferinde taze iner (eski davranış). Bayat önbellekten veri dönme ihtimali sıfırlanır.
+  if (YENI_SENKRON_YOLU && _veriEtag && _veriEtagGovde) basliklar['If-None-Match'] = _veriEtag;
   const r = await fetch(API_URL + '/api/veri', { headers: basliklar });
   if (r.status === 304 && _veriEtagGovde) return JSON.parse(_veriEtagGovde);
   if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
   const metin = await r.text();
-  const et = r.headers.get('ETag');
-  // ETag yoksa (backend henüz yamalanmamış) önbelleği KURMA — bayat gövde dönmesin.
+  const et = YENI_SENKRON_YOLU ? r.headers.get('ETag') : null;
+  // ETag yoksa (backend henüz yamalanmamış / anahtar kapalı) önbelleği KURMA.
   if (et) { _veriEtag = et; _veriEtagGovde = metin; } else { _veriEtag = null; _veriEtagGovde = null; }
   return JSON.parse(metin);
 }
@@ -23264,7 +23275,11 @@ async function _veriPush(veri) {
     let ok = null;
     const dTalep  = _talepDeltaHesapla(gonderilecek.TALEPLER, sunucu.TALEPLER);
     const dTeklif = _teklifDeltaHesapla(gonderilecek.talepTeklifleri, sunucu.talepTeklifleri);
-    if (dTalep) {
+    // KUSUR (düzeltildi): aşağıdaki `talepBos` dalı delta endpoint'ini çağırmadığı için
+    // _deltaDestekli bayrağını hiç kontrol etmiyordu → "delta kapalı" durumunda bile
+    // TALEPLER/talepTeklifleri gövdeden düşürülüyordu. Geri-alma anahtarı ancak TÜM
+    // yeni davranışı kapatırsa güvenlidir; kapı artık en başta.
+    if (YENI_SENKRON_YOLU && dTalep) {
       const talepBos = !dTalep.upsert.length && !dTalep.sil.length;
       const kalanGovde = { ...gonderilecek };
       if (talepBos && _teklifDeltaBos(dTeklif)) {

@@ -46,8 +46,11 @@ function backendKur(veri, opts = {}) {
   return st;
 }
 
-function ortam(st) {
+function ortam(st, anahtar) {
+  // YENI_SENKRON_YOLU = 2026-09-03 senkron değişikliklerinin kill-switch'i.
+  // Testler varsayılan olarak AÇIK hâli ölçer; T9 kapalı hâli ayrıca doğrular.
   const ctx = { console, JSON, String, fetch: st.fetch, API_URL: 'http://x',
+                YENI_SENKRON_YOLU: anahtar !== false,
                 apiTokenAl: () => 'tok', oturumSuresiDoldu: () => { ctx._401 = true; } };
   vm.createContext(ctx);
   vm.runInContext(KAYNAK, ctx);
@@ -171,6 +174,20 @@ const iddia = (ad, k, ek) => { k ? (gecti++, console.log('  ✓ ' + ad)) : (kald
     console.log(`     eski davranış ~${eskiMB.toFixed(0)} MB → yeni ${inenMB.toFixed(1)} MB (${st.kod304} adet 304)`);
     iddia('★ yalnız 2 kez gövde indi (ilk + değişiklik)', st.kod304 === 98, st.kod304);
     iddia('trafik %95+ azaldı', inenMB < eskiMB * 0.05, inenMB.toFixed(1));
+  }
+
+  console.log('\n=== T9: ★ KILL-SWITCH kapalıyken ETag yolu TAMAMEN devre dışı ===');
+  {
+    const st = backendKur({ v: 1 });
+    const ctx = ortam(st, false);            // YENI_SENKRON_YOLU = false
+    const a = await cek(ctx);
+    const b = await cek(ctx);
+    const c = await cek(ctx);
+    iddia('veri her çağrıda doğru', a.v === 1 && b.v === 1 && c.v === 1);
+    iddia('★ hiç 304 yok — gövde hep taze iner', st.kod304 === 0, st.kod304);
+    iddia('★ önbellek hiç kurulmadı', vm.runInContext('_veriEtag === null && _veriEtagGovde === null', ctx));
+    st.veri = { v: 2 };
+    iddia('★ sunucu değişince anında yansır', (await cek(ctx)).v === 2);
   }
 
   console.log(`\n=== TOPLAM: ${gecti} geçti, ${kaldi} başarısız ===`);
