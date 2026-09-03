@@ -9773,6 +9773,10 @@ function satisHesaplaTablosu() {
   const fmt2 = (n, s) => (s||'₺') + n.toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2});
 
   window._satisSecilenAlt = {}; // seçilen maliyetin alternatif ürünü (müşteri çıktısı için)
+  // Müşterinin HEDEF kar marjının altında kalan satırlar. Aşağıdaki döngüde, kırmızı
+  // "⚠ altında" uyarısıyla AYNI koşulda doldurulur → ekranda uyarı gören satıcı ile
+  // otomatik onay kapısı hep aynı şeyi görür. Away modunda oto-onayı bu liste engeller.
+  window._satisMarjAlti = [];
   urunler.forEach((u, uIdx) => {
     const m       = maliyetSec(uIdx);
     window._satisSecilenAlt[uIdx] = (m && (m.alt || m.altkod)) ? { ad: m.alt || '', kod: m.altkod || '' } : null;
@@ -9947,6 +9951,13 @@ function satisHesaplaTablosu() {
       const hedefStr = musteriHedefMarj.toLocaleString('tr-TR', { maximumFractionDigits: 1 });
       if (fark < -0.05) {
         // Müşteri marjının altında — kırmızı uyarı
+        window._satisMarjAlti.push({
+          satir: uIdx + 1,
+          urun:  String(u.aciklama || '').slice(0, 80),
+          marj:  marj,
+          hedef: musteriHedefMarj,
+          fark:  fark,
+        });
         const altPt = Math.abs(fark).toLocaleString('tr-TR', { maximumFractionDigits: 1 });
         const altOran = musteriHedefMarj > 0
           ? Math.abs(fark) / musteriHedefMarj * 100
@@ -13213,8 +13224,27 @@ async function fiyatOnayTalep() {
     saticiUsername: aktifKullanici.username || '',
   };
 
+  /* MARJ KAPISI — away modunda bile otomatik onay VERİLMEZ.
+     Away modu "admin uzaktayken satış durmasın" içindir; hedef kar marjının altına
+     düşen bir fiyat ise tam olarak admin'in görmesi gereken durumdur. Bu yüzden
+     marj altı satır varsa oto-onay atlanır ve talep normal (manuel) onaya düşer.
+     Liste, satış tablosunda kırmızı "⚠ altında" uyarısını üreten koşulun aynısıyla
+     dolar → satıcının ekranda gördüğü ile kapının kararı asla ayrışmaz.
+     `_satisMarjAlti` dizi DEĞİLSE marj hiç hesaplanamamış demektir; bilinmezlikte
+     otomatik onay vermek isteğin tersi olacağından o durumda da manuel onaya düşer. */
+  const _marjAlti = window._satisMarjAlti;
+  const _marjKapisi = !Array.isArray(_marjAlti) || _marjAlti.length > 0;
+  if (_marjKapisi) {
+    t.fiyatOnayTalep.marjAltiUyari = Array.isArray(_marjAlti)
+      ? _marjAlti.map(x => ({ satir: x.satir, urun: x.urun,
+          marj: Math.round(x.marj * 10) / 10, hedef: Math.round(x.hedef * 10) / 10 }))
+      : 'hesaplanamadi';
+  } else if (t.fiyatOnayTalep.marjAltiUyari) {
+    delete t.fiyatOnayTalep.marjAltiUyari;   // önceki turdan kalan uyarı taşınmasın
+  }
+
   // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez)
-  if (AYARLAR.awayMode) {
+  if (AYARLAR.awayMode && !_marjKapisi) {
     t.fiyatOnayDurumu = 'onaylandi';
     t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası (merge'de en yeni kazanır)
     t.fiyatOnayTalep.adminNot        = '🌙 Otomatik onay — admin away (uzakta) modunda.' + (not ? ' • Satıcı notu: ' + not : '');
@@ -13244,7 +13274,16 @@ async function fiyatOnayTalep() {
     showToast('⛔ Onay talebi sunucuya yazılamadı — admin göremez. Bağlantıyı kontrol edip tekrar deneyin (mail GÖNDERİLMEDİ).');
     return; // veri sunucuda yokken yanıltıcı mail gönderme
   }
-  showToast('✅ Onay talebi admin\'e iletildi!');
+  // Away açıkken marj kapısı devreye girdiyse satıcı "neden otomatik onaylanmadı?"
+  // sorusunu sormasın — sebebi açıkça söyle.
+  if (AYARLAR.awayMode && _marjKapisi) {
+    const _n = Array.isArray(_marjAlti) ? _marjAlti.length : 0;
+    showToast(_n
+      ? '🎯 ' + _n + ' kalem müşteri hedef marjının ALTINDA — away modunda olsa bile otomatik onaylanmadı, admin onayına gönderildi.'
+      : '🎯 Marj kontrolü yapılamadı — güvenlik için otomatik onay atlandı, admin onayına gönderildi.');
+  } else {
+    showToast('✅ Onay talebi admin\'e iletildi!');
+  }
   onayTalepBildirimGonder(t); // admin e-postasına uyarı (fire-and-forget)
 }
 
@@ -14251,6 +14290,7 @@ function renderFiyatOnaylari() {
             </div>
             ${t.fiyatOnayTalep?.not ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;">Not: ' + t.fiyatOnayTalep.not + '</div>' : ''}
             ${t.fiyatOnayTalep?.toplamStr ? '<div style="font-size:14px;font-weight:700;color:var(--green);margin-top:4px;">Teklif Tutarı: ' + t.fiyatOnayTalep.toplamStr + '</div>' : ''}
+            ${marjAltiOzet(t.fiyatOnayTalep) ? '<div style="font-size:11px;color:var(--red);font-weight:600;margin-top:5px;line-height:1.5;">🎯 ' + marjAltiOzet(t.fiyatOnayTalep) + (AYARLAR.awayMode ? '<br><span style="font-weight:500;">Away modu açık, ama marj altında olduğu için otomatik onaylanmadı.</span>' : '') + '</div>' : ''}
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0;">
             <button class="btn btn-sm" onclick="talepDetayAc(${idx})" style="font-size:12px;">📋 Detay</button>
@@ -16921,6 +16961,18 @@ function onaylayanMailiCoz() {
 }
 
 // Satıcı fiyat onayı gönderince → onaylayan (admin) e-postasına uyarı maili
+/* fiyatOnayTalep.marjAltiUyari → okunur özet. Away modunda oto-onayın neden
+   atlandığını hem admin ekranında hem bildirim mailinde tek yerden anlatır. */
+function marjAltiOzet(oT) {
+  const u = oT && oT.marjAltiUyari;
+  if (!u) return null;
+  if (u === 'hesaplanamadi') return 'Marj kontrolü yapılamadı (güvenlik için manuel onaya düştü).';
+  if (!Array.isArray(u) || !u.length) return null;
+  const detay = u.map(x => '#' + x.satir + (x.urun ? ' ' + x.urun : '')
+    + ' → %' + String(x.marj).replace('.', ',') + ' (hedef %' + String(x.hedef).replace('.', ',') + ')').join(' • ');
+  return u.length + ' kalem müşteri hedef marjının ALTINDA: ' + detay;
+}
+
 async function onayTalepBildirimGonder(t) {
   try {
     const to = onaylayanMailiCoz();
@@ -16930,6 +16982,11 @@ async function onayTalepBildirimGonder(t) {
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
         <h2 style="margin:0 0 4px;">⏳ Fiyat Onayı Bekliyor</h2>
         <p style="color:#666;margin:0 0 16px;">Bir satıcı fiyat onayınızı bekliyor. EMON FAST > <b>Fiyat Onayları</b> ekranından inceleyebilirsiniz.</p>
+        ${marjAltiOzet(oT) ? `<div style="background:#fef2f2;border-left:4px solid #dc2626;padding:10px 14px;margin:0 0 16px;border-radius:4px;">
+          <div style="font-weight:700;color:#b91c1c;margin-bottom:4px;">🎯 Hedef marjın altında</div>
+          <div style="font-size:13px;color:#7f1d1d;">${marjAltiOzet(oT)}</div>
+          ${AYARLAR.awayMode ? '<div style="font-size:12px;color:#7f1d1d;margin-top:6px;">Away (uzakta) modunuz AÇIK, ancak bu fiyat marjın altında kaldığı için <b>otomatik onaylanmadı</b> — kararı size bırakıldı.</div>' : ''}
+        </div>` : ''}
         <table style="font-size:13px;border-collapse:collapse;">
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${t.no || '—'}</strong></td></tr>
           <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${t.musteri || '—'}</td></tr>
