@@ -19,7 +19,21 @@ function kes(bas) {
 const ctx = { console, JSON, Array, Map, String, Object };
 vm.createContext(ctx);
 vm.runInContext(kes('function _talepDeltaHesapla(yeniListe, sunucuListe)'), ctx);
+vm.runInContext(kes('function _teklifDeltaHesapla(yeni, sunucu)'), ctx);
+vm.runInContext(kes('function _teklifDeltaBos(d)'), ctx);
 const delta = (a, b) => vm.runInContext('_talepDeltaHesapla(A, B)', Object.assign(ctx, { A: a, B: b }));
+const tDelta = (a, b) => vm.runInContext('_teklifDeltaHesapla(A, B)', Object.assign(ctx, { A: a, B: b }));
+const tBos   = d => vm.runInContext('_teklifDeltaBos(D)', Object.assign(ctx, { D: d }));
+
+/* Backend'in teklif dalı: birlesik = {...mevcut} → sil'i düş → upsert'i merge. */
+function backendTeklifUygula(mevcut, d, kasten) {
+  const curN = Object.keys(mevcut).length;
+  if (!kasten && curN >= 4 && d.sil.length > curN * 0.5) return { red: true, blob: mevcut };
+  const birlesik = Object.assign({}, mevcut);
+  for (const k of d.sil) delete birlesik[k];
+  Object.assign(birlesik, d.upsert);
+  return { red: false, blob: birlesik };
+}
 
 /* Backend /api/veri-delta route'unun satır mantığı (UPDATE-else-INSERT + DELETE),
    'no' anahtarıyla çalışan bir tablo üzerinde. Sıra: upsert'ler, sonra silmeler. */
@@ -145,6 +159,101 @@ console.log('\n=== T8: rastgele 300 tur — delta hiç sapmıyor ===');
     sunucu = r.tablo;
   }
   console.log(`     300 tur bitti, ${sunucu.length} talep hayatta, ${redSayisi} koruma reddi`);
+  iddia('★ hiç sapma yok', sapma === 0, sapma);
+}
+
+console.log('\n=== T9: TEKLİF deltası — sonuç full-replace ile aynı ===');
+{
+  const sunucu = { A: [{ f: 1 }], B: [{ f: 2 }], C: [{ f: 3 }] };
+  const merged = { A: [{ f: 1 }], B: [{ f: 99 }], D: [{ f: 4 }] };   // B değişti, C silindi, D yeni
+  const d = tDelta(merged, sunucu);
+  iddia('upsert = B,D', Object.keys(d.upsert).sort().join(',') === 'B,D', Object.keys(d.upsert).join(','));
+  iddia('DEĞİŞMEYEN A gönderilmiyor', !('A' in d.upsert));
+  iddia('sil = C', d.sil.join(',') === 'C', d.sil.join(','));
+  const r = backendTeklifUygula(sunucu, d, false);
+  iddia('★ blob full-replace ile BİREBİR aynı', JSON.stringify(r.blob) === JSON.stringify(merged), JSON.stringify(r.blob));
+}
+
+console.log('\n=== T10: teklif değişmedi → boş delta, blob dokunulmaz ===');
+{
+  const sunucu = { A: [{ f: 1 }], B: [{ f: 2 }] };
+  const d = tDelta(JSON.parse(JSON.stringify(sunucu)), sunucu);
+  iddia('delta boş', tBos(d) === true);
+  iddia('★ blob değişmedi', JSON.stringify(backendTeklifUygula(sunucu, d, false).blob) === JSON.stringify(sunucu));
+  iddia('null delta da boş sayılır', tBos(null) === true);
+  iddia('dolu delta boş sayılmaz', tBos({ upsert: { X: 1 }, sil: [] }) === false);
+}
+
+console.log('\n=== T11: teklif toplu silme koruması ===');
+{
+  const sunucu = { A: 1, B: 2, C: 3, D: 4, E: 5, F: 6 };
+  const d = tDelta({ A: 1, B: 2 }, sunucu);              // 4/6 silinecek
+  iddia('delta 4 silme içeriyor', d.sil.length === 4, d.sil.length);
+  const r = backendTeklifUygula(sunucu, d, false);
+  iddia('★ kasıtsız toplu silme REDDEDİLDİ', r.red === true);
+  iddia('blob korundu', JSON.stringify(r.blob) === JSON.stringify(sunucu));
+  iddia('kasten=true ile geçer', backendTeklifUygula(sunucu, d, true).red === false);
+}
+
+console.log('\n=== T12: teklif deltası geçersiz girdide null (tam gövdeye düşer) ===');
+{
+  iddia('yeni obje değil → null', tDelta(null, {}) === null);
+  iddia('sunucu obje değil → null', tDelta({}, undefined) === null);
+  iddia('dizi verilirse → null', tDelta([], {}) === null && tDelta({}, []) === null);
+}
+
+console.log('\n=== T13: ★ v1 BACKEND ile teklif KAYBI olmamalı (sürüm kapısı) ===');
+{
+  // _veriPush mantığının çekirdeği: teklifler gövdeden ANCAK surum>=2 ise çıkarılır.
+  const govdeyiKur = (dTeklif, dSonuc) => {
+    const kalan = { TALEPLER: ['t'], talepTeklifleri: { A: 1 }, MUSTERILER: [] };
+    delete kalan.TALEPLER;
+    if (dTeklif && dSonuc.surum >= 2) delete kalan.talepTeklifleri;
+    return kalan;
+  };
+  const dTeklif = { upsert: { A: 1 }, sil: [] };
+  const v1 = govdeyiKur(dTeklif, { ok: true });                    // v1: surum alanı YOK
+  iddia('★ v1 yanıtında teklifler TAM GÖVDEDE kalıyor (kayıp yok)', 'talepTeklifleri' in v1);
+  const v2 = govdeyiKur(dTeklif, { ok: true, surum: 2 });
+  iddia('v2 yanıtında teklifler gövdeden çıkıyor (kazanç)', !('talepTeklifleri' in v2));
+  iddia('her iki durumda TALEPLER çıkıyor', !('TALEPLER' in v1) && !('TALEPLER' in v2));
+}
+
+console.log('\n=== T14: teklif gövde boyutu — asıl kazanç ===');
+{
+  const blob = {};
+  for (let i = 0; i < 3000; i++) blob['TLP-' + i] = [{ tedarikci: 'T' + i, urunFiyatlari: { f: 'y'.repeat(900) } }];
+  const merged = JSON.parse(JSON.stringify(blob));
+  merged['TLP-7'][0].urunFiyatlari.f = 'z';
+  const tamMB = JSON.stringify(blob).length / 1048576;
+  const d = tDelta(merged, blob);
+  const dMB = JSON.stringify(d).length / 1048576;
+  console.log(`     tam teklif blobu ${tamMB.toFixed(2)} MB → delta ${dMB.toFixed(4)} MB`);
+  iddia('delta blobun binde birinden küçük', dMB < tamMB / 1000, dMB.toFixed(4));
+  iddia('★ 3000 talepte sonuç yine eşit',
+    JSON.stringify(backendTeklifUygula(blob, d, false).blob) === JSON.stringify(merged));
+}
+
+console.log('\n=== T15: 300 tur rastgele teklif churn — sapma yok ===');
+{
+  let sapma = 0, red = 0;
+  let sunucu = {}; for (let i = 0; i < 30; i++) sunucu['K' + i] = [{ v: 0 }];
+  for (let tur = 0; tur < 300; tur++) {
+    const merged = JSON.parse(JSON.stringify(sunucu));
+    const rnd = n => Math.floor(Math.random() * n);
+    const anahtarlar = Object.keys(merged);
+    for (let k = rnd(4); k > 0; k--) if (anahtarlar.length) merged[anahtarlar[rnd(anahtarlar.length)]] = [{ v: tur }];
+    for (let k = rnd(3); k > 0; k--) merged['Y' + tur + '_' + k] = [{ v: tur }];
+    for (let k = rnd(3); k > 0; k--) { const a = Object.keys(merged); if (a.length > 5) delete merged[a[rnd(a.length)]]; }
+    const d = tDelta(merged, sunucu);
+    if (!d) { sapma++; continue; }
+    const r = backendTeklifUygula(sunucu, d, false);
+    if (r.red) { red++; continue; }
+    if (JSON.stringify(Object.keys(r.blob).sort().map(k => [k, r.blob[k]]))
+        !== JSON.stringify(Object.keys(merged).sort().map(k => [k, merged[k]]))) sapma++;
+    sunucu = r.blob;
+  }
+  console.log(`     300 tur bitti, ${Object.keys(sunucu).length} anahtar hayatta, ${red} koruma reddi`);
   iddia('★ hiç sapma yok', sapma === 0, sapma);
 }
 

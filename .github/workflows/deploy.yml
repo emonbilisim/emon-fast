@@ -855,17 +855,17 @@ jobs:
             const fs = require('fs');
             const f = '/var/www/emonfast/server.js';
             let s = fs.readFileSync(f, 'utf8');
-            if (s.includes('// veri-delta v1')) { console.log('veri-delta zaten var'); process.exit(0); }
-            if (!s.includes("app.get('/api/saglik'")) { console.log('UYARI: /api/saglik bulunamadi, veri-delta EKLENMEDI'); process.exit(0); }
+            if (s.includes('// veri-delta v2')) { console.log('veri-delta v2 zaten var'); process.exit(0); }
             const deltaRoute =
-              "app.post('/api/veri-delta', authMiddleware, async (req, res) => { // veri-delta v1\n" +
-              "  // POST /api/veri her kayitta TUM talepleri gonderiyor (full-replace). Talep sayisi\n" +
-              "  // arttikca govde ~10 MB sinirina dayanir ve 413 ile HERKES icin yazma olur. Bu route\n" +
-              "  // yalniz DEGISEN talepleri yazar; sonuc full-replace ile ayni, govde degisiklik kadar.\n" +
+              "app.post('/api/veri-delta', authMiddleware, async (req, res) => { // veri-delta v2\n" +
+              "  // POST /api/veri her kayitta TUM talepleri + teklif blobunu gonderiyordu (full-replace).\n" +
+              "  // Govde talep sayisiyla buyuyup ~10 MB sinirina dayaninca 413 ile HERKES icin yazma olur.\n" +
+              "  // Bu route yalniz DEGISENI yazar; sonuc full-replace ile ayni, govde degisiklik kadar.\n" +
               "  if (!req.body || !req.body._build) return res.status(409).json({ hata: 'stale-client', reload: true });\n" +
               "  const upsert = Array.isArray(req.body.upsert) ? req.body.upsert : [];\n" +
               "  const sil    = Array.isArray(req.body.sil) ? req.body.sil : [];\n" +
               "  const kasten = !!req.body.kasten;\n" +
+              "  const tk     = (req.body.teklifler && typeof req.body.teklifler === 'object') ? req.body.teklifler : null;\n" +
               "  if (upsert.length > 2000 || sil.length > 2000) return res.status(400).json({ hata: 'delta cok buyuk' });\n" +
               "  const client = await pool.connect();\n" +
               "  try {\n" +
@@ -877,7 +877,7 @@ jobs:
               "      console.warn('[veri-delta] ' + sil.length + '/' + cur + ' silme REDDEDILDI');\n" +
               "      return res.status(409).json({ hata: 'toplu-silme-reddedildi', mevcut: cur, silinecek: sil.length });\n" +
               "    }\n" +
-              "    let yeni = 0, guncel = 0, silindi = 0;\n" +
+              "    let yeni = 0, guncel = 0, silindi = 0, tkYazilan = 0, tkSilinen = 0;\n" +
               "    for (const t of upsert) {\n" +
               "      if (!t || t.no == null) continue;\n" +
               "      const r = await client.query(\"UPDATE talepler SET data=$2 WHERE data->>'no'=$1\", [String(t.no), JSON.stringify(t)]);\n" +
@@ -889,8 +889,29 @@ jobs:
               "      const r = await client.query(\"DELETE FROM talepler WHERE data->>'no'=$1\", [String(no)]);\n" +
               "      silindi += r.rowCount;\n" +
               "    }\n" +
+              "    if (tk) {\n" +
+              "      // talepTeklifleri: 'ayarlar' tablosunda TEK JSONB satiri. DEPOLAMA SEKLI AYNI kaliyor,\n" +
+              "      // kucululen sey HTTP govdesi: sunucu mevcut blobu okur, silinecek anahtarlari duser,\n" +
+              "      // degisenleri uzerine merge eder ve butun halinde geri yazar (ayni transaction icinde).\n" +
+              "      const up = (tk.upsert && typeof tk.upsert === 'object') ? tk.upsert : {};\n" +
+              "      const sl = Array.isArray(tk.sil) ? tk.sil : [];\n" +
+              "      const _r = await client.query(\"SELECT deger FROM ayarlar WHERE anahtar='teklifler'\");\n" +
+              "      const curObj = (_r.rows[0] && _r.rows[0].deger) || {};\n" +
+              "      const curN = Object.keys(curObj).length;\n" +
+              "      if (!kasten && curN >= 4 && sl.length > curN * 0.5) {\n" +
+              "        await client.query('ROLLBACK');\n" +
+              "        console.warn('[veri-delta] teklifler ' + sl.length + '/' + curN + ' silme REDDEDILDI');\n" +
+              "        return res.status(409).json({ hata: 'teklif-toplu-silme-reddedildi', mevcut: curN, silinecek: sl.length });\n" +
+              "      }\n" +
+              "      const birlesik = Object.assign({}, curObj);\n" +
+              "      for (const k of sl) delete birlesik[k];\n" +
+              "      Object.assign(birlesik, up);\n" +
+              "      if (_r.rowCount) await client.query(\"UPDATE ayarlar SET deger=$1::jsonb WHERE anahtar='teklifler'\", [JSON.stringify(birlesik)]);\n" +
+              "      else await client.query(\"INSERT INTO ayarlar (anahtar, deger) VALUES ('teklifler', $1::jsonb)\", [JSON.stringify(birlesik)]);\n" +
+              "      tkYazilan = Object.keys(up).length; tkSilinen = sl.length;\n" +
+              "    }\n" +
               "    await client.query('COMMIT');\n" +
-              "    res.json({ ok: true, yeni, guncel, silindi, mevcut: cur });\n" +
+              "    res.json({ ok: true, surum: 2, yeni, guncel, silindi, tkYazilan, tkSilinen, mevcut: cur });\n" +
               "  } catch (e) {\n" +
               "    try { await client.query('ROLLBACK'); } catch (_) {}\n" +
               "    console.warn('[veri-delta] hata: ' + e.message);\n" +
@@ -898,11 +919,73 @@ jobs:
               "  } finally { client.release(); }\n" +
               "});\n";
             fs.writeFileSync(f + '.bak.delta', s);
-            s = s.replace("app.get('/api/saglik'", deltaRoute + "\napp.get('/api/saglik'");
+            const bas = s.indexOf("app.post('/api/veri-delta'");
+            if (bas >= 0) {
+              // v1 route'u yerinde duruyor: suslu parantez esleyerek TAM sinirlarini bul ve degistir.
+              // (Metni birebir yeniden uretmeye calismak kirilgan olurdu.)
+              let d = 0, son = -1;
+              for (let k = s.indexOf('{', bas); k < s.length; k++) {
+                if (s[k] === '{') d++;
+                else if (s[k] === '}') { d--; if (!d) { son = k; break; } }
+              }
+              if (son < 0 || s.slice(son + 1, son + 3) !== ');') {
+                console.log('UYARI: v1 route sinirlari cozulemedi — DEGISIKLIK YAPILMADI'); process.exit(0);
+              }
+              s = s.slice(0, bas) + deltaRoute + s.slice(son + 3);
+              console.log('veri-delta v1 -> v2 guncellendi');
+            } else if (s.includes("app.get('/api/saglik'")) {
+              s = s.replace("app.get('/api/saglik'", deltaRoute + "\napp.get('/api/saglik'");
+              console.log('veri-delta v2 eklendi');
+            } else {
+              console.log('UYARI: /api/saglik bulunamadi, veri-delta EKLENMEDI'); process.exit(0);
+            }
             fs.writeFileSync(f, s);
-            console.log('veri-delta v1 eklendi');
             PATCH
             node /tmp/emon-patch-delta.js
+
+      - name: Patch backend (veri-etag — GET /api/veri degismediyse 304, govde hic gitmez)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cat > /tmp/emon-patch-etag.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            if (s.includes('// veri-etag v1')) { console.log('veri-etag zaten var'); process.exit(0); }
+            const cipa = "app.get('/api/veri'";
+            if (!s.includes(cipa)) { console.log('UYARI: app.get(/api/veri) bulunamadi, veri-etag EKLENMEDI'); process.exit(0); }
+            const mw =
+              "app.use('/api/veri', (req, res, next) => { // veri-etag v1\n" +
+              "  // GET /api/veri her cagrida TUM blobu (MB'larca) gonderiyor; istemci ayrica 45 sn'de\n" +
+              "  // bir yokluyor ve her kayittan once bir kez daha cekiyor. Govde DEGISMEDIYSE 304 don:\n" +
+              "  // tek bayt govde gitmez. ETag govdenin HASH'i oldugundan 'degismedi' hukmu tanim geregi\n" +
+              "  // dogru — elle guncellenen bir surum sayaci gibi bayat kalamaz.\n" +
+              "  // Not: app.use('/api/veri') on-eki /api/veri-delta ile ESLESMEZ (Express sinir olarak '/' arar).\n" +
+              "  if (req.method !== 'GET') return next();\n" +
+              "  const orij = res.json.bind(res);\n" +
+              "  res.json = (govde) => {\n" +
+              "    try {\n" +
+              "      const metin = JSON.stringify(govde);\n" +
+              "      const etag = '\"vd1-' + require('crypto').createHash('sha1').update(metin).digest('hex') + '\"';\n" +
+              "      res.set('ETag', etag);\n" +
+              "      res.set('Cache-Control', 'no-cache');\n" +
+              "      // nginx gzip'lerken guclu ETag'i zayiflatabilir (W/\"...\") — karsilastirmadan once soy.\n" +
+              "      const gelen = String(req.headers['if-none-match'] || '').replace(/^W\\//, '');\n" +
+              "      if (gelen && gelen === etag) return res.status(304).end();\n" +
+              "      return res.type('application/json').send(metin);\n" +
+              "    } catch (e) { return orij(govde); }\n" +
+              "  };\n" +
+              "  next();\n" +
+              "});\n";
+            fs.writeFileSync(f + '.bak.etag', s);
+            s = s.replace(cipa, mw + "\n" + cipa);
+            fs.writeFileSync(f, s);
+            console.log('veri-etag v1 eklendi');
+            PATCH
+            node /tmp/emon-patch-etag.js
 
       - name: Rename and restart
         uses: appleboy/ssh-action@master
@@ -937,8 +1020,23 @@ jobs:
               sed -i -E '0,/^[[:space:]]*http[[:space:]]*\{/s//http {\n    gzip_comp_level 5;\n    gzip_vary on;\n    gzip_min_length 1024;/' "$f"
               echo "gzip direktifleri http blogu basina eklendi"
             fi
+            # gzip_types: nginx VARSAYILANI yalniz text/html'dir → /api/veri'nin MB'larca
+            # JSON govdesi SIKISTIRILMADAN gidiyordu. application/json eklenince ~10x kuculur.
+            if grep -qE '^[[:space:]]*gzip_types' "$f"; then
+              if grep -qE '^[[:space:]]*gzip_types[^;]*application/json' "$f"; then
+                echo "gzip_types zaten application/json iceriyor"
+              else
+                sed -i -E 's#^([[:space:]]*gzip_types[^;]*);#\1 application/json;#' "$f"
+                echo "gzip_types -> application/json eklendi"
+              fi
+            elif grep -qE '^[[:space:]]*gzip_comp_level' "$f"; then
+              sed -i -E '0,/^[[:space:]]*gzip_comp_level.*/s##&\n    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;#' "$f"
+              echo "gzip_types satiri eklendi (gzip_comp_level sonrasi)"
+            else
+              echo "UYARI: gzip_comp_level bulunamadi, gzip_types eklenemedi"
+            fi
             if nginx -t 2>&1; then
-              systemctl reload nginx && echo "OK: nginx reload edildi (gzip level 5)"
+              systemctl reload nginx && echo "OK: nginx reload edildi (gzip level 5 + json)"
             else
               echo "HATA: nginx -t basarisiz — yedek geri yukleniyor"
               cp "$f.bak.$ts" "$f"; nginx -t && systemctl reload nginx

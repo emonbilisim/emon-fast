@@ -22554,14 +22554,8 @@ async function apiVeriYukle() {
   const token = apiTokenAl();
   if (!token) return false;
   try {
-    const r = await fetch(API_URL + '/api/veri', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    if (!r.ok) {
-      if (r.status === 401) { oturumSuresiDoldu(); }
-      return false;
-    }
-    const veri = await r.json();
+    const veri = await _veriGetirEtagli();
+    if (!veri) return false;
     if (Array.isArray(veri.TALEPLER))     { TALEPLER.length = 0;     TALEPLER.push(...veri.TALEPLER); taleplerDurumMigrate(); }
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
@@ -22684,16 +22678,51 @@ function _talepDeltaHesapla(yeniListe, sunucuListe) {
   return { upsert, sil };
 }
 
+/* TEKLİF DELTASI. talepTeklifleri sunucuda `ayarlar` tablosunda TEK JSONB satırı;
+   depolama şekli DEĞİŞMİYOR, küçülen şey HTTP gövdesi: yalnız değişen/silinen talep
+   anahtarları gider, sunucu mevcut blobla birleştirip bütün hâlinde geri yazar.
+   Backend `birlesik = {...mevcut}` → sil'i düş → upsert'i merge ettiği için sonuç
+   full-replace ile birebir aynıdır. */
+function _teklifDeltaHesapla(yeni, sunucu) {
+  if (!yeni || typeof yeni !== 'object' || Array.isArray(yeni)) return null;
+  if (!sunucu || typeof sunucu !== 'object' || Array.isArray(sunucu)) return null;
+  const upsert = {}, sil = [];
+  for (const k of Object.keys(yeni)) {
+    if (JSON.stringify(sunucu[k]) !== JSON.stringify(yeni[k])) upsert[k] = yeni[k];
+  }
+  for (const k of Object.keys(sunucu)) if (!(k in yeni)) sil.push(k);
+  return { upsert, sil };
+}
+function _teklifDeltaBos(d) { return !d || (!Object.keys(d.upsert).length && !d.sil.length); }
+
+/* GET /api/veri — ETag'li tek indirme kapısı.
+   Blob her çağrıda bütün hâlinde iniyordu: 45 sn'lik canlı tazeleme + HER kayıttan önceki
+   `apiVeriCekHam` (merge temeli) → talep sayısıyla büyüyen sürekli trafik. Backend artık
+   gövdenin sha1'ini ETag olarak veriyor; değişmediyse 304 döner ve TEK BAYT gövde inmez.
+   ETag gövdenin hash'i olduğu için "değişmedi" hükmü tanım gereği doğrudur — elle
+   güncellenen bir sürüm sayacı gibi bayat kalamaz.
+   Gövde METİN olarak saklanır: 304'te `JSON.parse` taze bir obje üretir, yani çağıran
+   onu serbestçe mutasyona uğratabilir (merge yolu bunu yapıyor). */
+let _veriEtag = null, _veriEtagGovde = null;
+async function _veriGetirEtagli() {
+  const token = apiTokenAl();
+  if (!token) return null;
+  const basliklar = { 'Authorization': 'Bearer ' + token };
+  if (_veriEtag && _veriEtagGovde) basliklar['If-None-Match'] = _veriEtag;
+  const r = await fetch(API_URL + '/api/veri', { headers: basliklar });
+  if (r.status === 304 && _veriEtagGovde) return JSON.parse(_veriEtagGovde);
+  if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
+  const metin = await r.text();
+  const et = r.headers.get('ETag');
+  // ETag yoksa (backend henüz yamalanmamış) önbelleği KURMA — bayat gövde dönmesin.
+  if (et) { _veriEtag = et; _veriEtagGovde = metin; } else { _veriEtag = null; _veriEtagGovde = null; }
+  return JSON.parse(metin);
+}
+
 // Sunucudaki güncel veriyi yerel state'i bozmadan ham olarak çeker.
 // Kayıt öncesi "admin'e ait koleksiyonları" sunucudan alıp göndermek için kullanılır.
 async function apiVeriCekHam() {
-  const token = apiTokenAl();
-  if (!token) return null;
-  try {
-    const r = await fetch(API_URL + '/api/veri', { headers: { 'Authorization': 'Bearer ' + token } });
-    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return null; }
-    return await r.json();
-  } catch (_) { return null; }
+  try { return await _veriGetirEtagli(); } catch (_) { return null; }
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -23176,22 +23205,33 @@ async function _veriPush(veri) {
     // Delta aynı son durumu üretir (sunucu = gonderilecek) ama gövde değişiklik kadar.
     // Delta yolu yoksa/başarısızsa aşağıdaki BUGÜNKÜ tam gövde yolu devreye girer.
     let ok = null;
-    const delta = _talepDeltaHesapla(gonderilecek.TALEPLER, sunucu.TALEPLER);
-    if (delta && (delta.upsert.length || delta.sil.length)) {
-      const dSonuc = await apiTalepDeltaKaydet({ ...delta, kasten: _taleplerKastenSilindi });
-      if (dSonuc && dSonuc.ok) {
-        // Talepler yazıldı → kalan gövdeden TALEPLER'i çıkar. Backend'in boş-dizi
-        // koruması alanı yok sayar, talepler tablosuna dokunulmaz. taleplerKasten'i
-        // de GÖNDERME: o bayrak boş diziyle toplu DELETE'e izin veriyor, delta zaten sildi.
-        const kalanGovde = { ...gonderilecek };
-        delete kalanGovde.TALEPLER;
-        ok = await apiVeriKaydet(kalanGovde);
-      }
-    } else if (delta) {
-      // Talep tarafında değişiklik yok → talepleri hiç gönderme (gövde küçülür).
+    const dTalep  = _talepDeltaHesapla(gonderilecek.TALEPLER, sunucu.TALEPLER);
+    const dTeklif = _teklifDeltaHesapla(gonderilecek.talepTeklifleri, sunucu.talepTeklifleri);
+    if (dTalep) {
+      const talepBos = !dTalep.upsert.length && !dTalep.sil.length;
       const kalanGovde = { ...gonderilecek };
-      delete kalanGovde.TALEPLER;
-      ok = await apiVeriKaydet(kalanGovde);
+      if (talepBos && _teklifDeltaBos(dTeklif)) {
+        // İkisi de değişmemiş → hiç gönderme (delta çağrısına bile gerek yok).
+        // Backend v1 bile olsa güvenli: yazılacak bir şey yok.
+        delete kalanGovde.TALEPLER;
+        if (dTeklif) delete kalanGovde.talepTeklifleri;
+        ok = await apiVeriKaydet(kalanGovde);
+      } else {
+        const dGovde = { upsert: dTalep.upsert, sil: dTalep.sil, kasten: _taleplerKastenSilindi };
+        if (dTeklif) dGovde.teklifler = dTeklif;
+        const dSonuc = await apiTalepDeltaKaydet(dGovde);
+        if (dSonuc && dSonuc.ok) {
+          // Talepler yazıldı → kalan gövdeden TALEPLER'i çıkar. Backend'in boş-dizi
+          // koruması alanı yok sayar, talepler tablosuna dokunulmaz. taleplerKasten'i
+          // de GÖNDERME: o bayrak boş diziyle toplu DELETE'e izin veriyor, delta zaten sildi.
+          delete kalanGovde.TALEPLER;
+          // KRİTİK: teklifleri gövdeden ancak sunucu GERÇEKTEN yazdıysa çıkar. v1 route
+          // `teklifler` alanını sessizce yok sayar ve yine {ok:true} döner — sürüm
+          // kontrolü olmasaydı teklif değişiklikleri hiçbir yere yazılmadan kaybolurdu.
+          if (dTeklif && dSonuc.surum >= 2) delete kalanGovde.talepTeklifleri;
+          ok = await apiVeriKaydet(kalanGovde);
+        }
+      }
     }
     if (ok === null) {
       // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
