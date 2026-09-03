@@ -834,6 +834,76 @@ jobs:
             PATCH
             node /tmp/emon-patch-tah.js
 
+      - name: Patch backend (veri-delta — talep basina yazim, 10 MB govde duvarini kaldirir)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /var/www/emonfast
+            set -a; . ./.env; set +a
+            # d1) data->>'no' uzerinde arama indeksi. UNIQUE DEGIL: mukerrer no varsa
+            #     olusturma patlamasin (delta zaten mukerrer no gorunce devreye girmez).
+            PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL'
+            CREATE INDEX IF NOT EXISTS talepler_no_idx ON talepler ((data->>'no'));
+            SQL
+            echo "--- talepler semasi (tani: INSERT (data) yeterli mi?) ---"
+            PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c "\d talepler" || true
+            # d2) Route enjeksiyonu (idempotent): POST /api/veri-delta
+            cat > /tmp/emon-patch-delta.js << 'PATCH'
+            const fs = require('fs');
+            const f = '/var/www/emonfast/server.js';
+            let s = fs.readFileSync(f, 'utf8');
+            if (s.includes('// veri-delta v1')) { console.log('veri-delta zaten var'); process.exit(0); }
+            if (!s.includes("app.get('/api/saglik'")) { console.log('UYARI: /api/saglik bulunamadi, veri-delta EKLENMEDI'); process.exit(0); }
+            const deltaRoute =
+              "app.post('/api/veri-delta', authMiddleware, async (req, res) => { // veri-delta v1\n" +
+              "  // POST /api/veri her kayitta TUM talepleri gonderiyor (full-replace). Talep sayisi\n" +
+              "  // arttikca govde ~10 MB sinirina dayanir ve 413 ile HERKES icin yazma olur. Bu route\n" +
+              "  // yalniz DEGISEN talepleri yazar; sonuc full-replace ile ayni, govde degisiklik kadar.\n" +
+              "  if (!req.body || !req.body._build) return res.status(409).json({ hata: 'stale-client', reload: true });\n" +
+              "  const upsert = Array.isArray(req.body.upsert) ? req.body.upsert : [];\n" +
+              "  const sil    = Array.isArray(req.body.sil) ? req.body.sil : [];\n" +
+              "  const kasten = !!req.body.kasten;\n" +
+              "  if (upsert.length > 2000 || sil.length > 2000) return res.status(400).json({ hata: 'delta cok buyuk' });\n" +
+              "  const client = await pool.connect();\n" +
+              "  try {\n" +
+              "    await client.query('BEGIN');\n" +
+              "    const cur = (await client.query('SELECT count(*)::int AS n FROM talepler')).rows[0].n;\n" +
+              "    // veri-guard esdegeri: tek yazimda satirlarin yarisindan fazlasi silinemez\n" +
+              "    if (!kasten && cur >= 4 && sil.length > cur * 0.5) {\n" +
+              "      await client.query('ROLLBACK');\n" +
+              "      console.warn('[veri-delta] ' + sil.length + '/' + cur + ' silme REDDEDILDI');\n" +
+              "      return res.status(409).json({ hata: 'toplu-silme-reddedildi', mevcut: cur, silinecek: sil.length });\n" +
+              "    }\n" +
+              "    let yeni = 0, guncel = 0, silindi = 0;\n" +
+              "    for (const t of upsert) {\n" +
+              "      if (!t || t.no == null) continue;\n" +
+              "      const r = await client.query(\"UPDATE talepler SET data=$2 WHERE data->>'no'=$1\", [String(t.no), JSON.stringify(t)]);\n" +
+              "      if (r.rowCount) guncel += r.rowCount;\n" +
+              "      else { await client.query('INSERT INTO talepler (data) VALUES ($1)', [JSON.stringify(t)]); yeni++; }\n" +
+              "    }\n" +
+              "    for (const no of sil) {\n" +
+              "      if (no == null) continue;\n" +
+              "      const r = await client.query(\"DELETE FROM talepler WHERE data->>'no'=$1\", [String(no)]);\n" +
+              "      silindi += r.rowCount;\n" +
+              "    }\n" +
+              "    await client.query('COMMIT');\n" +
+              "    res.json({ ok: true, yeni, guncel, silindi, mevcut: cur });\n" +
+              "  } catch (e) {\n" +
+              "    try { await client.query('ROLLBACK'); } catch (_) {}\n" +
+              "    console.warn('[veri-delta] hata: ' + e.message);\n" +
+              "    res.status(500).json({ ok: false, hata: e.message });\n" +
+              "  } finally { client.release(); }\n" +
+              "});\n";
+            fs.writeFileSync(f + '.bak.delta', s);
+            s = s.replace("app.get('/api/saglik'", deltaRoute + "\napp.get('/api/saglik'");
+            fs.writeFileSync(f, s);
+            console.log('veri-delta v1 eklendi');
+            PATCH
+            node /tmp/emon-patch-delta.js
+
       - name: Rename and restart
         uses: appleboy/ssh-action@master
         with:

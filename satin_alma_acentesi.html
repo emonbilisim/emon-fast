@@ -22628,6 +22628,62 @@ async function apiVeriKaydet(veri) {
   }
 }
 
+/* TALEP DELTASI — yalnız DEĞİŞEN talepleri yazar.
+   POST /api/veri her kayıtta TÜM talepleri gönderiyor (full-replace): 205 talepte
+   ~2.5 MB, ~800 talepte backend'in ~10 MB gövde sınırı → 413 ve HERKES için yazma
+   ölür. Bu yol gövdeyi değişiklik kadar küçültür ve duvarı kaldırır.
+   Endpoint yoksa/başarısızsa null döner → çağıran BUGÜNKÜ tam gövde yoluna düşer,
+   yani en kötü ihtimalle davranış değişmez. */
+let _deltaDestekli = true;   // 404 alınca kapanır; sayfa yenilenince yeniden denenir
+async function apiTalepDeltaKaydet(delta) {
+  const token = apiTokenAl();
+  if (!token || !_deltaDestekli) return null;
+  try {
+    const r = await fetch(API_URL + '/api/veri-delta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ ...delta, _build: APP_BUILD })
+    });
+    if (r.status === 401) { oturumSuresiDoldu(); return null; }
+    if (r.status === 404) {   // backend henüz yamalanmamış (deploy sırası) → sessizce tam yola dön
+      _deltaDestekli = false;
+      console.warn('[delta] /api/veri-delta yok — tam gövde yoluna düşülüyor.');
+      return null;
+    }
+    if (!r.ok) { console.warn('[delta] reddedildi:', r.status, await r.text().catch(() => '')); return null; }
+    return await r.json();
+  } catch (e) { console.warn('[delta] ağ hatası:', e && e.message); return null; }
+}
+
+/* gonderilecek.TALEPLER ile sunucunun ŞU ANKİ hali arasındaki farkı çıkar.
+   Delta uygulanınca sunucu tam olarak gonderilecek.TALEPLER'e eşitlenir →
+   full-replace ile AYNI sonuç. Delta 'no' anahtarına dayanır; anahtar güvenilmezse
+   (no'suz satır veya mükerrer no) null döner ve tam gövde yolu kullanılır. */
+function _talepDeltaHesapla(yeniListe, sunucuListe) {
+  if (!Array.isArray(yeniListe) || !Array.isArray(sunucuListe)) return null;
+  const anahtarli = liste => {
+    const m = new Map();
+    for (const t of liste) {
+      if (!t || t.no == null || t.no === '') return null;   // no'suz satır delta ile adreslenemez
+      const k = String(t.no);
+      if (m.has(k)) return null;                            // mükerrer no → full-replace davranışı korunsun
+      m.set(k, t);
+    }
+    return m;
+  };
+  const yeniHar = anahtarli(yeniListe), eskiHar = anahtarli(sunucuListe);
+  if (!yeniHar || !eskiHar) return null;
+
+  const upsert = [];
+  for (const [k, t] of yeniHar) {
+    const eski = eskiHar.get(k);
+    if (!eski || JSON.stringify(eski) !== JSON.stringify(t)) upsert.push(t);
+  }
+  const sil = [];
+  for (const k of eskiHar.keys()) if (!yeniHar.has(k)) sil.push(k);
+  return { upsert, sil };
+}
+
 // Sunucudaki güncel veriyi yerel state'i bozmadan ham olarak çeker.
 // Kayıt öncesi "admin'e ait koleksiyonları" sunucudan alıp göndermek için kullanılır.
 async function apiVeriCekHam() {
@@ -23114,9 +23170,34 @@ async function _veriPush(veri) {
         if (t && t.fiyatOnayTalep && 'satisTablosu' in t.fiyatOnayTalep) delete t.fiyatOnayTalep.satisTablosu;
       });
     }
-    // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
-    gonderilecek.taleplerKasten = _taleplerKastenSilindi;
-    const ok = await apiVeriKaydet(gonderilecek);
+    // ── TALEP DELTA YOLU ────────────────────────────────────────────────
+    // Talepler her kayıtta bütün hâlinde gidiyordu; gövde talep sayısıyla büyüyüp
+    // ~10 MB'lık backend sınırına dayanınca 413 ile TÜM kullanıcıların yazması ölür.
+    // Delta aynı son durumu üretir (sunucu = gonderilecek) ama gövde değişiklik kadar.
+    // Delta yolu yoksa/başarısızsa aşağıdaki BUGÜNKÜ tam gövde yolu devreye girer.
+    let ok = null;
+    const delta = _talepDeltaHesapla(gonderilecek.TALEPLER, sunucu.TALEPLER);
+    if (delta && (delta.upsert.length || delta.sil.length)) {
+      const dSonuc = await apiTalepDeltaKaydet({ ...delta, kasten: _taleplerKastenSilindi });
+      if (dSonuc && dSonuc.ok) {
+        // Talepler yazıldı → kalan gövdeden TALEPLER'i çıkar. Backend'in boş-dizi
+        // koruması alanı yok sayar, talepler tablosuna dokunulmaz. taleplerKasten'i
+        // de GÖNDERME: o bayrak boş diziyle toplu DELETE'e izin veriyor, delta zaten sildi.
+        const kalanGovde = { ...gonderilecek };
+        delete kalanGovde.TALEPLER;
+        ok = await apiVeriKaydet(kalanGovde);
+      }
+    } else if (delta) {
+      // Talep tarafında değişiklik yok → talepleri hiç gönderme (gövde küçülür).
+      const kalanGovde = { ...gonderilecek };
+      delete kalanGovde.TALEPLER;
+      ok = await apiVeriKaydet(kalanGovde);
+    }
+    if (ok === null) {
+      // Kasıtlı silme bayrağını backend'e ilet → boş diziyle de DELETE'e izin verir.
+      gonderilecek.taleplerKasten = _taleplerKastenSilindi;
+      ok = await apiVeriKaydet(gonderilecek);
+    }
     if (ok) {
       // YENİ TEMEL = sunucuya GERÇEKTEN gönderilen (merge edilmiş) durum.
       // Eskiden _sunucuBaz=veri (ham yerel) kuruluyordu; veri, başka kullanıcıların
