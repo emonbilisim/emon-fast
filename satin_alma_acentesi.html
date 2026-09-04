@@ -6253,6 +6253,22 @@ function onayBekleyenleriYukle() {
 // ONAY_BEKLEYENLER._tombstone içinde tutulur (backend 'onaylar' JSONB'sinde senkronlanır).
 function _onayYeniId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function _onayKey(r) { return (r && r._id) ? ('id:' + r._id) : ('c:' + _canon(r)); }
+/* YAZIM DOĞRULAMA — "onayladım ama kayıt hiçbir yerde yok" sınıfını kapatır.
+   kaliciVeriKaydet yalnızca HTTP'nin başarılı döndüğünü bilir; sunucunun o koleksiyonu
+   GERÇEKTEN yazdığını bilmez. Backend bir koleksiyonu sessizce reddedebiliyor
+   (ör. veri-guard koruması alanı `undefined` yapıp yine 200 döner) — o durumda
+   istemci "yazıldı" sanıp bekleyen onay kaydını tüketiyor, sonraki merge de yerel
+   kopyayı "sunucuda yok → silinmiş" sayıp düşürüyordu. Sonuç: kayıt buharlaşıyor.
+   Bu yüzden onayı tüketmeden ÖNCE sunucudan geri okuyup varlığı KANITLIYORUZ.
+   Kanıtlanamazsa (ağ hatası dahil) onay kaydı KORUNUR → tekrar denenebilir. */
+async function _sunucudaVarMi(alan, esitMi) {
+  try {
+    const ham = await apiVeriCekHam();
+    if (!ham || !Array.isArray(ham[alan])) return false;   // okunamadı → kanıt YOK
+    return ham[alan].some(esitMi);
+  } catch (_) { return false; }
+}
+
 function onayTombstoneEkle(r) {
   if (!r) return;
   if (!ONAY_BEKLEYENLER._tombstone || typeof ONAY_BEKLEYENLER._tombstone !== 'object') ONAY_BEKLEYENLER._tombstone = {};
@@ -6478,12 +6494,16 @@ async function musteriKaydet() {
     filterMusteriler();
     closeModal('musteriForm');
     const _flushOk = await kaliciVeriKaydet('Müşteri onayı — "' + firma + '"');
-    if (_flushOk) {
-      _onayMusteriKaydetSonra(parseInt(onayIdx));  // pending'i ancak sunucuya yazıldıysa tüket
+    // HTTP başarısı YETMEZ: sunucudan geri okuyup kaydın gerçekten orada olduğunu kanıtla.
+    const _kanit = _flushOk && await _sunucudaVarMi('MUSTERILER', m => m && m.firma === firma);
+    if (_kanit) {
+      _onayMusteriKaydetSonra(parseInt(onayIdx));  // pending'i ancak sunucuda GÖRÜLDÜYSE tüket
     } else {
       MUSTERILER.shift();                            // eklemeyi geri al — pending korunur, retry mükerrer üretmez
       filterMusteriler();
-      showToast('⛔ "' + firma + '" sunucuya YAZILAMADI (bağlantı?). Onay kaydı korundu; bağlantı gelince tekrar onaylayın.');
+      showToast(_flushOk
+        ? '⛔ "' + firma + '" sunucuya yazıldı görünüyor ama SUNUCUDA BULUNAMADI — kayıt eklenmedi. Onay kaydı korundu, tekrar deneyin. (Sürerse: bu bir sunucu tarafı reddi, bildirin.)'
+        : '⛔ "' + firma + '" sunucuya YAZILAMADI (bağlantı?). Onay kaydı korundu; bağlantı gelince tekrar onaylayın.');
     }
     delete document.getElementById('mf-index').dataset.onayIdx;
     return;
@@ -12577,10 +12597,22 @@ async function onayMusteriKabul(i) {
     if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
     const _eskiAd = MUSTERILER[hedef].firma;
     if (_eskiAd && _eskiAd !== musteriVeri.firma) _silinenMusteriFirmalar.add(String(_eskiAd)); // union'da eski ad orphan kalmasın
+    const _mdEski = MUSTERILER[hedef];      // doğrulama başarısızsa geri dönülecek kayıt
     MUSTERILER[hedef] = musteriVeri;
+    filterMusteriler();
+    const _mdOk = await kaliciVeriKaydet('Müşteri değişikliği onayı');
+    const _mdKanit = _mdOk && await _sunucudaVarMi('MUSTERILER', m => m && m.firma === musteriVeri.firma);
+    if (!_mdKanit) {
+      MUSTERILER[hedef] = _mdEski;           // geri al — onay kaydı KORUNUR
+      filterMusteriler(); onayModalAc();
+      showToast(_mdOk
+        ? '⛔ Değişiklik sunucuya yazıldı görünüyor ama SUNUCUDA DOĞRULANAMADI — uygulanmadı. Onay kaydı korundu.'
+        : '⛔ Değişiklik sunucuya YAZILAMADI (bağlantı?). Onay kaydı korundu.');
+      return;
+    }
     onayTombstoneEkle(kayit);
     ONAY_BEKLEYENLER.musteriler.splice(i, 1);
-    onayBekleyenleriKaydet(); filterMusteriler(); // onayBekleyenleriKaydet HEMEN flush eder
+    onayBekleyenleriKaydet(); filterMusteriler();
     onayModalAc();
     showToast('✅ Müşteri değişikliği onaylandı ve uygulandı!');
     return;
@@ -12690,15 +12722,26 @@ async function onayTedarikciKabul(i) {
     // Kondisyon (ödeme/kargo) değiştiyse firma geneline yay ve etkilenen açık talepleri bildir —
     // tedarikciGuncelle ile aynı kural; onay yolundan geçince kaybolmasın.
     const _kondDegisti = tedKondisyonImza(TEDARIKCILER[hedef]) !== tedKondisyonImza(kayit.satir);
+    const _tdEski = TEDARIKCILER[hedef];     // doğrulama başarısızsa geri dönülecek satır
     TEDARIKCILER[hedef] = kayit.satir;
     let _yayilan = 0, _etkAcik = 0;
     if (_kondDegisti) {
       _yayilan = tedKondisyonYay(kayit.satir[0], kayit.satir, hedef);
       _etkAcik = tedKondisyonEtkilenenTalepler(kayit.satir[0]).acik.length;
     }
+    const _tdOk = await kaliciVeriKaydet('Tedarikçi değişikliği onayı');
+    const _tdKanit = _tdOk && await _sunucudaVarMi('TEDARIKCILER', r => tedSatirEslesir(r, kayit.satir));
+    if (!_tdKanit) {
+      TEDARIKCILER[hedef] = _tdEski;         // geri al — onay kaydı KORUNUR
+      filterTedarikciler(); onayModalAc();
+      showToast(_tdOk
+        ? '⛔ Değişiklik sunucuya yazıldı görünüyor ama SUNUCUDA DOĞRULANAMADI — uygulanmadı. Onay kaydı korundu.'
+        : '⛔ Değişiklik sunucuya YAZILAMADI (bağlantı?). Onay kaydı korundu.');
+      return;
+    }
     onayTombstoneEkle(kayit);
     ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
-    onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
+    onayBekleyenleriKaydet(); filterTedarikciler();
     onayModalAc();
     showToast('✅ Değişiklik onaylandı ve uygulandı!'
       + (_yayilan ? ' Şart firmanın ' + _yayilan + ' satırına daha uygulandı.' : '')
@@ -12706,12 +12749,26 @@ async function onayTedarikciKabul(i) {
     return;
   }
 
+  // Müşteri onayıyla aynı kural: bekleyen kaydı ancak sunucuda GÖRDÜKTEN sonra tüket.
+  // Eskiden tombstone yazımdan ÖNCE ekleniyordu → yazım sessizce reddedilirse hem
+  // tedarikçi hem onay kaydı kayboluyordu (bkz _sunucudaVarMi).
   TEDARIKCILER.unshift(kayit.satir);
-  onayTombstoneEkle(kayit);
-  ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
-  onayBekleyenleriKaydet(); filterTedarikciler(); // onayBekleyenleriKaydet HEMEN flush eder
+  filterTedarikciler();
+  const _tOk = await kaliciVeriKaydet('Tedarikçi onayı');
+  const _tKanit = _tOk && await _sunucudaVarMi('TEDARIKCILER', r => tedSatirEslesir(r, kayit.satir));
+  if (_tKanit) {
+    onayTombstoneEkle(kayit);
+    ONAY_BEKLEYENLER.tedarikciler.splice(i, 1);
+    onayBekleyenleriKaydet();
+    showToast('✅ Tedarikçi onaylandı ve sisteme eklendi!');
+  } else {
+    TEDARIKCILER.shift();                    // geri al — onay kaydı KORUNUR, tekrar denenebilir
+    filterTedarikciler();
+    showToast(_tOk
+      ? '⛔ Tedarikçi sunucuya yazıldı görünüyor ama SUNUCUDA BULUNAMADI — eklenmedi. Onay kaydı korundu, tekrar deneyin.'
+      : '⛔ Tedarikçi sunucuya YAZILAMADI (bağlantı?). Onay kaydı korundu.');
+  }
   onayModalAc();
-  showToast('✅ Tedarikçi onaylandı ve sisteme eklendi!');
 }
 
 function onayTedarikciReddet(i) {
