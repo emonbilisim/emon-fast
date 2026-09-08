@@ -8441,6 +8441,22 @@ async function rfqMailGonder() {
     return;
   }
   aktifTalepNo = t.no; // kesinleştirme geçici no'yu değiştirmiş olabilir → kararlı kimliği güncelle
+
+  // MS 365 KAPISI — durum "RFQ Gönderildi"ye çevrilmeden ÖNCE. Bağlı değilse önce geri
+  // bağlanmayı dener (şifreyle girişte msAccount boş kalır). Hâlâ bağlı değilse mail
+  // GİTMEZ: yalnızca mailto taslağı açılır, onu da tarayıcı engelleyebilir. Eskiden bu
+  // durumda "RFQ N firmaya gönderildi" toast'ı çıkıyor, tedarikçiye hiç mail gitmediği
+  // hâlde gönderildi sanılıyordu.
+  const msGirisYapildi = await msBaglantiHazirla();
+  if (!msGirisYapildi) {
+    const devam = confirm('⚠ Microsoft 365 BAĞLI DEĞİL — RFQ maili GÖNDERİLEMEZ.\n\n'
+      + 'Devam ederseniz her tedarikçi için Outlook taslağı açılmaya çalışılır; mailleri ELLE\n'
+      + 'göndermeniz gerekir (tarayıcı açılır pencereyi engellerse taslak bile açılmaz).\n\n'
+      + 'Önerilen: İPTAL edin, sağ üstteki "365 Yok" rozetine tıklayıp Microsoft 365 ile\n'
+      + 'bağlanın, sonra tekrar gönderin.\n\nYine de taslak olarak devam edilsin mi?');
+    if (!devam) { showToast('⛔ RFQ gönderilmedi — önce Microsoft 365 bağlantısını kurun.'); return; }
+  }
+
   const firmalar = Array.from(rfqSeciliTedarikciler);
   const firmaMap = rfqFirmaMap();
 
@@ -8463,7 +8479,7 @@ async function rfqMailGonder() {
   document.getElementById('td-durum-badge').innerHTML = durumTalepBadge('RFQ Gönderildi');
   veriKaydet(); // RFQ durumu + seçilen tedarikçiler ortak sunucuya yazılsın (no kesin olsa da)
 
-  const msGirisYapildi = !!(aktifKullanici?.msAccount && msGraphToken);
+  // msGirisYapildi yukarıda (talep durumu değişmeden önce) belirlendi
   let basarili = 0;
   let basarisiz = 0;
 
@@ -8554,13 +8570,19 @@ async function rfqMailGonder() {
   rfqManuelTedarikciler = [];
   rfqManuelEklenenlerGoster();
 
+  const mailsizStr = mailsiz.length ? ' · ' + mailsiz.length + ' firmada e-posta yok' : '';
   if (msGirisYapildi) {
-    const hataStr   = basarisiz ? ' · ' + basarisiz + ' hata' : '';
-    const mailsizStr = mailsiz.length ? ' · ' + mailsiz.length + ' firmada e-posta yok' : '';
-    showToast('✅ ' + basarili + " firma Outlook'tan gönderildi!" + hataStr + mailsizStr);
+    const hataStr = basarisiz ? ' · ⛔ ' + basarisiz + ' firmaya GİDEMEDİ' : '';
+    if (!basarili) {
+      alert('⛔ Hiçbir RFQ maili gönderilemedi (' + basarisiz + ' hata).\n\nMicrosoft 365 bağlantınızı kontrol edip tekrar deneyin.');
+      showToast('⛔ RFQ gönderilemedi — hiçbir tedarikçiye mail gitmedi.');
+    } else showToast('✅ ' + basarili + " firma Outlook'tan gönderildi!" + hataStr + mailsizStr);
   } else {
-    const mailsizStr2 = mailsiz.length ? ' · ' + mailsiz.length + ' firmada e-posta yok' : '';
-    showToast('RFQ ' + basarili + ' firmaya gönderildi!' + mailsizStr2);
+    // Mail GİTMEDİ — yalnızca taslak açıldı; kullanıcı gönderildiğini sanmasın.
+    alert('⚠ Microsoft 365 bağlı olmadığı için MAİL GÖNDERİLMEDİ.\n\n'
+      + basarili + ' tedarikçi için Outlook taslağı açılmaya çalışıldı — her birini ELLE göndermeniz gerekir.'
+      + (mailsiz.length ? '\n\n' + mailsiz.length + ' firmada kayıtlı e-posta yok.' : ''));
+    showToast('⚠ Mail GİTMEDİ — yalnızca taslak açıldı (Microsoft 365 bağlı değil).');
   }
 }
 
@@ -9149,7 +9171,7 @@ async function rfqTekrarGonder(firma) {
 
   veriKaydet();
 
-  const msGirisYapildi = !!(aktifKullanici?.msAccount && msGraphToken);
+  const msGirisYapildi = await msBaglantiHazirla();   // bağlı değilse önbellekten geri bağlanmayı dener
   if (msGirisYapildi) {
     try {
       await msTokenYenile(aktifKullanici.msAccount);
@@ -9166,7 +9188,9 @@ async function rfqTekrarGonder(firma) {
           saveToSentItems: true
         })
       });
-      showToast(resp.ok ? '✅ ' + kacinciStr + ' gönderildi!' : 'Mail gönderilemedi.');
+      showToast((resp.ok || resp.status === 202)
+        ? '✅ ' + kacinciStr + ' gönderildi!'
+        : '⛔ Mail GÖNDERİLEMEDİ (Graph ' + resp.status + ') — tekrar deneyin.');
     } catch(e) { showToast('Hata: ' + e.message); }
   } else {
     const bodyText = 'Sayın ' + isim + ',\n\n' + t.no + ' numaralı fiyat teklifi talebimize henüz yanıt alamadık.\n\n'
@@ -9175,7 +9199,7 @@ async function rfqTekrarGonder(firma) {
       + '\n\nBirim fiyat, teslim süresi ve ödeme koşullarını iletirseniz seviniriz.'
       + imzaMetni();
     window.open('mailto:' + f.mailler[0] + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(bodyText));
-    showToast(kacinciStr + ' hazırlandı!');
+    showToast('⚠ Microsoft 365 bağlı değil — mail GİTMEDİ, ' + kacinciStr.toLowerCase() + ' taslağı açıldı; elle göndermelisiniz.');
   }
 }
 
@@ -11317,7 +11341,7 @@ async function teklifMailGonderEt() {
   } catch(e) { console.warn('PDF olusturulamadi, eksiz gonderiliyor:', e); }
 
   // Office 365 ile gönder
-  const msGirisYapildi = !!(aktifKullanici?.msAccount && msGraphToken);
+  const msGirisYapildi = await msBaglantiHazirla();   // bağlı değilse önbellekten geri bağlanmayı dener
   if (msGirisYapildi) {
     try {
       await msTokenYenile(aktifKullanici.msAccount);
@@ -12836,6 +12860,9 @@ async function loginYap() {
     aktifKullanici = k;
     localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: k.id, username: k.username }));
     document.getElementById('login-screen').style.display = 'none';
+    // MS 365 oturumunu geri bağla: şifreyle giriş msAccount'u saklamaz, bu yüzden
+    // mail gönderimi ve gelen kutusu taraması sessizce ölüyordu (bkz. msOturumGeriYukle).
+    try { await msOturumGeriYukle(); } catch (_) {}
     // Sunucudan veriyi yükle
     await apiVeriYukle();
     // Admin ise auth kullanıcılarını çekip yerel kayıtlara sunucu id'sini eşle
@@ -12864,6 +12891,7 @@ async function loginYap() {
   k.sonGiris = new Date().toLocaleString('tr-TR');
   aktifKullanici = k;
   localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({ id: k.id, username: k.username }));
+  try { await msOturumGeriYukle(); } catch (_) {}   // şifreyle girişte MS hesabını geri bağla
   document.getElementById('login-screen').style.display = 'none';
   rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
   stzUyariBaslat(); onayBadgeGuncelle(); gorevBadgeGuncelle();
@@ -16582,10 +16610,73 @@ function msTokenAutoRefreshKur() {
 // Açılışta saklı MS hesabıyla sessiz token al + periyodik yenileyiciyi başlat
 async function msOturumGeriYukle() {
   msStatusGuncelle();
-  if (!aktifKullanici?.msAccount) return;
   try { await msalHazirla(); } catch {}
+  // ŞİFREYLE giriş yapıldıysa aktifKullanici.msAccount BOŞ gelir — loginYap oturumu
+  // yalnız {id, username} olarak saklar. Backend JWT'si 8 saatte dolduğu için ekip her
+  // sabah şifreyle giriyor ve o andan itibaren msAccount kayboluyordu: RFQ mailleri
+  // sessizce mailto taslağına düşüyor, gelen kutusu HİÇ taranmıyordu. MSAL önbelleği
+  // (localStorage) hesabı hâlâ tutuyorsa geri bağla.
+  if (aktifKullanici && !aktifKullanici.msAccount) {
+    const acc = _msOnbellekHesabi();
+    if (acc) msHesabiBagla(acc);
+  }
+  if (!aktifKullanici?.msAccount) { msStatusGuncelle(); _msBagliDegilUyar(); return; }
   await msTokenYenile(aktifKullanici.msAccount);
   msTokenAutoRefreshKur();
+  if (!msGraphToken) _msBagliDegilUyar();
+}
+
+// Mail gönderimi ve gelen kutusu taraması MS 365 bağlantısına bağlı. Bağlantı yoksa
+// kullanıcı bunu topbar rozetinden değil, doğrudan uyarıdan görsün — aksi halde RFQ'ların
+// gitmediği ancak tedarikçi aramayınca fark ediliyor. Sayfa başına bir kez gösterilir.
+let _msBagliDegilUyarildi = false;
+function _msBagliDegilUyar() {
+  if (_msBagliDegilUyarildi || !aktifKullanici) return;
+  _msBagliDegilUyarildi = true;
+  if (typeof showToast === 'function') {
+    showToast('⚠ Microsoft 365 bağlı değil — mail GÖNDERİLEMEZ ve gelen mailler taranmaz. Sağ üstteki "365 Yok" rozetine tıklayıp bağlanın.');
+  }
+}
+
+// MSAL önbelleğinde aktif kullanıcıya AİT hesap var mı? Eşleşme yalnızca e-posta/username
+// üzerinden yapılır — ortak bilgisayarda bir başkasının hesabından mail göndermeyelim.
+function _msOnbellekHesabi() {
+  try {
+    if (!msalInstance || !aktifKullanici) return null;
+    const hesaplar = msalInstance.getAllAccounts?.() || [];
+    if (!hesaplar.length) return null;
+    const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+    const hedef = [norm(aktifKullanici.email), norm(aktifKullanici.username)].filter(x => x.includes('@'));
+    if (!hedef.length) return null;
+    return hesaplar.find(a => hedef.includes(norm(a && a.username))) || null;
+  } catch (e) { console.warn('MSAL önbellek hesabı okunamadı:', e); return null; }
+}
+
+// Bulunan hesabı aktif kullanıcıya + yerel kayda + localStorage'a yaz ki sayfa
+// yenilendiğinde de bağlı kalsın (kullanıcı tekrar "Microsoft ile giriş"e basmasın).
+function msHesabiBagla(account) {
+  if (!account || !aktifKullanici) return;
+  aktifKullanici.msAccount = account;
+  if (!aktifKullanici.email && account.username) aktifKullanici.email = account.username;
+  const i = KULLANICILAR.findIndex(k => k.id === aktifKullanici.id);
+  if (i >= 0) KULLANICILAR[i] = { ...KULLANICILAR[i], msAccount: account };
+  try {
+    localStorage.setItem('emonfast_aktifkullanici', JSON.stringify({
+      id: aktifKullanici.id, username: aktifKullanici.username, msAccount: account,
+    }));
+  } catch (e) { console.warn('MS hesabı saklanamadı:', e); }
+}
+
+// Mail gönderimi/taraması öncesi TEK kapı: bağlı mı? Bağlı değilse önbellekten geri
+// bağlanmayı ve sessiz token yenilemeyi dener. Dönüş: gerçekten gönderilebilir mi.
+async function msBaglantiHazirla() {
+  if (!aktifKullanici) return false;
+  if (aktifKullanici.msAccount) {
+    try { await msTokenYenile(aktifKullanici.msAccount); } catch {}
+    if (msGraphToken) return true;
+  }
+  await msOturumGeriYukle();
+  return !!(aktifKullanici.msAccount && msGraphToken);
 }
 
 async function graphGet(endpoint) {
@@ -18067,7 +18158,7 @@ async function revizeTalebiGonderVeKaydet() {
     + imzaHtml()
     + '</div></body></html>';
 
-  const msGirisYapildi = !!(aktifKullanici?.msAccount && msGraphToken);
+  const msGirisYapildi = await msBaglantiHazirla();   // bağlı değilse önbellekten geri bağlanmayı dener
   if (msGirisYapildi) {
     try {
       await msTokenYenile(aktifKullanici.msAccount);
@@ -18084,11 +18175,13 @@ async function revizeTalebiGonderVeKaydet() {
           saveToSentItems: true
         })
       });
-      showToast(resp.ok ? '✅ Revize talebi gönderildi!' : 'Mail gönderilemedi.');
+      showToast((resp.ok || resp.status === 202)
+        ? '✅ Revize talebi gönderildi!'
+        : '⛔ Mail GÖNDERİLEMEDİ (Graph ' + resp.status + ') — tekrar deneyin.');
     } catch(e) { showToast('Hata: ' + e.message); }
   } else {
     window.open('mailto:' + mailTo + '?subject=' + encodeURIComponent(subject));
-    showToast('Revize maili açıldı.');
+    showToast('⚠ Microsoft 365 bağlı değil — mail GİTMEDİ, yalnızca taslak açıldı; elle göndermelisiniz.');
   }
 }
 
@@ -21213,10 +21306,21 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
 }
 
 // ── Çekirdek tarama (Faz 1: manuel buton; Faz 2: interval, sessiz=true) ──
+// Arka plan taramasında MS bağlantısı yoksa uyarıyı bir kez göster (her turda toast basma)
+let _otoTalepMsUyariGosterildi = false;
 async function otoTalepTara(sessiz = false, zorla = false) {
   const cfg = otoTalepCfg();
   if (!cfg.aktif && !zorla) { if (!sessiz) showToast('Önce "Gelen Maillerden Talep" özelliğini açın.'); return; }
-  if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
+  // MS 365 bağlı değilse önce geri bağlanmayı DENE (şifreyle girişte msAccount boş kalır ve
+  // periyodik tarama iz bırakmadan ölüyordu — "gelen mailler algılanmıyor" şikâyetinin nedeni).
+  if (!(await msBaglantiHazirla())) {
+    cfg.sonRapor = { hata: 'Microsoft 365 bağlı değil — gelen kutusu okunamıyor. Sağ üstteki "365 Yok" rozetine tıklayıp bağlanın.' };
+    try { otoTalepDurumGuncelle(); } catch (_) {}
+    if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli — gelen kutusu taranamadı.');
+    else if (!_otoTalepMsUyariGosterildi) { _otoTalepMsUyariGosterildi = true; showToast('⚠ Microsoft 365 bağlı değil — gelen mail taraması DURDU. Sağ üstteki "365 Yok" rozetine tıklayın.'); }
+    return;
+  }
+  _otoTalepMsUyariGosterildi = false;
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
 
   const btn = document.getElementById('oto-talep-tara-btn');
@@ -21583,8 +21687,9 @@ function teklifTaramaDurdur() {
 let _teklifTaraCalisiyor = false;
 async function teklifYanitlariTara(sessiz) {
   if (_teklifTaraCalisiyor) return; // üst üste tarama olmasın
-  // Önkoşullar (manuel taramada kullanıcıyı bilgilendir; sessizde sessizce çık)
-  if (!(aktifKullanici?.msAccount && msGraphToken)) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli.'); return; }
+  // Önkoşullar (manuel taramada kullanıcıyı bilgilendir; sessizde sessizce çık).
+  // Bağlantı kapısı msBaglantiHazirla(): şifreyle girişte kaybolan MS hesabını geri bağlar.
+  if (!(await msBaglantiHazirla())) { if (!sessiz) showToast('⚠ Microsoft 365 girişi gerekli — yanıtlar taranamadı.'); return; }
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) { if (!sessiz) showToast('⚠ Claude API key gerekli (Ayarlar > Entegrasyonlar).'); return; }
   _teklifTaraCalisiyor = true;
   const say = () => (otoTalepCfg().taslaklar || []).filter(x => x.tip === 'onay' || x.tip === 'revizyon').length;
