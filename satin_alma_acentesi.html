@@ -23429,6 +23429,30 @@ async function _veriPush(veri) {
         if (t && t.fiyatOnayTalep && 'satisTablosu' in t.fiyatOnayTalep) delete t.fiyatOnayTalep.satisTablosu;
       });
     }
+    // ── MÜKERRER MÜŞTERİ KİLİDİ (2026-09-08) ────────────────────────────
+    // Backend veri-guard v1: gelen liste mevcut SATIR sayısının yarısından azsa o
+    // koleksiyonu HİÇ yazmaz (katastrofik tablo kaybı koruması). Müşteriler sunucuda
+    // mükerrer çoğaldıysa (canlıda 42 firma × 3 satır = 126) _mergeMusteriler'in ürettiği
+    // tekil 42 kayıt "yarıdan fazlası kayboluyor" sanılıp düşürülüyordu → tablo mükerrer
+    // hâlde KİLİTLİ kalıyor, dedup hiçbir zaman uygulanamıyordu (büyüme eşiğin üstünde
+    // olduğu için serbest, küçülme altında kaldığı için imkânsız).
+    // Guard'ın kendi bypass bayrağını YALNIZ şu iki koşul birlikte sağlanınca set et:
+    //   (1) sunucuda gerçekten mükerrer satır var (satır sayısı > benzersiz firma sayısı),
+    //   (2) gönderilen pakette hiçbir firma EKSİLMİYOR (distinct >= sunucunun distinct'i).
+    // Böylece yalnız fazla KOPYALAR düşer; bu bayrakla gerçek müşteri kaybı mümkün değil.
+    // Tablo tekilleşince koşul kendiliğinden sağlanmaz olur → bayrak bir daha set edilmez.
+    try {
+      const _sM  = Array.isArray(sunucu.MUSTERILER) ? sunucu.MUSTERILER : [];
+      const _gM  = Array.isArray(gonderilecek.MUSTERILER) ? gonderilecek.MUSTERILER : [];
+      const _sAd = new Set(_sM.map(m => String(m && m.firma)));
+      const _gAd = new Set(_gM.map(m => String(m && m.firma)));
+      if (_sM.length > _sAd.size && _gAd.size >= _sAd.size) {
+        gonderilecek.musterilerKasten = true;
+        console.info('[musteri-dedup] sunucu:', _sM.length, 'satır /', _sAd.size,
+          'firma → tekilleştirilmiş', _gM.length, 'kayıt yazılıyor (veri-guard bypass).');
+      }
+    } catch (_) {}
+
     // ── TALEP DELTA YOLU ────────────────────────────────────────────────
     // Talepler her kayıtta bütün hâlinde gidiyordu; gövde talep sayısıyla büyüyüp
     // ~10 MB'lık backend sınırına dayanınca 413 ile TÜM kullanıcıların yazması ölür.
@@ -23478,7 +23502,8 @@ async function _veriPush(veri) {
       // sunucudan gelip merge'e katılan kayıtlarını içermez → baz sunucu gerçeğiyle
       // tutarsız kalırdı. Gönderilen snapshot baz olunca sonraki diff'ler doğru.
       const yeniBaz = JSON.parse(JSON.stringify(gonderilecek));
-      delete yeniBaz.taleplerKasten; // meta bayrak; sunucu verisinin parçası değil
+      delete yeniBaz.taleplerKasten;   // meta bayrak; sunucu verisinin parçası değil
+      delete yeniBaz.musterilerKasten; // (mükerrer dedup bypass bayrağı — veri değil)
       _sunucuBaz = yeniBaz;
       _kayitGerekli = false; _taleplerKastenSilindi = false;
       _senkronBandGuncelle('ok'); // sunucuya başarıyla yazıldı → uyarı bandı kalksın
