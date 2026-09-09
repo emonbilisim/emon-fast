@@ -1076,6 +1076,8 @@
         </div>
       </div>
 
+      <div id="td-teklif-klon-uyari" style="display:none;"></div>
+
       <div class="table-wrap">
         <table>
           <thead><tr><th>Tedarikçi</th><th>Ürün</th><th>Birim Fiyat (₺)</th><th>Toplam (₺)</th><th>Teslim Süresi</th><th>Geçerlilik</th><th>Ödeme</th><th>Not</th><th></th></tr></thead>
@@ -9217,6 +9219,7 @@ function renderTalepTeklifleri() {
   });
 
   if (empty) empty.style.display = liste.length === 0 ? 'block' : 'none';
+  tkKlonUyariGuncelle(liste); // ad değişiminden kalan bayat kopyalar (bkz _tkBayatKopyaMi)
 
   if (liste.length > 0 && TALEPLER[aktifTalepIdx].durum === 'RFQ Gönderildi') {
     TALEPLER[aktifTalepIdx].durum = 'Teklifler Bekleniyor';
@@ -9226,6 +9229,152 @@ function renderTalepTeklifleri() {
   }
   teklifleriKarsilastir();
   renderRfqDurumu();
+}
+
+/* ── MANUEL TEKLİF SATIRI: HAYALET/KLON ÜREMESİ (2026-09-09, TLP-00298 / TLP-00299) ──
+   Senkron merge'i teklif satırlarını TEDARİKÇİ ADIYLA anahtarlar
+   (_mergeObje → _mergeDizi(..., r => r.tedarikci)) ve UNION modundadır (noDelete):
+   anahtarı değişen bir satırın ESKİ hâli sunucuda düşmez. Manuel RFQ girişinde ad
+   kullanıcı tarafından yazıldığı için anahtar giriş boyunca DEĞİŞİR ve her ara hâl
+   (1 sn'lik kayıt debounce'u araya girdikçe) sunucuda AYRI satır olarak birikir:
+       '' (yeni satır) → 'ANI' → 'ANIL TEL' → 'ANIL TELEKOM'
+   Sonuç: ekranda kendiliğinden beliren BOŞ manuel giriş satırları (TLP-00299) ve
+   aynı tedarikçinin fiyatları birkaç yarım kopyaya BÖLÜNMÜŞ hâli (TLP-00298).
+   Fiyatı girilmiş bir satırın adı sonradan düzeltildiğinde de aynısı olur: satır
+   fiyatlarıyla birlikte KLONLANIR.
+   Üç katmanlı çözüm:
+     (1) ad değişince ESKİ anahtar _silinenTeklifSatir'a yazılır → union hayaleti düşürür
+         (geri-yazım/backspace için yeni adın anahtarı setten ÇIKARILIR),
+     (2) adsız + içeriksiz satır sunucuya HİÇ gitmez (taslak: yalnız bu cihazda),
+     (3) sunucuya giden gövdede adsız-içeriksiz satırlar ayıklanır → birikmiş
+         hayaletler ilk kayıtta temizlenir (bkz. _teklifHayaletAyikla). */
+function _tkDoluDeger(v) {
+  if (v == null || v === '' || v === false) return false;
+  if (typeof v === 'number') return v > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).some(k => _tkDoluDeger(v[k]));
+  return String(v).trim() !== '';
+}
+// Satırda tedarikçi adı DIŞINDA bir bilgi var mı? (fiyat, muadil, not, teslim, ödeme...)
+const _TK_KIMLIK_ALAN = ['tedarikci', '_manuelMod', '_taslak'];
+function _tkIcerikVar(tk) {
+  if (!tk || typeof tk !== 'object') return false;
+  return Object.keys(tk).some(k => !_TK_KIMLIK_ALAN.includes(k) && _tkDoluDeger(tk[k]));
+}
+// Adsız VE içeriksiz satır = hiçbir şey anlatmayan hayalet. Yalnız yerelde (taslak
+// olarak) yaşayabilir; ortak veriye yazılmaz.
+function _tkHayaletMi(tk) {
+  return !String((tk && tk.tedarikci) || '').trim() && !_tkIcerikVar(tk);
+}
+/* talepTeklifleri nesnesindeki hayalet satırları ayıkla. Kaç satır düştüğünü döndürür.
+   Sunucuya giden gövdede ve yerel açılışta çağrılır. */
+function _teklifHayaletAyikla(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  let dusen = 0;
+  for (const k of Object.keys(obj)) {
+    const liste = obj[k];
+    if (!Array.isArray(liste)) continue;
+    const temiz = liste.filter(tk => !_tkHayaletMi(tk));
+    if (temiz.length !== liste.length) { dusen += liste.length - temiz.length; obj[k] = temiz; }
+    // _taslak yalnız cihaz-içi bayrak: ortak veriye sızmasın
+    obj[k] = (obj[k] || []).map(tk => {
+      if (tk && tk._taslak) { const { _taslak, ...kalan } = tk; return kalan; }
+      return tk;
+    });
+  }
+  return dusen;
+}
+
+/* ── BAYAT KOPYA (KLON) TESPİTİ — birikmiş mükerrer satırların temizliği ──
+   Ad değişimi klonlaması düzeltilmeden önce sunucuda birikmiş satırlar için. Bir satır,
+   BAŞKA bir satırın bayat kopyasıdır ancak ve ancak:
+     • hedefin adı dolu, kendi adı boş VEYA hedefin adının BAŞLANGICI ('ANI' ⊂ 'ANIL TELEKOM'),
+     • dolu olan her alanı hedefte AYNI değerle mevcut (fiyatı farklıysa → bağımsız satır,
+       dokunulmaz; aynı tedarikçinin muadil ürün satırları da farklı fiyat/muadil taşır).
+   Otomatik SİLİNMEZ: kullanıcıya gösterilir, onayıyla silinir. */
+const _TK_KIYAS_HARIC = ['tedarikci', '_manuelMod', '_taslak', 'birimFiyat']; // birimFiyat türetilmiş (ortalama)
+function _tkBayatKopyaMi(a, b) {
+  if (!a || !b) return false;
+  const norm = tk => String((tk && tk.tedarikci) || '').trim().toLocaleLowerCase('tr');
+  const aa = norm(a), bb = norm(b);
+  if (!bb) return false;                       // hedefin adı yoksa "tamamlanmış hâli" sayılmaz
+  if (aa && !bb.startsWith(aa)) return false;  // ad, hedefin adının başlangıcı değil → başka tedarikçi
+  for (const k of Object.keys(a)) {
+    if (_TK_KIYAS_HARIC.includes(k) || !_tkDoluDeger(a[k])) continue;
+    if (k === 'urunFiyatlari') {
+      const ua = a.urunFiyatlari || {}, ub = b.urunFiyatlari || {};
+      for (const fk of Object.keys(ua)) {
+        if (!_tkDoluDeger(ua[fk])) continue;
+        if (JSON.stringify(ua[fk]) !== JSON.stringify(ub[fk])) return false; // farklı fiyat/muadil
+      }
+      continue;
+    }
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+  }
+  return true;
+}
+// Bayat kopya olan satırların indeksleri. Karşılıklı (birebir aynı) kopyalarda
+// EN AZ BİR satır hayatta kalır: zaten klon işaretlenmiş satır "hedef" sayılmaz.
+function _tkKlonIndeksleri(liste) {
+  const klon = new Set();
+  for (let i = 0; i < liste.length; i++) {
+    for (let j = 0; j < liste.length; j++) {
+      if (i === j || klon.has(j)) continue;
+      if (_tkBayatKopyaMi(liste[i], liste[j])) { klon.add(i); break; }
+    }
+  }
+  return Array.from(klon).sort((a, b) => a - b);
+}
+
+function tkKlonUyariGuncelle(liste) {
+  const el = document.getElementById('td-teklif-klon-uyari');
+  if (!el) return;
+  const klonlar = _tkKlonIndeksleri(liste || []);
+  if (!klonlar.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  const esc = x => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const adlar = klonlar.map(i => (liste[i].tedarikci || '').trim() || '(adsız satır)');
+  el.style.cssText = 'margin:0 16px 12px;padding:10px 12px;border:1px solid rgba(240,180,41,0.35);'
+    + 'background:rgba(240,180,41,0.10);border-radius:var(--radius);font-size:12px;display:flex;'
+    + 'align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;';
+  el.innerHTML = '<div>⚠ <b>' + klonlar.length + ' satır</b>, başka bir satırın yarım kalmış kopyası görünüyor'
+    + ' (' + adlar.map(a => '<b>' + esc(a) + '</b>').join(', ') + ').'
+    + ' <span style="color:var(--text3);">Fiyatları farklı olan satırlara dokunulmaz.</span></div>'
+    + '<button class="btn btn-sm" onclick="tkKlonlariTemizle()">🧹 Kopyaları Temizle</button>';
+}
+
+function tkKlonlariTemizle() {
+  const t = TALEPLER[aktifTalepIdx];
+  const liste = talepTeklifleri[t?.no];
+  if (!liste) return;
+  const klonlar = _tkKlonIndeksleri(liste);
+  if (!klonlar.length) { showToast('Temizlenecek kopya satır yok.'); return; }
+  const ozet = klonlar.map(i => '• ' + ((liste[i].tedarikci || '').trim() || '(adsız satır)')).join('\n');
+  if (!confirm(klonlar.length + ' bayat kopya teklif satırı silinecek:\n\n' + ozet
+      + '\n\nBu satırlardaki her bilgi, kalan satırda aynen mevcut. Devam edilsin mi?')) return;
+  // Yüksek indeksten aşağı: silme anahtarı (pozisyonlu) kayan indeksten etkilenmesin
+  klonlar.slice().sort((a, b) => b - a).forEach(i => {
+    _silinenTeklifSatir.add(_teklifSilmeAnahtari(t.no, liste, i));
+    liste.splice(i, 1);
+  });
+  renderTalepTeklifleri();
+  veriKaydet();
+  showToast('🧹 ' + klonlar.length + ' mükerrer teklif satırı temizlendi.');
+}
+
+/* Tazelemede (pull) sunucudan gelen teklif listesi için:
+     1) birikmiş hayalet satırları ekrandan da düşür (kaç tane düştüğünü döndürür →
+        çağıran bir kayıt tetikleyip sunucuyu da temizler),
+     2) kullanıcının AZ ÖNCE açtığı boş satırı (taslak) koru — o satır sunucuya hiç
+        yazılmadığı için gelen listede yoktur ve 45 sn'lik tazeleme onu ekrandan
+        silmemelidir. */
+function _teklifTaslakKoru(gelen) {
+  const dusen = _teklifHayaletAyikla(gelen);
+  Object.keys(talepTeklifleri).forEach(no => {
+    if (!Array.isArray(gelen[no])) return;                       // sunucuda bu talep yok → dokunma
+    const taslaklar = (talepTeklifleri[no] || []).filter(tk => tk && tk._taslak && _tkHayaletMi(tk));
+    if (taslaklar.length) gelen[no] = gelen[no].concat(taslaklar);
+  });
+  return dusen;
 }
 
 function yeniTeklifSatirEkle() {
@@ -9242,12 +9391,15 @@ function yeniTeklifSatirEkle() {
   talepTeklifleri[t.no].push({
     tedarikci: eklenecek,
     _manuelMod: manuelMod,
+    ...(eklenecek ? {} : { _taslak: true }), // adsız satır: doldurulana kadar YALNIZ bu cihazda
     birimFiyat: 0,
     urunFiyatlari: {},
     teslimat: '', gecerlilik: '', odeme: '', not: '', webLink: ''
   });
   renderTalepTeklifleri();
-  veriKaydet(); // yeni teklif satırı ortak sunucuya yazılsın
+  // Boş taslağı sunucuya YAZMA: adı/verisi yokken yazılırsa, ad girildiğinde merge
+  // anahtarı değişeceği için sunucuda boş satır olarak KALIRDI (TLP-00299).
+  if (eklenecek) veriKaydet();
 }
 
 function tkManuelModa(tkIdx) {
@@ -9278,7 +9430,21 @@ function tkWebSil(tkIdx) {
 function talepTeklifGuncelle(i, alan, deger) {
   const t = TALEPLER[aktifTalepIdx];
   if (!talepTeklifleri[t.no] || !talepTeklifleri[t.no][i]) return;
-  talepTeklifleri[t.no][i][alan] = alan==='birimFiyat' ? parseFloat(deger)||0 : deger;
+  const liste = talepTeklifleri[t.no];
+  if (alan === 'tedarikci') {
+    // MERGE ANAHTARI SATIRIN ADIDIR → ad değişince satır sunucuda KLONLANIR (union,
+    // noDelete: eski anahtarlı satır düşmez). Eski anahtarı emekliye ayır ki birleşme
+    // hayaleti düşürsün; yeni adın anahtarını setten ÇIKAR (kullanıcı harf silerek
+    // önceki bir ada dönerse kendi satırını sildirmesin).
+    const eskiAd = String(liste[i].tedarikci || '');
+    const yeniAd = String(deger == null ? '' : deger);
+    if (eskiAd !== yeniAd) {
+      _silinenTeklifSatir.add(_teklifSilmeAnahtari(t.no, liste, i));
+      const on = String(t.no) + '|' + yeniAd + '#';
+      Array.from(_silinenTeklifSatir).forEach(k => { if (k.startsWith(on)) _silinenTeklifSatir.delete(k); });
+    }
+  }
+  liste[i][alan] = alan==='birimFiyat' ? parseFloat(deger)||0 : deger;
   // Toplam güncelle
   if (alan === 'birimFiyat') {
     const top = document.getElementById(`tk-toplam-${i}`);
@@ -22779,7 +22945,13 @@ async function apiVeriYukle() {
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
     if (veri.TALEP_TOMBSTONE)  { Object.assign(TALEP_TOMBSTONE, veri.TALEP_TOMBSTONE); _talepTombstoneFiltrele(); } // silinen talepler geri gelmesin
-    if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
+    if (veri.talepTeklifleri)  {
+      const _hayaletDusen = _teklifTaslakKoru(veri.talepTeklifleri);
+      Object.assign(talepTeklifleri, veri.talepTeklifleri);
+      // Sunucuda hayalet satır kalmışsa (eski sürümlü sekmeden gelmiş olabilir) temiz
+      // hâli geri yaz — aksi halde her tazelemede yeniden ayıklamak gerekirdi.
+      if (_hayaletDusen) setTimeout(veriKaydet, 1500);
+    }
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
     if (veri.AYARLAR)          Object.assign(AYARLAR, veri.AYARLAR);
     if (veri.ONAY_BEKLEYENLER) { Object.assign(ONAY_BEKLEYENLER, veri.ONAY_BEKLEYENLER); onayBekleyenTombstoneFiltrele(); }
@@ -23429,6 +23601,15 @@ async function _veriPush(veri) {
         if (t && t.fiyatOnayTalep && 'satisTablosu' in t.fiyatOnayTalep) delete t.fiyatOnayTalep.satisTablosu;
       });
     }
+    // ── HAYALET TEKLİF SATIRLARI (2026-09-09) ───────────────────────────
+    // Adsız + hiçbir verisi olmayan teklif satırları ortak veriye yazılmaz. Manuel RFQ
+    // girişinde merge anahtarı (tedarikçi adı) yazım sırasında değiştiği için sunucuda
+    // birikmiş boş satırlar da böylece ilk kayıtta temizlenir (TLP-00299).
+    if (gonderilecek.talepTeklifleri) {
+      const _hayalet = _teklifHayaletAyikla(gonderilecek.talepTeklifleri);
+      if (_hayalet) console.info('[teklif-hayalet]', _hayalet, 'boş teklif satırı gönderilen gövdeden ayıklandı.');
+    }
+
     // ── MÜKERRER MÜŞTERİ KİLİDİ (2026-09-08) ────────────────────────────
     // Backend veri-guard v1: gelen liste mevcut SATIR sayısının yarısından azsa o
     // koleksiyonu HİÇ yazmaz (katastrofik tablo kaybı koruması). Müşteriler sunucuda
@@ -23806,7 +23987,7 @@ function veriYukle() {
     if (Array.isArray(veri.MUSTERILER))   { MUSTERILER.length = 0;   MUSTERILER.push(...veri.MUSTERILER); }
     if (Array.isArray(veri.TEDARIKCILER)) { TEDARIKCILER.length = 0; TEDARIKCILER.push(...veri.TEDARIKCILER); }
     if (veri.TALEP_TOMBSTONE)  { Object.assign(TALEP_TOMBSTONE, veri.TALEP_TOMBSTONE); _talepTombstoneFiltrele(); } // silinen talepler geri gelmesin
-    if (veri.talepTeklifleri)  Object.assign(talepTeklifleri, veri.talepTeklifleri);
+    if (veri.talepTeklifleri)  { Object.assign(talepTeklifleri, veri.talepTeklifleri); _teklifHayaletAyikla(talepTeklifleri); }
     if (veri.talepSayac)       talepSayac = veri.talepSayac;
     if (veri.FP_KURALLAR)      Object.assign(FP_KURALLAR, veri.FP_KURALLAR);
     if (veri.dovizKurlari)     Object.assign(dovizKurlari, veri.dovizKurlari);
