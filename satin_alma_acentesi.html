@@ -7670,6 +7670,10 @@ function talepDetayAc(idx) {
   const t = TALEPLER[idx];
   aktifTalepNo = t?.no ?? null;   // kararlı kimlik — tazelemede indeks kaysa da doğru talep
   if (!talepTeklifleri[t.no]) talepTeklifleri[t.no] = [];
+  // "+ Teklif Ekle" ile açılıp DOLDURULMAMIŞ satırlar bu cihazda taslak olarak yaşar
+  // (sunucuya hiç yazılmaz). Talebe tekrar girildiğinde ekranda durmaları "sistem
+  // kendiliğinden boş satır ekledi" gibi görünüyordu → her açılışta temizle.
+  talepTeklifleri[t.no] = talepTeklifleri[t.no].filter(tk => !_tkHayaletMi(tk));
 
   // Başlık (geçici no'da temiz numara + GEÇİCİ rozeti gösterilir)
   document.getElementById('td-baslik').innerHTML = `${talepNoEtiket(t)} — ${String(t.urun||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}`;
@@ -9380,6 +9384,12 @@ function _teklifTaslakKoru(gelen) {
 function yeniTeklifSatirEkle() {
   const t = TALEPLER[aktifTalepIdx];
   if (!talepTeklifleri[t.no]) talepTeklifleri[t.no] = [];
+  // Zaten doldurulmamış boş bir satır varsa İKİNCİSİNİ açma — art arda tıklama
+  // ekranı boş satırlarla dolduruyordu.
+  if (talepTeklifleri[t.no].some(tk => _tkHayaletMi(tk))) {
+    showToast('Boş bir teklif satırı zaten açık — önce onu doldurun.');
+    return;
+  }
   const mevcutlar = talepTeklifleri[t.no].map(x => x.tedarikci);
   const rfqFirmalar = Array.from(rfqSeciliTedarikciler);
   const eklenecek = rfqFirmalar.find(f => !mevcutlar.includes(f)) || '';
