@@ -8853,6 +8853,7 @@ function talepTeklifUrunFiyatGuncelle(tkIdx, urunIdx, deger, para) {
   talepTeklifleri[t.no][tkIdx].birimFiyat = fiyatlar.length ? fiyatlar.reduce((a,b)=>a+b,0)/fiyatlar.length : 0;
 
   teklifleriKarsilastir();
+  satisTablosunuTazele();   // maliyet değişti → satış tablosu bayat kalmasın (TLP-00307)
   setTimeout(veriKaydet, 500);
 }
 
@@ -9233,6 +9234,9 @@ function renderTalepTeklifleri() {
   }
   teklifleriKarsilastir();
   renderRfqDurumu();
+  // Satır ekleme/silme, para birimi değişimi, Outlook'tan gelen teklif, revize fiyat…
+  // hepsi buradan geçer → satış tablosu da aynı veriyi göstersin (TLP-00307)
+  satisTablosunuTazele();
 }
 
 /* ── MANUEL TEKLİF SATIRI: HAYALET/KLON ÜREMESİ (2026-09-09, TLP-00298 / TLP-00299) ──
@@ -9461,6 +9465,7 @@ function talepTeklifGuncelle(i, alan, deger) {
     const val = parseFloat(deger)||0;
     if (top) top.textContent = val ? (val*(parseInt(t.miktar)||1)).toLocaleString('tr-TR')+'₺' : '—';
     teklifleriKarsilastir();
+    satisTablosunuTazele();   // tek ürünlü talepte maliyet birimFiyat'tan gelir (TLP-00307)
     setTimeout(veriKaydet, 500);
   } else {
     setTimeout(veriKaydet, 500);
@@ -9518,7 +9523,13 @@ function karsFiyatsizAcKapa() {
 function teklifleriKarsilastir() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
-  const liste = (talepTeklifleri[t.no]||[]).filter(x => x.birimFiyat > 0 || Object.keys(x.urunFiyatlari||{}).filter(k=>!k.includes('_')).length > 0);
+  // "Fiyatı olan" teklif satırları. İkinci koşul ÖLÜ koddu: urunFiyatlari anahtarlarının
+  // hepsi 'fiyat_0' biçiminde, yani hepsi '_' içeriyor → filtre hiç eşleşmiyordu ve satır
+  // yalnızca türetilmiş birimFiyat'a bakılarak eleniyordu. Fiyat yazılı ama birimFiyat'ı
+  // (eski kayıt / kısmi merge) 0 kalmış satır karşılaştırmadan düşüyordu.
+  const _fiyatliSatir = x => x.birimFiyat > 0
+    || Object.keys(x.urunFiyatlari || {}).some(k => /^fiyat_\d+$/.test(k) && x.urunFiyatlari[k] > 0);
+  const liste = (talepTeklifleri[t.no]||[]).filter(_fiyatliSatir);
   const el = document.getElementById('td-karsilastirma-icerik');
   if (!el) return;
   if (liste.length === 0) {
@@ -9849,9 +9860,32 @@ function satisParaSecModal(paralar) {
   });
 }
 
-function satisHesaplaTablosu() {
+/* ── SATIŞ FİYATLAMA TABLOSU TEKLİFLERLE BİRLİKTE TAZELENİR (2026-09-14, TLP-00307) ──
+   Teklif girişi (talepTeklifUrunFiyatGuncelle / talepTeklifGuncelle) yalnızca
+   teklifleriKarsilastir() çağırıyordu: elle girilen teklif KARŞILAŞTIRMA tablosuna
+   anında düşüyor, aşağıdaki "Satış Fiyatlama" tablosu ise açılıştaki hâliyle BAYAT
+   kalıyordu → yeni/manuel teklif orada hiç görünmüyor, talebi kapatıp açınca geliyor.
+   (Aynısı Outlook'tan teklif alma, revize fiyat, satır silme için de geçerliydi.)
+   satisTablosunuTazele() tek geçit: yalnız O TALEP için zaten hesaplanmış tabloyu,
+   modal açmadan ve kısa bir gecikmeyle yeniden hesaplar. */
+let _satisAktifTalepNo = null;   // satış tablosu en son HANGİ talep için hesaplandı
+let _satisTazeleTimer  = null;
+function satisTablosunuTazele() {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t || _satisAktifTalepNo !== t.no) return;          // başka talep / henüz hesaplanmadı
+  const tbody = document.getElementById('satis-urun-tbody');
+  if (!tbody || !tbody.rows.length) return;               // tablo ekranda yok → dokunma
+  clearTimeout(_satisTazeleTimer);
+  // Fiyat input'u oninput ile her tuşta tetikleniyor — tabloyu her tuşta değil,
+  // yazma durunca bir kez yeniden kur.
+  _satisTazeleTimer = setTimeout(() => satisHesaplaTablosu({ modalsiz: true }), 250);
+}
+
+function satisHesaplaTablosu(secenek) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
+  // Argümansız da çağrılıyor (oninput/onchange) — secenek yoksa eski davranış aynen sürer
+  const modalsiz = !!(secenek && secenek.modalsiz);
 
   const tbody     = document.getElementById('satis-urun-tbody');
   const toplamEl  = document.getElementById('satis-toplam');
@@ -9979,13 +10013,21 @@ function satisHesaplaTablosu() {
     return isNaN(h) ? null : h;
   }
 
-  // Karışık döviz varsa ve toplam para birimi seçilmemişse sor
-  if (kullanilanParalar.size > 1 && !satisToplamPara) {
+  // Karışık döviz varsa ve toplam para birimi seçilmemişse sor.
+  // modalsiz: teklif girişinden gelen otomatik tazelemede (satisTablosunuTazele) modal
+  // AÇILMAZ — kullanıcı tedarikçi fiyatını yazarken ekrana modal atmak girişi keser.
+  // Toplam geçici olarak ₺ gösterilir; başlıktaki "💱 Değiştir" butonu zaten duruyor.
+  if (kullanilanParalar.size > 1 && !satisToplamPara && !modalsiz) {
     satisParaSecModal(kullanilanParalar);
     return;
   }
   const toplamPara = satisToplamPara || (kullanilanParalar.size === 1 ? [...kullanilanParalar][0] : 'TRY');
   const toplamSembol = paraSembolu[toplamPara] || '₺';
+
+  // Tablo bu talep için hesaplandı → teklif değişikliklerinde otomatik tazelenebilir
+  // (bkz. satisTablosunuTazele). talepDetayAc'ın marjları sıfırlamadan ÖNCEKİ ilk
+  // render'ını tetiklememek için bu damga şart.
+  _satisAktifTalepNo = t.no;
 
   tbody.innerHTML = '';
   let genelToplamTL = 0;
