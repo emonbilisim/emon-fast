@@ -4719,7 +4719,7 @@ function tedIkizUyariGuncelle() {
   el.innerHTML = bolum1 + bolum2;
 }
 
-function tedIkizleriTemizle() {
+async function tedIkizleriTemizle() {
   if (aktifKullanici?.rol !== 'admin') { showToast('Bu temizlik için admin yetkisi gerekli.'); return; }
   const ikizler = _tedIkizler();
   if (!ikizler.length) { showToast('Temizlenecek bayat satır yok.'); return; }
@@ -4727,21 +4727,40 @@ function tedIkizleriTemizle() {
     + (o.farklar.length ? ' — ' + o.farklar.map(f => f.alan + ': ' + f.eski + ' → ' + f.yeni).join(', ')
                         : ' — birebir kopya')).join('\n');
   const kalan = TEDARIKCILER.length - ikizler.length;
-  // Backend veri-guard v1: gelen liste mevcut satır sayısının yarısından azsa o koleksiyonu
-  // HİÇ yazmaz (bkz. mükerrer müşteri kilidi). Kullanıcı sessiz redde şaşırmasın.
-  const guardUyari = (kalan * 2 < TEDARIKCILER.length)
-    ? '\n\n⚠ Liste yarıdan fazla küçülüyor — sunucunun veri koruması bu yazmayı reddedebilir.'
-      + ' Reddedilirse temizliği parça parça yapın (önce bir kısmını elle silin).'
-    : '';
   if (!confirm(ikizler.length + ' bayat tedarikçi satırı silinecek (' + TEDARIKCILER.length
-      + ' → ' + kalan + '):\n\n' + ozet + '\n\nDevam edilsin mi?' + guardUyari)) return;
+      + ' → ' + kalan + '):\n\n' + ozet + '\n\nDevam edilsin mi?')) return;
+
   // Yüksekten aşağı sil: splice'ın kaydırdığı indeks bir sonraki silmeyi bozmasın.
-  ikizler.map(o => o.i).sort((x, y) => y - x).forEach(i => {
-    _silinenTedarikciKeyler.add(_canon(TEDARIKCILER[i]));   // union merge geri getirmesin
+  const silinenler = ikizler.map(o => o.i).sort((x, y) => y - x);
+  const yedek = JSON.parse(JSON.stringify(TEDARIKCILER));   // doğrulama tutmazsa geri dönülecek
+  const kanitSatir = JSON.parse(JSON.stringify(TEDARIKCILER[silinenler[0]]));
+  const mezarlar = [];
+  silinenler.forEach(i => {
+    const key = _canon(TEDARIKCILER[i]);
+    _silinenTedarikciKeyler.add(key);                        // union merge geri getirmesin
+    mezarlar.push(key);
     TEDARIKCILER.splice(i, 1);
   });
   filterTedarikciler();
-  kaliciVeriKaydet('Mükerrer tedarikçi temizliği');
+
+  /* SESSİZ RET KAPISI: backend veri-guard'ı koleksiyonu yok sayıp yine 200 dönebilir
+     (bkz. MÜKERRER TEDARİKÇİ KİLİDİ). Eskiden bunu doğrulamadan "temizlendi" diyorduk;
+     kullanıcı silip silip aynı uyarıyı görüyordu. Yazımı sunucuda KANITLA: silinen örnek
+     satır hâlâ orada duruyorsa temizlik uygulanmamıştır → yerel listeyi geri al ki ekran
+     sunucuyla tutarsız kalmasın, ve nedeni açıkça söyle. */
+  const _tOk = await kaliciVeriKaydet('Mükerrer tedarikçi temizliği');
+  const _tKanit = _tOk && !(await _sunucudaVarMi('TEDARIKCILER', r => _canon(r) === _canon(kanitSatir)));
+  if (!_tKanit) {
+    TEDARIKCILER.length = 0; TEDARIKCILER.push(...yedek);
+    // Mezar taşlarını da geri al: yazım başarısızsa set TEMİZLENMEZ ve geri yüklenen
+    // satırları bir sonraki (oto-retry) yazımında merge'de düşürürdü.
+    mezarlar.forEach(k => _silinenTedarikciKeyler.delete(k));
+    filterTedarikciler();
+    showToast(_tOk
+      ? '⛔ Sunucu temizliği kabul etmedi (veri koruması) — hiçbir satır silinmedi. Daha küçük partiler hâlinde deneyin.'
+      : '⛔ Temizlik sunucuya YAZILAMADI (bağlantı?) — hiçbir satır silinmedi.');
+    return;
+  }
   showToast('🧹 ' + ikizler.length + ' bayat tedarikçi satırı temizlendi.');
 }
 
@@ -23960,6 +23979,30 @@ async function _veriPush(veri) {
       }
     } catch (_) {}
 
+    // ── MÜKERRER TEDARİKÇİ KİLİDİ (2026-09-22) ──────────────────────────
+    // Müşterideki kilidin aynısı, TEDARIKCILER için. Backend veri-guard v1 bu tablo için
+    // de tedarikcilerKasten bayrağını tanıyor ama istemci onu HİÇ göndermiyordu: düzenleme
+    // ikizlerinin temizliği (bkz. _tedIkizler) listeyi yarıdan fazla küçülttüğünde sunucu
+    // koleksiyonu sessizce yok sayıp yine 200 dönüyordu → istemci "kaydedildi" sanıp mezar
+    // taşlarını temizliyor, sonraki tazeleme silinen satırları geri getiriyordu
+    // ("sil dedim, uyarı yine geliyor").
+    // Bayrak YALNIZ satır sayısı azalırken ve HİÇBİR FİRMA eksilmezken set edilir: temizlik
+    // aynı firmanın fazla satırlarını düşürür, bir tedarikçiyi tamamen yok etmez. Bir firmanın
+    // TÜM satırları siliniyorsa (gerçek tedarikçi silme) bayrak set EDİLMEZ ve guard devrede
+    // kalır — bu bayrakla tedarikçi kaybı mümkün değil.
+    try {
+      const _adKume = arr => new Set((Array.isArray(arr) ? arr : [])
+        .map(r => String((r && r[0]) || '').trim().toLocaleLowerCase('tr')).filter(Boolean));
+      const _sT = Array.isArray(sunucu.TEDARIKCILER) ? sunucu.TEDARIKCILER : [];
+      const _gT = Array.isArray(gonderilecek.TEDARIKCILER) ? gonderilecek.TEDARIKCILER : [];
+      const _sAdT = _adKume(_sT), _gAdT = _adKume(_gT);
+      if (_gT.length && _gT.length < _sT.length && _gAdT.size >= _sAdT.size) {
+        gonderilecek.tedarikcilerKasten = true;
+        console.info('[tedarikci-dedup] sunucu:', _sT.length, 'satır /', _sAdT.size,
+          'firma → gönderilen', _gT.length, 'satır /', _gAdT.size, 'firma (veri-guard bypass).');
+      }
+    } catch (_) {}
+
     // ── TALEP DELTA YOLU ────────────────────────────────────────────────
     // Talepler her kayıtta bütün hâlinde gidiyordu; gövde talep sayısıyla büyüyüp
     // ~10 MB'lık backend sınırına dayanınca 413 ile TÜM kullanıcıların yazması ölür.
@@ -24011,6 +24054,7 @@ async function _veriPush(veri) {
       const yeniBaz = JSON.parse(JSON.stringify(gonderilecek));
       delete yeniBaz.taleplerKasten;   // meta bayrak; sunucu verisinin parçası değil
       delete yeniBaz.musterilerKasten; // (mükerrer dedup bypass bayrağı — veri değil)
+      delete yeniBaz.tedarikcilerKasten;
       _sunucuBaz = yeniBaz;
       _kayitGerekli = false; _taleplerKastenSilindi = false;
       _senkronBandGuncelle('ok'); // sunucuya başarıyla yazıldı → uyarı bandı kalksın
