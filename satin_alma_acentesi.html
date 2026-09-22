@@ -1567,6 +1567,9 @@
       </div>
     </div>
 
+    <!-- Düzenlemeden kalan bayat ikiz satırlar (bkz. _tedIkizler) -->
+    <div id="ted-ikiz-uyari" style="display:none;"></div>
+
     <div class="card" style="padding:0;overflow:hidden;">
       <div class="table-wrap">
         <table>
@@ -4490,6 +4493,258 @@ function aramaKucult(s) {
     .replace(/ğ/g, 'g').replace(/ö/g, 'o').replace(/ü/g, 'u');
 }
 
+/* ── AYNI TEDARİKÇİNİN BAYAT İKİZLERİ (2026-09-22) ──────────────────────────
+   TEDARIKCILER senkronda UNION modunda ve "ilk 5 alan" anahtarıyla birleşir:
+       _mergeDizi(..., r => JSON.stringify(r.slice(0, 5)), true)
+   Anahtar = firma · ürün grubu · ilgili kişi · telefon · mail. Bu alanlardan biri
+   DÜZENLENİNCE satırın anahtarı değişir; union modunda "yerelde yok" asla silme
+   sayılmadığı için sunucudaki ESKİ hâl düşmez → aynı tedarikçi her düzenlemede bir
+   satır daha üretir. (Teklif satırlarındaki TLP-00298/299 ile aynı sınıf hata.)
+   Düzenleme yolları artık eski satırı _silinenTedarikciKeyler'e yazıyor; aşağıdaki
+   tarama, o düzeltmeden ÖNCE birikmiş satırları bulur.
+   OTOMATİK SİLİNMEZ: kullanıcıya farklarıyla gösterilir, onayıyla silinir. */
+const _tedNorm = v => String(v == null ? '' : v).trim().toLocaleLowerCase('tr');
+const _tedTel  = v => String(v == null ? '' : v).replace(/[^0-9]/g, '');
+const _TED_ALAN_AD = ['Firma', 'Ürün grubu', 'İlgili kişi', 'Telefon', 'E-posta'];
+
+/* a'daki değer, b'dekinin "daha eksik hâli" mi? Boş / aynı / yazımın yarısı
+   ('ANI' ⊂ 'ANIL TELEKOM' — düzenleme sırasında debounce'a yakalanan ara hâl). */
+function _tedAltDeger(a, b, telMi) {
+  const av = telMi ? _tedTel(a) : _tedNorm(a);
+  const bv = telMi ? _tedTel(b) : _tedNorm(b);
+  if (!av || av === '—') return true;        // a boş → b daha dolu
+  if (av === bv) return true;
+  return !!bv && bv.startsWith(av);
+}
+// a'nın ek kişileri b'de de var mı? (eski satırda daha AZ kişi olur, fazlası olmaz)
+function _tedEkKisiAltKume(a, b) {
+  const anahtar = k => _tedNorm(k && (k.mail || k.ad)) + '|' + _tedTel(k && k.tel);
+  const bset = new Set((Array.isArray(b) ? b : []).map(anahtar));
+  return (Array.isArray(a) ? a : []).every(k => bset.has(anahtar(k)));
+}
+
+/* a satırı, b satırının bayat (düzenlenmeden önceki) hâli mi?
+   Yalnız b HER alanda a kadar veya daha dolu ise evet. a'da b'de olmayan tek bir
+   bilgi varsa → bağımsız satır, DOKUNULMAZ (aynı firmanın farklı ürün grubu satırı
+   meşrudur: 'HP SARF' ile 'HP DONANIM' birbirinin ikizi sayılmaz). */
+function _tedBayatIkizMi(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  const fa = _tedNorm(a[0]);
+  if (!fa || fa !== _tedNorm(b[0])) return false;            // farklı firma → ilgisiz
+  for (let i = 1; i <= 4; i++) if (!_tedAltDeger(a[i], b[i], i === 3)) return false;
+  // Ödeme/kargo şartı firma geneli tutulur (bkz. tedKondisyonYay) → ikizlerde aynı olmalı.
+  // Farklıysa satır bilinçli ayrışmış olabilir: dokunma.
+  for (const i of [5, 6]) {
+    const av = a[i];
+    if (av && typeof av === 'object' && Object.keys(av).length && _canon(av) !== _canon(b[i])) return false;
+  }
+  return _tedEkKisiAltKume(a[7], b[7]);
+}
+
+// İki satır arasında hangi kimlik alanı değişmiş? (kullanıcıya gösterilecek gerekçe)
+function _tedFarklar(a, b) {
+  const fark = [];
+  for (let i = 1; i <= 4; i++) {
+    const av = String(a[i] == null ? '' : a[i]).trim();
+    const bv = String(b[i] == null ? '' : b[i]).trim();
+    const ayni = i === 3 ? _tedTel(av) === _tedTel(bv) : _tedNorm(av) === _tedNorm(bv);
+    if (!ayni) fark.push({ alan: _TED_ALAN_AD[i], eski: av || '(boş)', yeni: bv || '(boş)' });
+  }
+  return fark;
+}
+
+/* Bayat ikiz satırların listesi: [{ i: silinecek, j: kalacak, farklar }]
+   Firma bazında gruplanır (tüm liste üzerinde O(n²) taramak yerine). Karşılıklı
+   (birebir aynı) kopyalarda EN AZ BİR satır hayatta kalır: klon işaretlenmiş satır
+   bir başkasına "hedef" sayılmaz. */
+function _tedIkizler() {
+  const gruplar = new Map();
+  TEDARIKCILER.forEach((r, i) => {
+    const f = _tedNorm(r && r[0]);
+    if (!f) return;
+    if (!gruplar.has(f)) gruplar.set(f, []);
+    gruplar.get(f).push(i);
+  });
+  const hedefe = new Map();          // i → j (zincir çözümü için)
+  const out = [];
+  gruplar.forEach(idxler => {
+    if (idxler.length < 2) return;
+    const klon = new Set();
+    for (const i of idxler) {
+      for (const j of idxler) {
+        if (i === j || klon.has(j)) continue;
+        if (_tedBayatIkizMi(TEDARIKCILER[i], TEDARIKCILER[j])) {
+          klon.add(i); hedefe.set(i, j); out.push({ i, j });
+          break;
+        }
+      }
+    }
+  });
+  // i → j → k zinciri: kullanıcıya "kalacak satır" olarak ZİNCİRİN SONUNU göster,
+  // yoksa hedef olarak kendisi de silinecek bir satır gösterilir.
+  out.forEach(o => {
+    let h = o.j, guard = 0;
+    while (hedefe.has(h) && guard++ < 50) h = hedefe.get(h);
+    o.j = h;
+    o.farklar = _tedFarklar(TEDARIKCILER[o.i], TEDARIKCILER[o.j]);
+  });
+  return out;
+}
+
+/* ── 2. KATMAN: ŞÜPHELİ ÇİFTLER ─────────────────────────────────────────────
+   Bir alan tamamen DEĞİŞTİRİLDİYSE (AHMET → MEHMET KAYA) içerikten hangisinin eski
+   olduğu anlaşılmaz: iki satır da "dolu". Bu yüzden otomatik silinmez. Ama aynı
+   firmanın aynı ürün grubunda İKİ satırın kimliği büyük ölçüde örtüşüyorsa (aynı
+   e-posta, ya da üç kimlik alanından ikisi aynı) bu neredeyse her zaman tek kaydın
+   düzenlenmiş iki hâlidir — kullanıcıya çift olarak gösterilir, hangisinin kalacağına
+   O karar verir.
+   Ürün grubu FARKLI olan satırlar kapsam dışıdır: aynı kişinin hem DONANIM hem SARF
+   satırında durması meşrudur ve kural olarak çift sayılmamalıdır. */
+function _tedSupheliCiftMi(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (!_tedNorm(a[0]) || _tedNorm(a[0]) !== _tedNorm(b[0])) return false;
+  const ua = _tedNorm(a[1]), ub = _tedNorm(b[1]);
+  if (ua && ub && ua !== ub) return false;                  // farklı ürün grubu → meşru ayrı satır
+  const mailAyni = !!_tedNorm(a[4]) && _tedNorm(a[4]) === _tedNorm(b[4]);
+  const kisiAyni = !!_tedNorm(a[2]) && _tedNorm(a[2]) === _tedNorm(b[2]);
+  // Santral numarası iki farklı kişide de aynı olur → tek başına delil sayılmaz,
+  // yalnız başka bir alanla BİRLİKTE sayılır. Kısa/yarım numaralar hiç sayılmaz.
+  const telAyni  = _tedTel(a[3]).length >= 7 && _tedTel(a[3]) === _tedTel(b[3]);
+  const uyusma = (mailAyni ? 1 : 0) + (kisiAyni ? 1 : 0) + (telAyni ? 1 : 0);
+  if (!mailAyni && uyusma < 2) return false;
+  return _canon(a.slice(0, 5)) !== _canon(b.slice(0, 5));   // birebir aynıysa 1. katmanın işi
+}
+
+/* Şüpheli çiftler: [{ i, j, ortak, farklar }] — i her zaman j'den küçük indeks.
+   1. katmanda zaten silinecek satırlar kapsam dışı. */
+function _tedSupheliCiftler(ikizIdx) {
+  const haric = new Set(ikizIdx || []);
+  const ciftler = [];
+  const eslesen = new Set();
+  // Firma bazında grupla: tarama her arama tuşunda yeniden koşuyor, tüm liste üzerinde
+  // O(n²) karşılaştırma büyük tedarikçi listesinde yazmayı takılmalı hâle getirir.
+  const gruplar = new Map();
+  TEDARIKCILER.forEach((r, i) => {
+    const f = _tedNorm(r && r[0]);
+    if (!f || haric.has(i)) return;
+    if (!gruplar.has(f)) gruplar.set(f, []);
+    gruplar.get(f).push(i);
+  });
+  for (const idxler of gruplar.values()) {
+    if (idxler.length < 2) continue;
+    for (const i of idxler) {
+    if (eslesen.has(i)) continue;
+    for (const j of idxler) {
+      if (j <= i || eslesen.has(j)) continue;
+      if (!_tedSupheliCiftMi(TEDARIKCILER[i], TEDARIKCILER[j])) continue;
+      const a = TEDARIKCILER[i], b = TEDARIKCILER[j];
+      const ortak = _tedNorm(a[4]) && _tedNorm(a[4]) === _tedNorm(b[4])
+        ? 'aynı e-posta: ' + String(a[4]).trim()
+        : (_tedNorm(a[2]) && _tedNorm(a[2]) === _tedNorm(b[2]) ? 'aynı kişi: ' + String(a[2]).trim()
+                                                              : 'aynı telefon: ' + String(a[3]).trim());
+      ciftler.push({ i, j, ortak, farklar: _tedFarklar(a, b) });
+      eslesen.add(i); eslesen.add(j);
+      break;                                  // bir satır tek çiftte gösterilsin
+    }
+    }
+  }
+  ciftler.sort((x, y) => x.i - y.i);
+  return ciftler;
+}
+
+// Satırın kimlik alanlarını tek satırlık okunur metne çevir
+function _tedSatirOzet(r) {
+  return [r[1], r[2], r[3], r[4]].map(v => String(v == null ? '' : v).trim())
+    .filter(v => v && v !== '—').join(' · ') || '(boş satır)';
+}
+
+let _tedIkizDetayAcik = false;
+function tedIkizDetayAc() {
+  _tedIkizDetayAcik = !_tedIkizDetayAcik;
+  const d = document.getElementById('ted-ikiz-detay');
+  if (d) d.style.display = _tedIkizDetayAcik ? 'block' : 'none';
+}
+
+function tedIkizUyariGuncelle() {
+  const el = document.getElementById('ted-ikiz-uyari');
+  if (!el) return;
+  const ikizler = _tedIkizler();
+  const ciftler = _tedSupheliCiftler(ikizler.map(o => o.i));
+  if (!ikizler.length && !ciftler.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  const isAdmin = aktifKullanici?.rol === 'admin';
+  const farkYazi = f => f.length
+    ? f.map(x => _htmlKacir(x.alan) + ': <s style="color:var(--text3);">' + _htmlKacir(x.eski)
+        + '</s> → <b>' + _htmlKacir(x.yeni) + '</b>').join(' &nbsp;·&nbsp; ')
+    : '<span style="color:var(--text3);">birebir aynı satır</span>';
+
+  // 1. katman — kesin bayat satırlar (toplu silinebilir)
+  const bolum1 = !ikizler.length ? '' :
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">'
+    + '<div>⚠ <b>' + ikizler.length + ' satır</b>, aynı tedarikçinin <b>düzenlenmeden önceki hâli</b>.'
+    + ' <span style="color:var(--text3);">Bu satırlardaki her bilgi güncel satırda da mevcut.</span></div>'
+    + '<div style="display:flex;gap:8px;flex-shrink:0;">'
+    + '<button class="btn btn-sm" onclick="tedIkizDetayAc()" style="font-size:11px;">🔍 Listeyi Gör</button>'
+    + (isAdmin ? '<button class="btn btn-sm" onclick="tedIkizleriTemizle()" style="font-size:11px;color:var(--red);border-color:rgba(240,96,96,0.4);">🧹 Eski Satırları Sil</button>' : '')
+    + '</div></div>'
+    + '<div id="ted-ikiz-detay" style="display:' + (_tedIkizDetayAcik ? 'block' : 'none')
+    + ';margin-top:8px;line-height:1.7;max-height:280px;overflow:auto;">'
+    + ikizler.map(o => '<div style="padding:5px 0;border-top:1px dashed var(--border);"><b>'
+        + _htmlKacir(TEDARIKCILER[o.i][0] || '(firmasız)') + '</b> &nbsp; ' + farkYazi(o.farklar) + '</div>').join('')
+    + '</div>';
+
+  /* 2. katman — hangisinin eski olduğu içerikten anlaşılmayan çiftler. Otomatik silme YOK:
+     her çift iki satırıyla gösterilir, kullanıcı hangisini sileceğini seçer. Alttaki satır
+     "muhtemelen yenisi": merge, yerelde yeni beliren anahtarı listenin SONUNA ekler. */
+  const bolum2 = !ciftler.length ? '' :
+    (bolum1 ? '<div style="margin-top:10px;padding-top:9px;border-top:1px solid rgba(240,180,41,0.35);"></div>' : '')
+    + '<div>❓ <b>' + ciftler.length + ' çift</b> satır aynı kaydın iki hâli gibi görünüyor, ama hangisinin'
+    + ' güncel olduğu verilerden anlaşılmıyor. <span style="color:var(--text3);">Kalacak olanı siz seçin.</span></div>'
+    + '<div style="margin-top:6px;line-height:1.6;max-height:300px;overflow:auto;">'
+    + ciftler.map(c => {
+        const a = TEDARIKCILER[c.i], b = TEDARIKCILER[c.j];
+        const satir = (r, idx, sonuncu) =>
+          '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">'
+          + '<span style="flex:1;min-width:0;">' + (sonuncu ? '<b>' : '') + _htmlKacir(_tedSatirOzet(r)) + (sonuncu ? '</b>' : '')
+          + (sonuncu ? ' <span style="color:var(--text3);font-size:10px;">(muhtemelen yenisi)</span>' : '') + '</span>'
+          + (isAdmin ? '<button class="btn btn-sm" onclick="tedarikciSil(' + idx + ')" style="font-size:10px;padding:2px 7px;flex-shrink:0;color:var(--red);border-color:rgba(240,96,96,0.3);">🗑 bunu sil</button>' : '')
+          + '</div>';
+        return '<div style="padding:6px 0;border-top:1px dashed var(--border);">'
+          + '<div><b>' + _htmlKacir(a[0] || '(firmasız)') + '</b> <span style="color:var(--text3);">— '
+          + _htmlKacir(c.ortak) + '</span></div>' + satir(a, c.i, false) + satir(b, c.j, true) + '</div>';
+      }).join('')
+    + '</div>';
+
+  el.style.cssText = 'margin-bottom:16px;padding:10px 12px;border:1px solid rgba(240,180,41,0.35);'
+    + 'background:rgba(240,180,41,0.10);border-radius:var(--radius);font-size:12px;display:block;';
+  el.innerHTML = bolum1 + bolum2;
+}
+
+function tedIkizleriTemizle() {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Bu temizlik için admin yetkisi gerekli.'); return; }
+  const ikizler = _tedIkizler();
+  if (!ikizler.length) { showToast('Temizlenecek bayat satır yok.'); return; }
+  const ozet = ikizler.map(o => '• ' + (TEDARIKCILER[o.i][0] || '(firmasız)')
+    + (o.farklar.length ? ' — ' + o.farklar.map(f => f.alan + ': ' + f.eski + ' → ' + f.yeni).join(', ')
+                        : ' — birebir kopya')).join('\n');
+  const kalan = TEDARIKCILER.length - ikizler.length;
+  // Backend veri-guard v1: gelen liste mevcut satır sayısının yarısından azsa o koleksiyonu
+  // HİÇ yazmaz (bkz. mükerrer müşteri kilidi). Kullanıcı sessiz redde şaşırmasın.
+  const guardUyari = (kalan * 2 < TEDARIKCILER.length)
+    ? '\n\n⚠ Liste yarıdan fazla küçülüyor — sunucunun veri koruması bu yazmayı reddedebilir.'
+      + ' Reddedilirse temizliği parça parça yapın (önce bir kısmını elle silin).'
+    : '';
+  if (!confirm(ikizler.length + ' bayat tedarikçi satırı silinecek (' + TEDARIKCILER.length
+      + ' → ' + kalan + '):\n\n' + ozet + '\n\nDevam edilsin mi?' + guardUyari)) return;
+  // Yüksekten aşağı sil: splice'ın kaydırdığı indeks bir sonraki silmeyi bozmasın.
+  ikizler.map(o => o.i).sort((x, y) => y - x).forEach(i => {
+    _silinenTedarikciKeyler.add(_canon(TEDARIKCILER[i]));   // union merge geri getirmesin
+    TEDARIKCILER.splice(i, 1);
+  });
+  filterTedarikciler();
+  kaliciVeriKaydet('Mükerrer tedarikçi temizliği');
+  showToast('🧹 ' + ikizler.length + ' bayat tedarikçi satırı temizlendi.');
+}
+
 function filterTedarikciler() {
   const q = aramaKucult(document.getElementById('t-search').value);
   const cat = document.getElementById('t-cat').value;
@@ -4536,6 +4791,7 @@ function filterTedarikciler() {
   tEmptyEl.innerHTML = '<div class="empty-icon">🔍</div>Sonuç bulunamadı.';
   tEmptyEl.style.display = count === 0 ? 'block' : 'none';
   tedSecimGuncelle();
+  tedIkizUyariGuncelle();   // düzenlemeden kalan bayat ikiz satırlar (bkz. _tedIkizler)
 }
 
 function tedSecimGuncelle() {
@@ -4569,8 +4825,13 @@ function tedTopluSil() {
   if (!confirm(secili.length + ' tedarikçi silinecek. Emin misiniz?')) return;
   // Büyükten küçüğe sırala (index kaymaması için)
   secili.sort((a,b) => b-a);
-  secili.forEach(idx => TEDARIKCILER.splice(idx, 1));
-  veriKaydet();
+  secili.forEach(idx => {
+    // tedarikciSil ile aynı: union merge yalnız açıkça silineni düşürür. Mezar taşı
+    // yazılmazsa toplu silinen satırlar bir sonraki tazelemede geri geliyordu.
+    _silinenTedarikciKeyler.add(_canon(TEDARIKCILER[idx]));
+    TEDARIKCILER.splice(idx, 1);
+  });
+  kaliciVeriKaydet('Tedarikçi toplu silme');
   filterTedarikciler();
   showToast('✅ ' + secili.length + ' tedarikçi silindi.');
 }
@@ -4786,6 +5047,13 @@ function tedarikciGuncelle() {
         + '\n\nDevam edilsin mi?')) return;
   }
 
+  // İKİZLENME KAPISI: merge anahtarı satırın ilk 5 alanı (firma·ürün·kişi·tel·mail) ve
+  // mod UNION — anahtar değişince sunucudaki ESKİ satır düşmez, aynı tedarikçi her
+  // düzenlemede bir kart daha üretirdi. Silmedeki desenin aynısı: eski hâli açıkça
+  // mezara yaz ki union onu geri getirmesin (bkz. _silinenTedarikciKeyler, _tedIkizler).
+  if (eskiSatir && _canon(eskiSatir) !== _canon(yeniSatir)) {
+    _silinenTedarikciKeyler.add(_canon(eskiSatir));
+  }
   TEDARIKCILER[idx] = yeniSatir;
   if (kondisyonDegisti) tedKondisyonYay(firma, yeniSatir, idx);
   closeModal('duzenleTedarikci');
@@ -12965,6 +13233,11 @@ async function onayTedarikciKabul(i) {
     // tedarikciGuncelle ile aynı kural; onay yolundan geçince kaybolmasın.
     const _kondDegisti = tedKondisyonImza(TEDARIKCILER[hedef]) !== tedKondisyonImza(kayit.satir);
     const _tdEski = TEDARIKCILER[hedef];     // doğrulama başarısızsa geri dönülecek satır
+    // tedarikciGuncelle ile aynı ikizlenme kapısı: anahtar (ilk 5 alan) değiştiyse
+    // sunucudaki eski satırı mezara yaz, yoksa onay yolundan geçen her düzenleme de
+    // aynı tedarikçiden bir kart daha açar.
+    const _tdEskiKey = _tdEski ? _canon(_tdEski) : '';
+    if (_tdEskiKey && _tdEskiKey !== _canon(kayit.satir)) _silinenTedarikciKeyler.add(_tdEskiKey);
     TEDARIKCILER[hedef] = kayit.satir;
     let _yayilan = 0, _etkAcik = 0;
     if (_kondDegisti) {
@@ -12975,6 +13248,7 @@ async function onayTedarikciKabul(i) {
     const _tdKanit = _tdOk && await _sunucudaVarMi('TEDARIKCILER', r => tedSatirEslesir(r, kayit.satir));
     if (!_tdKanit) {
       TEDARIKCILER[hedef] = _tdEski;         // geri al — onay kaydı KORUNUR
+      if (_tdEskiKey) _silinenTedarikciKeyler.delete(_tdEskiKey); // mezar taşını da geri al
       filterTedarikciler(); onayModalAc();
       showToast(_tdOk
         ? '⛔ Değişiklik sunucuya yazıldı görünüyor ama SUNUCUDA DOĞRULANAMADI — uygulanmadı. Onay kaydı korundu.'
