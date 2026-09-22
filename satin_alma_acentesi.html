@@ -4745,7 +4745,19 @@ function tedIkizUyariGuncelle() {
    hiç güvenmeden de temizlik tamamlanabilsin diye her parti eşiğin ÜSTÜNDE kalır. */
 function _tedParti(mevcut) {
   if (mevcut < 4) return mevcut;                  // guard <4 satırda devrede değil
-  return Math.max(1, Math.ceil(mevcut * 0.5) - 1);
+  // %50 eşiğine YAPIŞMA: guard sunucudaki SATIR SAYISINI sayar, bizim listemizle birebir
+  // aynı olmayabilir (başka kullanıcının eklediği satır, bayat yerel kopya...). 491 satırda
+  // 245 silmek 246 bırakıyordu — eşik 245,5. Bir satırlık sapma partiyi reddettiriyordu.
+  // %40 sil / %60 bırak: sapmaya dayanıklı, birkaç partide yine tamamlanır.
+  return Math.max(1, Math.floor(mevcut * 0.4));
+}
+
+// Sunucudaki TEDARIKCILER satır sayısı (-1 = okunamadı)
+async function _tedSunucuSayi() {
+  try {
+    const ham = await apiVeriCekHam();
+    return Array.isArray(ham && ham.TEDARIKCILER) ? ham.TEDARIKCILER.length : -1;
+  } catch (_) { return -1; }
 }
 
 async function tedIkizleriTemizle() {
@@ -4768,7 +4780,7 @@ async function tedIkizleriTemizle() {
     if (!ikizler.length) break;
     const parti = ikizler.slice(0, _tedParti(TEDARIKCILER.length));
     const yedek = JSON.parse(JSON.stringify(TEDARIKCILER));   // doğrulama tutmazsa geri dönülecek
-    const kanitSatir = JSON.parse(JSON.stringify(TEDARIKCILER[parti[0].i]));
+    const sunucuOnce = await _tedSunucuSayi();
 
     // Anahtarlar SPLICE'TAN ÖNCE, tek seferde: pozisyon sayacı dizi kısaldıkça kayar.
     const idxler = parti.map(o => o.i).sort((x, y) => y - x);
@@ -4781,20 +4793,26 @@ async function tedIkizleriTemizle() {
     if (partiSay > 1) showToast('🧹 ' + tur + '. parti gönderiliyor (' + idxler.length + ' satır)...');
 
     /* SESSİZ RET KAPISI: backend koleksiyonu yok sayıp yine 200 dönebilir. Yazımı sunucuda
-       KANITLA — silinen örnek satır hâlâ oradaysa temizlik uygulanmamıştır → yerel listeyi
-       ve eklenen mezar taşlarını geri al, nedeni açıkça söyle. Eskiden doğrulamadan
-       "temizlendi" deniyordu; kullanıcı silip silip aynı uyarıyı görüyordu. */
+       KANITLA — ama SAYIYLA, "örnek satır sunucuda duruyor mu" ile DEĞİL: birebir aynı
+       satırlardan biri silinip öteki kaldığında canon eşleşmesi HAYATTA KALANI buluyor ve
+       başarılı yazımı "reddedildi" sanıyorduk (245 satırlık parti bu yüzden geri alındı).
+       Tablonun gerçekten küçüldüğünü ölç; küçülmediyse yerel listeyi ve eklenen mezar
+       taşlarını geri al, nedeni sayılarla söyle. */
     const _tOk = await kaliciVeriKaydet('Mükerrer tedarikçi temizliği');
-    const _tKanit = _tOk && !(await _sunucudaVarMi('TEDARIKCILER', r => _canon(r) === _canon(kanitSatir)));
+    const sunucuSonra = _tOk ? await _tedSunucuSayi() : -1;
+    const _tKanit = _tOk && sunucuOnce >= 0 && sunucuSonra >= 0 && sunucuSonra < sunucuOnce;
     if (!_tKanit) {
       TEDARIKCILER.length = 0; TEDARIKCILER.push(...yedek);
       // Mezar taşları da geri: yazım başarısızsa set TEMİZLENMEZ ve geri yüklenen
       // satırları bir sonraki (oto-retry) yazımında merge'de düşürürdü.
       anahtarlar.forEach(k => _silinenTedarikciSatir.delete(k));
       filterTedarikciler();
+      console.warn('[ted-temizlik] parti reddedildi — sunucu satır sayısı:',
+        sunucuOnce, '→', sunucuSonra, '· gönderilen parti:', idxler.length);
       showToast(_tOk
-        ? '⛔ Sunucu bu partiyi kabul etmedi — ' + idxler.length + ' satır geri alındı'
-          + (toplam ? ' (önceki ' + toplam + ' satır silinmiş durumda).' : '.')
+        ? '⛔ Sunucu bu partiyi kabul etmedi (sunucu ' + sunucuOnce + ' → ' + sunucuSonra
+          + ' satır) — ' + idxler.length + ' satır geri alındı'
+          + (toplam ? '. Önceki ' + toplam + ' satır silinmiş durumda.' : '.')
         : '⛔ Temizlik sunucuya YAZILAMADI (bağlantı?) — bu partide hiçbir satır silinmedi.');
       return;
     }
