@@ -4503,6 +4503,26 @@ function aramaKucult(s) {
    Düzenleme yolları artık eski satırı _silinenTedarikciKeyler'e yazıyor; aşağıdaki
    tarama, o düzeltmeden ÖNCE birikmiş satırları bulur.
    OTOMATİK SİLİNMEZ: kullanıcıya farklarıyla gösterilir, onayıyla silinir. */
+/* TEDARIKCILER merge anahtarı — TEK KAYNAK. _mergeDizi de, pozisyonlu silme filtresi de
+   bunu kullanır; ikisi ayrışırsa silme yanlış satıra denk gelir. */
+function _tedMergeAnahtar(r) { return JSON.stringify((r || []).slice(0, 5)); }
+
+/* liste[i] için pozisyonlu silme anahtarı ('kimlik#n'). Aynı kimlikten kaçıncı satır
+   olduğunu sayar; bu oturumda ZATEN silinmiş slotları atlar (bkz. _teklifSilmeAnahtari —
+   birden fazla kopya arka arkaya silinince sayaç kaymasın). */
+function _tedSilmeAnahtari(liste, i) {
+  const k = _tedMergeAnahtar(liste[i]);
+  let n = 0;
+  for (let j = 0; j < i; j++) if (_tedMergeAnahtar(liste[j]) === k) n++;
+  let slot = 0, gorulen = 0;
+  while (true) {
+    if (_silinenTedarikciSatir.has(k + '#' + slot)) { slot++; continue; }
+    if (gorulen === n) break;
+    gorulen++; slot++;
+  }
+  return k + '#' + slot;
+}
+
 const _tedNorm = v => String(v == null ? '' : v).trim().toLocaleLowerCase('tr');
 const _tedTel  = v => String(v == null ? '' : v).replace(/[^0-9]/g, '');
 const _TED_ALAN_AD = ['Firma', 'Ürün grubu', 'İlgili kişi', 'Telefon', 'E-posta'];
@@ -4719,49 +4739,68 @@ function tedIkizUyariGuncelle() {
   el.innerHTML = bolum1 + bolum2;
 }
 
+/* Bir yazımda güvenle silinebilecek EN FAZLA satır. Backend veri-guard v1, gelen liste
+   mevcut satır sayısının yarısından azsa koleksiyonu HİÇ yazmaz (ve yine 200 döner).
+   Bypass bayrağı (tedarikcilerKasten) yalnız hiçbir firma eksilmiyorsa set edilir; ona
+   hiç güvenmeden de temizlik tamamlanabilsin diye her parti eşiğin ÜSTÜNDE kalır. */
+function _tedParti(mevcut) {
+  if (mevcut < 4) return mevcut;                  // guard <4 satırda devrede değil
+  return Math.max(1, Math.ceil(mevcut * 0.5) - 1);
+}
+
 async function tedIkizleriTemizle() {
   if (aktifKullanici?.rol !== 'admin') { showToast('Bu temizlik için admin yetkisi gerekli.'); return; }
-  const ikizler = _tedIkizler();
-  if (!ikizler.length) { showToast('Temizlenecek bayat satır yok.'); return; }
-  const ozet = ikizler.map(o => '• ' + (TEDARIKCILER[o.i][0] || '(firmasız)')
+  const tumu = _tedIkizler();
+  if (!tumu.length) { showToast('Temizlenecek bayat satır yok.'); return; }
+  const ozet = tumu.map(o => '• ' + (TEDARIKCILER[o.i][0] || '(firmasız)')
     + (o.farklar.length ? ' — ' + o.farklar.map(f => f.alan + ': ' + f.eski + ' → ' + f.yeni).join(', ')
                         : ' — birebir kopya')).join('\n');
-  const kalan = TEDARIKCILER.length - ikizler.length;
-  if (!confirm(ikizler.length + ' bayat tedarikçi satırı silinecek (' + TEDARIKCILER.length
-      + ' → ' + kalan + '):\n\n' + ozet + '\n\nDevam edilsin mi?')) return;
+  const partiSay = Math.ceil(tumu.length / Math.max(1, _tedParti(TEDARIKCILER.length)));
+  if (!confirm(tumu.length + ' bayat tedarikçi satırı silinecek (' + TEDARIKCILER.length
+      + ' → ' + (TEDARIKCILER.length - tumu.length) + '):\n\n' + ozet
+      + (partiSay > 1 ? '\n\nℹ️ Sunucunun veri koruması tek yazımda yarıdan fazlasını kabul etmiyor;'
+          + ' temizlik ' + partiSay + ' partide yapılacak. Pencereyi kapatmayın.' : '')
+      + '\n\nDevam edilsin mi?')) return;
 
-  // Yüksekten aşağı sil: splice'ın kaydırdığı indeks bir sonraki silmeyi bozmasın.
-  const silinenler = ikizler.map(o => o.i).sort((x, y) => y - x);
-  const yedek = JSON.parse(JSON.stringify(TEDARIKCILER));   // doğrulama tutmazsa geri dönülecek
-  const kanitSatir = JSON.parse(JSON.stringify(TEDARIKCILER[silinenler[0]]));
-  const mezarlar = [];
-  silinenler.forEach(i => {
-    const key = _canon(TEDARIKCILER[i]);
-    _silinenTedarikciKeyler.add(key);                        // union merge geri getirmesin
-    mezarlar.push(key);
-    TEDARIKCILER.splice(i, 1);
-  });
-  filterTedarikciler();
+  let toplam = 0, tur = 0;
+  while (tur++ < 20) {
+    const ikizler = _tedIkizler();
+    if (!ikizler.length) break;
+    const parti = ikizler.slice(0, _tedParti(TEDARIKCILER.length));
+    const yedek = JSON.parse(JSON.stringify(TEDARIKCILER));   // doğrulama tutmazsa geri dönülecek
+    const kanitSatir = JSON.parse(JSON.stringify(TEDARIKCILER[parti[0].i]));
 
-  /* SESSİZ RET KAPISI: backend veri-guard'ı koleksiyonu yok sayıp yine 200 dönebilir
-     (bkz. MÜKERRER TEDARİKÇİ KİLİDİ). Eskiden bunu doğrulamadan "temizlendi" diyorduk;
-     kullanıcı silip silip aynı uyarıyı görüyordu. Yazımı sunucuda KANITLA: silinen örnek
-     satır hâlâ orada duruyorsa temizlik uygulanmamıştır → yerel listeyi geri al ki ekran
-     sunucuyla tutarsız kalmasın, ve nedeni açıkça söyle. */
-  const _tOk = await kaliciVeriKaydet('Mükerrer tedarikçi temizliği');
-  const _tKanit = _tOk && !(await _sunucudaVarMi('TEDARIKCILER', r => _canon(r) === _canon(kanitSatir)));
-  if (!_tKanit) {
-    TEDARIKCILER.length = 0; TEDARIKCILER.push(...yedek);
-    // Mezar taşlarını da geri al: yazım başarısızsa set TEMİZLENMEZ ve geri yüklenen
-    // satırları bir sonraki (oto-retry) yazımında merge'de düşürürdü.
-    mezarlar.forEach(k => _silinenTedarikciKeyler.delete(k));
+    // Anahtarlar SPLICE'TAN ÖNCE, tek seferde: pozisyon sayacı dizi kısaldıkça kayar.
+    const idxler = parti.map(o => o.i).sort((x, y) => y - x);
+    const anahtarlar = idxler.map(i => _tedSilmeAnahtari(TEDARIKCILER, i));
+    idxler.forEach((i, n) => {
+      _silinenTedarikciSatir.add(anahtarlar[n]);   // union merge yalnız BU satırı düşürsün
+      TEDARIKCILER.splice(i, 1);
+    });
     filterTedarikciler();
-    showToast(_tOk
-      ? '⛔ Sunucu temizliği kabul etmedi (veri koruması) — hiçbir satır silinmedi. Daha küçük partiler hâlinde deneyin.'
-      : '⛔ Temizlik sunucuya YAZILAMADI (bağlantı?) — hiçbir satır silinmedi.');
-    return;
+    if (partiSay > 1) showToast('🧹 ' + tur + '. parti gönderiliyor (' + idxler.length + ' satır)...');
+
+    /* SESSİZ RET KAPISI: backend koleksiyonu yok sayıp yine 200 dönebilir. Yazımı sunucuda
+       KANITLA — silinen örnek satır hâlâ oradaysa temizlik uygulanmamıştır → yerel listeyi
+       ve eklenen mezar taşlarını geri al, nedeni açıkça söyle. Eskiden doğrulamadan
+       "temizlendi" deniyordu; kullanıcı silip silip aynı uyarıyı görüyordu. */
+    const _tOk = await kaliciVeriKaydet('Mükerrer tedarikçi temizliği');
+    const _tKanit = _tOk && !(await _sunucudaVarMi('TEDARIKCILER', r => _canon(r) === _canon(kanitSatir)));
+    if (!_tKanit) {
+      TEDARIKCILER.length = 0; TEDARIKCILER.push(...yedek);
+      // Mezar taşları da geri: yazım başarısızsa set TEMİZLENMEZ ve geri yüklenen
+      // satırları bir sonraki (oto-retry) yazımında merge'de düşürürdü.
+      anahtarlar.forEach(k => _silinenTedarikciSatir.delete(k));
+      filterTedarikciler();
+      showToast(_tOk
+        ? '⛔ Sunucu bu partiyi kabul etmedi — ' + idxler.length + ' satır geri alındı'
+          + (toplam ? ' (önceki ' + toplam + ' satır silinmiş durumda).' : '.')
+        : '⛔ Temizlik sunucuya YAZILAMADI (bağlantı?) — bu partide hiçbir satır silinmedi.');
+      return;
+    }
+    toplam += idxler.length;
   }
-  showToast('🧹 ' + ikizler.length + ' bayat tedarikçi satırı temizlendi.');
+  showToast('🧹 ' + toplam + ' bayat tedarikçi satırı temizlendi.');
 }
 
 function filterTedarikciler() {
@@ -4844,10 +4883,12 @@ function tedTopluSil() {
   if (!confirm(secili.length + ' tedarikçi silinecek. Emin misiniz?')) return;
   // Büyükten küçüğe sırala (index kaymaması için)
   secili.sort((a,b) => b-a);
-  secili.forEach(idx => {
+  // Anahtarlar SPLICE'TAN ÖNCE, tek seferde: pozisyon sayacı dizi kısaldıkça kayar.
+  const _topluAnahtar = secili.map(idx => _tedSilmeAnahtari(TEDARIKCILER, idx));
+  secili.forEach((idx, s) => {
     // tedarikciSil ile aynı: union merge yalnız açıkça silineni düşürür. Mezar taşı
     // yazılmazsa toplu silinen satırlar bir sonraki tazelemede geri geliyordu.
-    _silinenTedarikciKeyler.add(_canon(TEDARIKCILER[idx]));
+    _silinenTedarikciSatir.add(_topluAnahtar[s]);
     TEDARIKCILER.splice(idx, 1);
   });
   kaliciVeriKaydet('Tedarikçi toplu silme');
@@ -5108,7 +5149,7 @@ function tedarikciSil(idx) {
   }
   const firma = TEDARIKCILER[idx][0];
   if (confirm(`"${firma}" tedarikçisini listeden silmek istediğinize emin misiniz?`)) {
-    _silinenTedarikciKeyler.add(_canon(TEDARIKCILER[idx])); // union merge yalnız açıkça silineni düşürsün
+    _silinenTedarikciSatir.add(_tedSilmeAnahtari(TEDARIKCILER, idx)); // union merge yalnız BU satırı düşürsün
     TEDARIKCILER.splice(idx, 1);
     filterTedarikciler();
     showToast(`"${firma}" silindi.`); kaliciVeriKaydet('Tedarikçi silme');
@@ -23624,6 +23665,11 @@ let _silinenMusteriFirmalar = new Set();
 // Gerçek silme YALNIZ bu setlerdeki kayıtlar için uygulanır. Push başarısında temizlenir
 // (kimlik canon/kompozit → aynı içerikle yeniden-ekleme filtrelenmesin). Bkz [[emon-fast-senkron-merge]].
 let _silinenTedarikciKeyler = new Set(); // tam-satır _canon
+/* POZİSYONLU silme anahtarı: 'JSON(ilk 5 alan)#n'. Tam-satır _canon yetmiyor, çünkü
+   aynı tedarikçinin BİREBİR AYNI birkaç satırı olabilir (ikizlenme birikimi): canon
+   anahtarı N kopyanın hepsini birden düşürür, hayatta kalması gereken satır dahil →
+   firma tamamen kaybolur. Teklif satırlarındaki _silinenTeklifSatir ile aynı desen. */
+let _silinenTedarikciSatir = new Set();
 let _silinenCrmIdler        = new Set(); // CRM_AKTIVITELER id
 let _silinenTeklifSatir     = new Set(); // talepTeklifleri satırı: 'talepNo|tedarikci#n' (bkz _teklifSilmeAnahtari)
 
@@ -23859,8 +23905,19 @@ function _mergeKaydet(local, server, base, noDelete = false) {
   sonuc.MUSTERILER      = _mergeMusteriler(base.MUSTERILER, local.MUSTERILER, server.MUSTERILER, _silinenMusteriFirmalar);
   // TEDARIKCILER/CRM: DAİMA UNION (yokluk asla silme sayılmaz — absence-delete clobber'ı önle);
   // gerçek silme yalnız bu oturumda açıkça silinen kayıtlar (tam-satır canon / id) için.
-  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    r => JSON.stringify((r || []).slice(0, 5)), true);
+  sonuc.TEDARIKCILER    = _mergeDizi(base.TEDARIKCILER,    local.TEDARIKCILER,    server.TEDARIKCILER,    _tedMergeAnahtar, true);
   if (_silinenTedarikciKeyler.size) sonuc.TEDARIKCILER = sonuc.TEDARIKCILER.filter(r => !_silinenTedarikciKeyler.has(_canon(r)));
+  if (_silinenTedarikciSatir.size) {
+    // Pozisyonlu: aynı kimlikli satırlardan YALNIZ silineni düşür, ötekiler ayakta kalsın
+    // (bkz. _silinenTedarikciSatir). Sayaç _mergeDizi'nin #n'iyle AYNI anahtardan üretilir.
+    const _tSay = new Map();
+    sonuc.TEDARIKCILER = sonuc.TEDARIKCILER.filter(r => {
+      const k = _tedMergeAnahtar(r);
+      const n = _tSay.get(k) || 0;
+      _tSay.set(k, n + 1);
+      return !_silinenTedarikciSatir.has(k + '#' + n);
+    });
+  }
   sonuc.CRM_AKTIVITELER = _mergeDizi(base.CRM_AKTIVITELER, local.CRM_AKTIVITELER, server.CRM_AKTIVITELER, r => r.id, true);
   if (_silinenCrmIdler.size) sonuc.CRM_AKTIVITELER = sonuc.CRM_AKTIVITELER.filter(r => !_silinenCrmIdler.has(String(r && r.id)));
   // Tombstone (onaylanan/reddedilen kayıt anahtarları) — base/local/server birleşimi,
@@ -24060,7 +24117,8 @@ async function _veriPush(veri) {
       _senkronBandGuncelle('ok'); // sunucuya başarıyla yazıldı → uyarı bandı kalksın
       // Silme sunucuya yazıldı (gonderilecek filtreliydi, _sunucuBaz de öyle) → canon/kompozit
       // silme setlerini temizle ki aynı içerikle YENİDEN-EKLEME sonraki merge'de filtrelenmesin.
-      _silinenTedarikciKeyler.clear(); _silinenCrmIdler.clear(); _silinenTeklifSatir.clear();
+      _silinenTedarikciKeyler.clear(); _silinenTedarikciSatir.clear();
+      _silinenCrmIdler.clear(); _silinenTeklifSatir.clear();
     } else {
       // POST başarısız (sunucu çekilebildi ama yazılamadı): retry bayrağını kur.
       // Aksi halde değişiklik yalnız bellekte/localStorage'da kalır ve 45 sn sonra
