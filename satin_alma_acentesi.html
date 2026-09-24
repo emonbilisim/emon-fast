@@ -7618,6 +7618,49 @@ function durumTalepBadge(d) {
 //  ile işaretliyor.)
 const TALEP_KAPALI_DURUMLAR = ['Tamamlandı','İptal','Reddedildi','Karşılanamadı','Arşivlendi'];
 function talepKapaliMi(t) { return !!t && TALEP_KAPALI_DURUMLAR.includes(t.durum); }
+
+/* ── KAPALI TALEBE GELEN FİYAT ONAYI (2026-09-24, TLP-00237) ────────────────
+   Kısmen onaylanıp sevk edilmiş (Tamamlandı/Arşivlendi) bir talepte müşteri sonradan
+   sipariş etmediği kalemleri de isteyebilir. Satıcı fiyatı tekrar onaya gönderiyor, ama
+   onay listeleri talebi `!talepKapaliMi(t)` ile eliyordu → admin talebi HİÇ görmüyordu;
+   görüp onaylasa bile "müşteriye gönder" rozeti yine kapalı-filtresine takılıyordu.
+   Talep çıkmaza giriyordu: ne onaya düşüyor ne de onaylanmış görünüyor.
+   Susturma kuralı doğru, ama kapsamı yanlıştı: amaç ARŞİVDE UNUTULMUŞ bayat 'bekliyor'
+   bayraklarını susturmaktı, satıcının BİLEREK gönderdiği yeni talebi değil. Ayrım artık
+   damgayla yapılıyor: talep kapalıyken gönderilen istek `fiyatOnayTalep.kapaliDurum`
+   taşır (o andaki statü) ve susturmayı aşar. Damgasız eski kayıtlar susmaya devam eder
+   → mevcut veride davranış değişmez. */
+// Talebin kapanma anı — geriye dönük çıkarım için (damgasız eski kayıtlar).
+function _talepKapanisAni(t) {
+  if (!t) return 0;
+  // DİKKAT: Date.parse(0) NaN değil, "0" → 2000 yılı döner. Boş değeri parse'a HİÇ verme,
+  // yoksa damgasız kayıtlar sahte bir kapanış tarihi kazanır.
+  const p = v => (v ? Date.parse(v) : 0) || 0;
+  return Math.max(p(t.arsivlendi && t.arsivlendi.tarih), p(t.kargoGonderi && t.kargoGonderi.tarih),
+                  p(t.siparisTarih), p(t.karsilanamadi && t.karsilanamadi.tarih));
+}
+function fiyatOnayKapaliAsim(t) {
+  if (!t || !t.fiyatOnayTalep) return false;
+  if (t.fiyatOnayTalep.kapaliDurum) return true;      // bu sürümde gönderim anında damgalandı
+  /* DAMGASIZ ESKİ KAYIT: istek talebin KAPANMASINDAN SONRA gönderildiyse bilerek
+     gönderilmiştir (TLP-00237 bu düzeltmeden önce gönderilmişti; damga bekleseydik
+     çıkmazda kalmaya devam ederdi). Kapanıştan ÖNCEki istekler bayat bayraktır →
+     susmaya devam eder. */
+  const istek = t.fiyatOnayTalep.tarih ? (Date.parse(t.fiyatOnayTalep.tarih) || 0) : 0;
+  const kapanis = _talepKapanisAni(t);
+  return istek > 0 && kapanis > 0 && istek > kapanis;
+}
+// Onay listelerinde/rozetlerinde görünmeli mi? (kapalı talep yalnız damgalıysa görünür)
+function fiyatOnayGorunur(t) {
+  return !!t && t.fiyatOnayDurumu === 'bekliyor' && (!talepKapaliMi(t) || fiyatOnayKapaliAsim(t));
+}
+// Admin listelerinde bağlamı göstermek için rozet (kapalı talebe gelen onay isteği)
+function fiyatOnayKapaliRozet(t) {
+  if (!fiyatOnayKapaliAsim(t)) return '';
+  return '<span class="badge badge-gray" style="font-size:10px;margin-left:6px;" '
+    + 'title="Bu talep kapalı/arşivde — satıcı ek kalemler için fiyatı tekrar onaya gönderdi">📦 '
+    + _htmlKacir(t.fiyatOnayTalep.kapaliDurum || t.durum || 'arşivde') + '</span>';
+}
 function talepTarihFmt(iso) {
   if (!iso) return '—';
   const d = new Date(iso), bugun = new Date();
@@ -13878,6 +13921,9 @@ async function fiyatOnayTalep() {
     saticiMail: aktifKullanici.email || '',
     saticiUsername: aktifKullanici.username || '',
   };
+  // Talep kapalıyken (sevk edilmiş/arşivlenmiş) bilerek gönderilen istek: statüyü damgala
+  // ki onay listeleri onu bayat bayrak sanıp susturmasın (bkz. fiyatOnayGorunur).
+  if (talepKapaliMi(t)) t.fiyatOnayTalep.kapaliDurum = t.durum;
 
   /* MARJ KAPISI — away modunda bile otomatik onay VERİLMEZ.
      Away modu "admin uzaktayken satış durmasın" içindir; hedef kar marjının altına
@@ -14816,7 +14862,7 @@ async function adminFiyatReddet() {
 
 // Sidebar badge
 function onayBekleyenBadgeGuncelle() {
-  const sayisi = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor' && !talepKapaliMi(t)).length;
+  const sayisi = TALEPLER.filter(fiyatOnayGorunur).length;
   const badge = document.getElementById('onay-bekleyen-badge');
   if (badge) {
     badge.textContent = sayisi;
@@ -14828,7 +14874,10 @@ function onayBekleyenBadgeGuncelle() {
 // Revize sonrası tekrar onayda da görünür: onay tarihi son gönderimden yeniyse.
 function onayliGonderimBekliyorMu(t) {
   if (!t || t.fiyatOnayDurumu !== 'onaylandi') return false;
-  if (talepKapaliMi(t)) return false;   // arşiv/iptal/karşılanamadı → gönderilecek teklif yok
+  // Arşiv/iptal/karşılanamadı → gönderilecek teklif yok. TEK İSTİSNA: talep kapalıyken
+  // bilerek onaya gönderilmiş istek (bkz. fiyatOnayKapaliAsim) — onaylanan fiyatın
+  // müşteriye iletilmesi gerekir, yoksa onay hiçbir yerde görünmeden kaybolur.
+  if (talepKapaliMi(t) && !fiyatOnayKapaliAsim(t)) return false;
   if (t.teklifDurumu === 'red') return false;
   if (!t.musteriTeklifGonderildi) return true;         // hiç gönderilmedi
   // GÖNDERİLDİ → yalnızca son gönderimden SONRA YENİ bir admin onayı (revize) geldiyse
@@ -14919,7 +14968,7 @@ function renderFiyatOnaylari() {
   const icerik = document.getElementById('fiyat-onaylari-icerik');
   if (!icerik) return;
 
-  const bekleyenler = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor' && !talepKapaliMi(t));
+  const bekleyenler = TALEPLER.filter(fiyatOnayGorunur);
   const gecmis = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu))
     .sort((a,b) => new Date(b.fiyatOnayTalep?.adminTarih||0) - new Date(a.fiyatOnayTalep?.adminTarih||0))
     .slice(0, 10);
@@ -14938,8 +14987,9 @@ function renderFiyatOnaylari() {
       return `<div style="border:1px solid rgba(251,191,36,0.3);border-radius:var(--radius);padding:14px;margin-bottom:10px;background:rgba(251,191,36,0.05);">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <div style="flex:1;">
-            <div style="font-size:13px;font-weight:600;">${t.no} — ${t.musteri}</div>
+            <div style="font-size:13px;font-weight:600;">${t.no} — ${t.musteri}${fiyatOnayKapaliRozet(t)}</div>
             <div style="font-size:12px;color:var(--text2);">${t.urun}</div>
+            ${fiyatOnayKapaliAsim(t) ? '<div style="font-size:11px;color:var(--amber);margin-top:3px;line-height:1.5;">📦 Bu talep <b>' + _htmlKacir(t.fiyatOnayTalep.kapaliDurum || t.durum || '') + '</b> durumunda (arşivde) — satıcı ek kalemler için fiyatı yeniden onaya gönderdi. Onaylarsanız müşteriye gönderilmek üzere satıcının paneline düşer.</div>' : ''}
             <div style="font-size:11px;color:var(--text3);margin-top:3px;">
               Talep eden: ${t.fiyatOnayTalep?.satici||'—'} · ${t.fiyatOnayTalep?.tarih ? new Date(t.fiyatOnayTalep.tarih).toLocaleString('tr-TR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : ''}
             </div>
@@ -15695,6 +15745,10 @@ function renderArsiv() {
       <span style="font-weight:600;font-size:13px;flex:0 0 160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.musteri}">${t.musteri}</span>
       <span style="flex:1;min-width:0;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.urun}">${t.urun}</span>
       <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${durumBg};color:${durumRenk};border:1px solid ${durumBrd};font-weight:600;flex-shrink:0;">${durumEtiket}</span>
+      ${fiyatOnayKapaliAsim(t) && t.fiyatOnayDurumu === 'bekliyor'
+        ? '<span class="badge badge-amber" style="font-size:10px;flex-shrink:0;" title="Kapalı talepte satıcı ek kalemler için fiyatı onaya gönderdi — admin onayı bekliyor">⏳ fiyat onayında</span>' : ''}
+      ${fiyatOnayKapaliAsim(t) && onayliGonderimBekliyorMu(t)
+        ? '<span class="badge badge-green onayli-yanip" style="font-size:10px;flex-shrink:0;" title="Admin onayladı — müşteriye gönderilmeyi bekliyor">✅ gönder</span>' : ''}
       <span style="font-size:13px;font-weight:700;color:var(--accent2);min-width:100px;text-align:right;flex-shrink:0;">${tutarHtml}</span>
       <span style="font-size:11px;color:var(--text3);min-width:84px;text-align:right;flex-shrink:0;">${gecen}</span>
       ${isAdmin && t.durum === 'Karşılanamadı' ? `<button class="btn btn-sm" onclick="event.stopPropagation();karsilanamadiGeriAl(${idx})" title="Talebi yeniden aç" style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
@@ -18254,7 +18308,7 @@ function renderPanelFiyatOnaylari() {
   const icerik = document.getElementById('panel-fiyat-onay-icerik');
   if (!kart || !icerik) return;
   const isAdmin = aktifKullanici?.rol === 'admin';
-  const bekleyen = TALEPLER.filter(t => t.fiyatOnayDurumu === 'bekliyor' && !talepKapaliMi(t));
+  const bekleyen = TALEPLER.filter(fiyatOnayGorunur);
   if (!isAdmin || bekleyen.length === 0) { kart.style.display = 'none'; return; }
   kart.style.display = 'block';
   icerik.innerHTML = bekleyen.map(t => {
@@ -18263,7 +18317,7 @@ function renderPanelFiyatOnaylari() {
     const tarih  = t.fiyatOnayTalep?.tarih ? tarihFmt(t.fiyatOnayTalep.tarih) : '';
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);cursor:pointer;" onclick="talepDetayAc(${TALEPLER.indexOf(t)})">
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;">#${t.no} — ${t.musteri || '—'}</div>
+        <div style="font-size:13px;font-weight:600;">#${t.no} — ${t.musteri || '—'}${fiyatOnayKapaliRozet(t)}</div>
         <div style="font-size:11px;color:var(--text3);margin-top:1px;">${satici}${tarih ? ' · ' + tarih : ''}${toplam ? ' · ' + toplam : ''}</div>
       </div>
       <span class="btn btn-sm btn-primary" style="font-size:11px;">İncele →</span>
