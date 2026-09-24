@@ -1170,10 +1170,14 @@
         </div>
       </div>
 
+      <!-- Kısmi teklif uyarısı (kalem seçimi — bkz satisKalemDahilToggle) -->
+      <div id="satis-kalem-secim-bilgi" style="display:none;"></div>
+
       <!-- Ürün bazlı hesaplama tablosu -->
       <div style="overflow-x:auto;margin-bottom:16px;">
         <table id="satis-tablo" style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:var(--bg3);">
+            <th style="padding:8px 4px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);width:34px;" title="Teklife dahil edilecek kalemler">✓</th>
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Ürün</th>
             <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Tedarikçi / Maliyet</th>
             <th style="padding:8px 10px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);">Adet</th>
@@ -1186,7 +1190,7 @@
           <tbody id="satis-urun-tbody"></tbody>
           <tfoot>
             <tr style="border-top:2px solid var(--border);">
-              <td colspan="6" style="padding:10px;font-size:13px;font-weight:600;color:var(--text);">
+              <td colspan="7" style="padding:10px;font-size:13px;font-weight:600;color:var(--text);">
                 GENEL TOPLAM
                 <div id="satis-toplam-para-sec" style="display:none;margin-top:6px;">
                   <div style="font-size:11px;color:var(--amber);margin-bottom:4px;">⚠ Farklı döviz cinslerinden kalemler var. Toplamı hangi para biriminde gösterelim?</div>
@@ -10218,6 +10222,39 @@ function teklifiFiyataAktarByFirma(firma) {
 let satisUrunBaz = {};
 let satisToplamPara = null; // Kullanıcının seçtiği toplam para birimi
 
+/* ── TEKLİFE DAHİL KALEM SEÇİMİ (2026-09-24) ────────────────────────────────
+   Müşteri çok kalemli bir talebin yalnız bir kısmını sonradan isteyebilir (bkz. TLP-00237:
+   kısmen sipariş edilip sevk edilmiş talep). O zaman teklifte YALNIZ istenen kalemler
+   gitmeli — hepsini gönderip "şunu dikkate almayın" demek yerine.
+   Seçim modül değişkeninde DEĞİL talebin kendisinde tutulur (t.satisKalemHaric = hariç
+   tutulan ürün indeksleri): böylece sayfa yenilense de, admin onay ekranında baksa da,
+   başka cihazda açılsa da aynı seçim görünür (TALEPLER merge ile taşınır).
+   Gönderim anında seçim musteriTeklifFiyatlar'a da damgalanır → arşivdeki eski teklif,
+   sonradan seçim değişse bile gönderildiği hâliyle kalır. */
+function satisKalemHaricMi(t, uIdx) {
+  return !!(t && Array.isArray(t.satisKalemHaric) && t.satisKalemHaric.includes(uIdx));
+}
+// Teklife DAHİL satırlar. Snapshot/indeks hizası gereken yerlerde TAM liste kullanılır
+// (musteriTeklifFiyatlar t.urunler ile hizalı kalmalı); müşteriye giden her çıktıda bu filtre.
+function teklifDahil(satirlar) { return (satirlar || []).filter(x => x && !x.haric); }
+
+function satisKalemDahilToggle(uIdx, dahil) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const urunSayisi = (t.urunler && t.urunler.length) ? t.urunler.length : 1;
+  const kume = new Set(Array.isArray(t.satisKalemHaric) ? t.satisKalemHaric : []);
+  if (dahil) kume.delete(uIdx); else kume.add(uIdx);
+  if (kume.size >= urunSayisi) {           // hepsi çıkarılamaz — boş teklif gönderilemez
+    showToast('⚠ En az bir kalem teklifte kalmalı.');
+    satisHesaplaTablosu();                 // kutucuğu eski hâline döndür
+    return;
+  }
+  if (kume.size) t.satisKalemHaric = Array.from(kume).sort((a, b) => a - b);
+  else delete t.satisKalemHaric;
+  veriKaydet();
+  satisHesaplaTablosu();
+}
+
 function satisParaSecModal(paralar) {
   // Farklı dövizler varsa kullanıcıya sor
   return new Promise(resolve => {
@@ -10463,7 +10500,10 @@ function satisHesaplaTablosu(secenek) {
     const kdvTutar = netTL * kdv / 100;
     const birimSatisTL  = netTL + kdvTutar;
     const kalemToplamTL = birimSatisTL * adet;
-    genelToplamTL += kalemToplamTL * iskFactor;
+    // Teklife dahil değilse toplamlara GİRMEZ (satır yine görünür: fiyatı duruyor,
+    // sonraki turda geri alınabilsin diye hesap kaybolmuyor).
+    const kalemHaric = satisKalemHaricMi(t, uIdx);
+    if (!kalemHaric) genelToplamTL += kalemToplamTL * iskFactor;
 
     // Döviz gösterim
     const birimSatisDoviz  = para !== 'TRY' ? tlTo(birimSatisTL, para) : birimSatisTL;
@@ -10480,22 +10520,38 @@ function satisHesaplaTablosu(secenek) {
       }
       if (birimSatisTLManuel !== null) kalemToplamTLManuel = birimSatisTLManuel * adet;
     }
-    genelToplamTLManuel += ((kalemToplamTLManuel !== null) ? kalemToplamTLManuel : kalemToplamTL) * iskFactor;
+    if (!kalemHaric) {
+      genelToplamTLManuel += ((kalemToplamTLManuel !== null) ? kalemToplamTLManuel : kalemToplamTL) * iskFactor;
+    }
 
     const tumFiyatlar = fiyatlariBul(uIdx);
     const ikinciBaz   = satisUrunBaz[uIdx] === 'ikinci';
 
     const tr = tbody.insertRow();
     tr.style.borderBottom = '1px solid var(--border)';
+    tr.dataset.urunIdx = uIdx;
+    if (kalemHaric) tr.dataset.haric = '1';
     // ↹ Bu satırın maliyeti bir ALTERNATİF ürüne aitse satırı belirginleştir
     const altVar = !!(m && (m.alt || m.altkod));
     if (altVar) { tr.style.background = 'rgba(245,166,35,0.10)'; tr.style.boxShadow = 'inset 3px 0 0 var(--amber)'; }
+    if (kalemHaric) { tr.style.opacity = '0.45'; tr.style.background = 'var(--bg3)'; tr.style.boxShadow = 'none'; }
+
+    // Teklife dahil mi? (kalem seçimi — bkz satisKalemDahilToggle)
+    const tdSec = tr.insertCell();
+    tdSec.style.cssText = 'padding:9px 4px;text-align:center;vertical-align:middle;';
+    tdSec.innerHTML = '<input type="checkbox" class="satis-kalem-cb"' + (kalemHaric ? '' : ' checked')
+      + ' onchange="satisKalemDahilToggle(' + uIdx + ', this.checked)"'
+      + ' title="' + (kalemHaric ? 'Bu kalem teklife DAHİL DEĞİL — eklemek için işaretleyin'
+                                 : 'Teklife dahil — çıkarmak için işareti kaldırın') + '"'
+      + ' style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">';
 
     // Ürün adı
     const td0 = tr.insertCell();
     td0.style.cssText = 'padding:9px 10px;vertical-align:middle;';
-    td0.innerHTML = '<div style="font-weight:500;">' + (u.aciklama||'Ürün '+(uIdx+1)) + '</div>'
-      + (u.kod ? '<div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);">' + u.kod + '</div>' : '');
+    td0.innerHTML = '<div style="font-weight:500;' + (kalemHaric ? 'text-decoration:line-through;color:var(--text3);' : '') + '">'
+      + (u.aciklama||'Ürün '+(uIdx+1)) + '</div>'
+      + (u.kod ? '<div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);">' + u.kod + '</div>' : '')
+      + (kalemHaric ? '<div style="font-size:10px;color:var(--amber);margin-top:2px;">teklife dahil değil</div>' : '');
 
     // Tedarikçi / Maliyet
     const td1 = tr.insertCell();
@@ -10601,8 +10657,11 @@ function satisHesaplaTablosu(secenek) {
       const fark = marj - musteriHedefMarj;
       const hedefStr = musteriHedefMarj.toLocaleString('tr-TR', { maximumFractionDigits: 1 });
       if (fark < -0.05) {
-        // Müşteri marjının altında — kırmızı uyarı
-        window._satisMarjAlti.push({
+        // Müşteri marjının altında — kırmızı uyarı.
+        // Teklife DAHİL OLMAYAN kalem marj kapısını tetiklemez: müşteriye gitmeyen bir
+        // satırın marjı yüzünden away modundaki otomatik onay bloklanmamalı (bkz.
+        // fiyatOnayTalep → _marjKapisi). Ekrandaki kırmızı uyarı yine gösterilir.
+        if (!kalemHaric) window._satisMarjAlti.push({
           satir: uIdx + 1,
           urun:  String(u.aciklama || '').slice(0, 80),
           marj:  marj,
@@ -10719,11 +10778,32 @@ function satisHesaplaTablosu(secenek) {
     }
 
     // Mobil kart görünümü için alan etiketleri
+    tdSec.dataset.label = 'Teklife dahil';
     td0.dataset.label = 'Ürün';        td1.dataset.label = 'Tedarikçi / Maliyet';
     td2.dataset.label = 'Adet';        tdK.dataset.label = 'Kargo';
     tdHedef.dataset.label = 'Müşteri Hedef'; td3.dataset.label = 'Kar Marjı %';
     td4.dataset.label = 'Birim Satış'; td5.dataset.label = 'Toplam';
   });
+
+  /* KISMİ TEKLİF BANDI: bir kalem teklif dışı bırakıldığında bu, gözden kaçmaması gereken
+     bir karardır — genel toplam ve müşteriye giden tablo o kalemi içermez. Sessiz bırakma. */
+  const _secimBilgi = document.getElementById('satis-kalem-secim-bilgi');
+  if (_secimBilgi) {
+    const _haricSayi = urunler.filter((_, i) => satisKalemHaricMi(t, i)).length;
+    if (_haricSayi > 0) {
+      const _haricAdlar = urunler.map((u, i) => satisKalemHaricMi(t, i) ? (u.aciklama || 'Ürün ' + (i + 1)) : null)
+        .filter(Boolean).map(a => _htmlKacir(String(a).substring(0, 60)));
+      _secimBilgi.style.cssText = 'margin-bottom:12px;padding:9px 12px;border:1px solid rgba(245,166,35,0.35);'
+        + 'background:rgba(245,166,35,0.10);border-radius:var(--radius);font-size:12px;line-height:1.6;display:block;';
+      _secimBilgi.innerHTML = '✂️ <b>Kısmi teklif:</b> ' + urunler.length + ' kalemden <b>'
+        + (urunler.length - _haricSayi) + '</b> tanesi teklife dahil.'
+        + ' <span style="color:var(--text3);">Dışarıda: ' + _haricAdlar.join(', ') + '</span>'
+        + '<div style="color:var(--text3);margin-top:2px;">Genel toplam, müşteriye giden tablo ve PDF yalnız dahil kalemleri içerir.</div>';
+    } else {
+      _secimBilgi.style.display = 'none';
+      _secimBilgi.innerHTML = '';
+    }
+  }
 
   // Genel toplam — Tek döviz / Manuel teklif kuru / Default
   if (tekDoviz) {
@@ -11173,9 +11253,16 @@ function musteriTeklifSatirlari(talepIdx) {
       }
       return { ad: a.ad || '', kod: a.kod || '', birimFiyat: bf, para: ap, sembol: semboller[ap] || '₺', adet, toplam: bf * adet };
     });
+    /* Teklife dahil mi? Aktif talepte CANLI seçim (satisKalemHaric), arşiv/geçmiş
+       görünümünde GÖNDERİM ANINDAKİ damga — sonradan seçim değişse bile gönderilmiş
+       teklif olduğu gibi kalsın. Satır listeden atılmaz, yalnız işaretlenir: dizi
+       t.urunler ve musteriTeklifFiyatlar ile HİZALI kalmalı. */
+    const haric = (idx === aktifTalepIdx)
+      ? satisKalemHaricMi(t, i)
+      : !!(t.musteriTeklifFiyatlar?.[i]?.haric);
     return { aciklama: u.aciklama||'', kod: u.kod||'', adet, birim: u.birim||'Adet',
              birimFiyat, para, sembol: semboller[para] || '₺', toplam: birimFiyat * adet,
-             altAd, altKod, alternatifler };
+             altAd, altKod, alternatifler, haric };
   });
 }
 
@@ -11196,14 +11283,16 @@ function teklifPdfIndir() {
   const paraSembolu = { TRY:'TL', USD:'USD', EUR:'EURO' };
   let toplamTutar = 0, toplamPara = 'TRY';
 
+  // Teklife dahil edilmeyen kalemler PDF'e de girmez (bkz. satisKalemHaricMi)
   const urunSatirlari = urunler.map((u, uIdx) => {
+    if (satisKalemHaricMi(t, uIdx)) return null;
     const { birim: birimSayi, para } = satisSatirBirim(satirlar[uIdx]);
-    if (uIdx === 0) toplamPara = para;
+    if (toplamTutar === 0) toplamPara = para;
     const adet = parseFloat(u.adet) || 1;
     const toplam = birimSayi * adet;
     toplamTutar += toplam;
     return { aciklama: u.aciklama||'', kod: u.kod||'', adet, birim: u.birim||'Adet', birimFiyat: birimSayi, toplam, para };
-  });
+  }).filter(Boolean);
 
   const fmt = n => n.toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const gecerlilik = new Date(Date.now() + 7*86400000).toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -11740,6 +11829,48 @@ function arsivGeriAl(idx) {
   showToast('↩ #' + t.no + ' arşivden çıkarıldı — durum: ' + yeniDurum);
 }
 
+/* ── TAMAMLANMIŞ TALEBİ YENİDEN AÇ (2026-09-24, TLP-00237) ──────────────────
+   Kısmen sipariş edilip sevk edilen bir talepte müşteri sonradan sipariş etmediği
+   kalemleri isteyebilir. 'Tamamlandı' TALEP_KAPALI_DURUMLAR'da olduğu için talep açık
+   listeden, hatırlatmalardan ve iş akışından düşüyor; arşivde ise geri-alma butonu
+   yalnız 'Karşılanamadı' ve 'Arşivlendi' için vardı → tamamlanmış talebi yeniden açmanın
+   HİÇBİR yolu yoktu, ek kalemler için yeni tur başlatılamıyordu.
+   SEVK KAYDI SİLİNMEZ: kargoGonderi/siparisTarih/fatura aynen kalır, yalnız statü geri
+   alınır. Böylece "bu talep zaten sevk edilmişti" bilgisi kaybolmaz (onay ekranındaki
+   siparisSonrasiFiyatUyarisi de bu kayıtlardan besleniyor). */
+function tamamlandiGeriAl(idx) {
+  if (aktifKullanici?.rol !== 'admin') { showToast('Yalnızca admin yeniden açabilir.'); return; }
+  const t = TALEPLER[idx];
+  if (!t || t.durum !== 'Tamamlandı') return;
+  const teklifVar = (talepTeklifleri[t.no] || []).length > 0;
+  const yeniDurum = teklifVar ? 'Teklifler Bekleniyor' : (t.rfqTedarikciler?.length ? 'RFQ Gönderildi' : 'Yeni');
+  const kargo = t.kargoGonderi;
+  if (!confirm('#' + t.no + ' tamamlanmış talebi yeniden açılsın mı?\n\nDurum: ' + yeniDurum
+    + '\n\nMüşteri, ilk turda sipariş etmediği kalemleri isterse bu gerekir.\n\n'
+    + (kargo ? '• Sevk kaydı KORUNUR (kargo ' + (kargo.kod || '—')
+        + (kargo.faturaNo ? ' · fatura ' + kargo.faturaNo : '') + ') — silinmez, sadece statü geri alınır.\n' : '')
+    + '• Talep açık listeye döner; hatırlatma ve son teklif zamanı uyarıları yeniden başlar.\n'
+    + '• Daha önce sipariş edilmiş kalemler tekrar sipariş edilmiş görünmez.')) return;
+  t.durum = yeniDurum;
+  // İz bırak: bu talep bir kez tamamlanıp yeniden açıldı (rapor/denetim + arşiv rozeti).
+  t.yenidenAcildi = {
+    tarih: new Date().toISOString(),
+    kullanici: aktifKullanici?.ad || '',
+    oncekiDurum: 'Tamamlandı',
+    kargoVardi: !!kargo,
+  };
+  kaliciVeriKaydet('Tamamlanmış talep yeniden açıldı');
+  renderArsiv();
+  renderTalepler();
+  if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
+  if (typeof acikTeklifBadgeGuncelle === 'function') acikTeklifBadgeGuncelle();
+  if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
+  if (typeof onayBekleyenBadgeGuncelle === 'function') onayBekleyenBadgeGuncelle();
+  if (typeof renderPanelFiyatOnaylari === 'function') renderPanelFiyatOnaylari();
+  if (typeof tedSipBekleyenGuncelle === 'function') tedSipBekleyenGuncelle();
+  showToast('↩ #' + t.no + ' yeniden açıldı — durum: ' + yeniDurum + '. Sevk kaydı korundu.');
+}
+
 async function musteriTeklifMaili() {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -11855,7 +11986,15 @@ async function teklifMailGonderEt() {
   const paraSembolu = { TRY:'₺', USD:'$', EUR:'€' };
 
   // Teklif satırları — tek kaynak (satış tablosu, yoksa kayıtlı fiyatlar)
-  const urunSatirlari = musteriTeklifSatirlari(aktifTalepIdx);
+  // TAM liste snapshot için (musteriTeklifFiyatlar t.urunler ile hizalı kalmalı),
+  // müşteriye giden tablo/PDF/toplam ise yalnız DAHİL kalemlerden oluşur.
+  const tumTeklifSatirlari = musteriTeklifSatirlari(aktifTalepIdx);
+  const urunSatirlari = teklifDahil(tumTeklifSatirlari);
+  if (!urunSatirlari.length) {
+    showToast('⚠ Teklife dahil kalem yok — satış tablosundan en az bir kalem işaretleyin.');
+    if (_gonderBtn) { _gonderBtn.disabled = false; _gonderBtn.textContent = '📧 Gönder'; }
+    return;
+  }
   const toplamTutar = urunSatirlari.reduce((s, u) => s + u.toplam, 0);
   const toplamPara  = urunSatirlari[0]?.para || 'TRY';
 
@@ -12014,8 +12153,11 @@ async function teklifMailGonderEt() {
         TALEPLER[aktifTalepIdx].gonderilenOnaySira = TALEPLER[aktifTalepIdx].fiyatOnaySira || 0;
         // ↹ Alternatifler de snapshot'a girsin: müşteriye GİDEN fiyat (marj+KDV+iskonto uygulanmış)
         // arşivde/PDF tekrar üretiminde ham maliyete dönmesin.
-        TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = urunSatirlari.map(u => ({
+        TALEPLER[aktifTalepIdx].musteriTeklifFiyatlar = tumTeklifSatirlari.map(u => ({
           birimFiyat: u.birimFiyat, para: u.para, altAd: u.altAd || '', altKod: u.altKod || '',
+          // Gönderim anındaki kalem seçimi: arşivdeki teklif, seçim sonradan değişse de
+          // gönderildiği hâliyle görünsün (bkz. musteriTeklifSatirlari → haric).
+          haric: !!u.haric,
           alternatifler: (u.alternatifler || []).map(a => ({ ad: a.ad, kod: a.kod, birimFiyat: a.birimFiyat, para: a.para })),
         }));
         // 'kabul' (müşteri siparişi onayladı) KORUNUR — revize fiyat göndermek onayı silmez,
@@ -13993,6 +14135,8 @@ function satisTabloEmailHtml() {
   const tablo = document.getElementById('satis-urun-tbody')?.closest('table');
   if (!tablo) return '';
   const klon = tablo.cloneNode(true);
+  // Teklife dahil edilmeyen kalemler bu çıktıda da yer almaz (satır seçim kutusu işaretsiz).
+  klon.querySelectorAll('tbody tr[data-haric]').forEach(tr => tr.remove());
   klon.querySelectorAll('input').forEach(inp => {
     const v = inp.type === 'checkbox' ? (inp.checked ? '✓' : '') : (inp.value || '');
     inp.replaceWith(document.createTextNode(v));
@@ -15609,7 +15753,7 @@ async function teklifPdfBase64(talepIdx, urunSatirlariParam, toplamTutarParam, t
   if (!t || typeof window.jspdf === 'undefined') return null;
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-  const urunSatirlari = urunSatirlariParam || musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx);
+  const urunSatirlari = urunSatirlariParam || teklifDahil(musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx));
   const toplamTutar = toplamTutarParam != null ? toplamTutarParam : urunSatirlari.reduce((s,u)=>s+u.toplam,0);
   const toplamPara  = toplamParaParam || urunSatirlari[0]?.para || 'TRY';
   await _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara);
@@ -15626,7 +15770,7 @@ async function teklifPdfIndir(talepIdx) {
   }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
-  const urunSatirlari = musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx);
+  const urunSatirlari = teklifDahil(musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx));
   const toplamTutar = urunSatirlari.reduce((s,u)=>s+u.toplam,0);
   const toplamPara  = urunSatirlari[0]?.para || 'TRY';
   await _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara);
@@ -15732,7 +15876,7 @@ function renderArsiv() {
     const urunler  = t.urunler?.length > 0 ? t.urunler : [{adet:t.miktar||1}];
     let tutarHtml = '<span style="color:var(--text3);">—</span>';
     if (fiyatlar?.length > 0) {
-      const toplam = fiyatlar.reduce((s,f,i) => s + (f.birimFiyat||0)*(parseFloat(urunler[i]?.adet||1)), 0);
+      const toplam = fiyatlar.reduce((s,f,i) => s + (f && f.haric ? 0 : (f?.birimFiyat||0)*(parseFloat(urunler[i]?.adet||1))), 0);
       const para   = fiyatlar[0]?.para || 'TRY';
       const sym    = {TRY:'₺',USD:'$',EUR:'€'}[para]||'';
       tutarHtml    = `${sym}${toplam.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
@@ -15752,6 +15896,7 @@ function renderArsiv() {
       <span style="font-size:13px;font-weight:700;color:var(--accent2);min-width:100px;text-align:right;flex-shrink:0;">${tutarHtml}</span>
       <span style="font-size:11px;color:var(--text3);min-width:84px;text-align:right;flex-shrink:0;">${gecen}</span>
       ${isAdmin && t.durum === 'Karşılanamadı' ? `<button class="btn btn-sm" onclick="event.stopPropagation();karsilanamadiGeriAl(${idx})" title="Talebi yeniden aç" style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
+      ${isAdmin && t.durum === 'Tamamlandı' ? `<button class="btn btn-sm" onclick="event.stopPropagation();tamamlandiGeriAl(${idx})" title="Yeniden aç — müşteri ek kalem istiyorsa. Sevk kaydı korunur." style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
       ${isAdmin && t.durum === 'Arşivlendi' ? `<button class="btn btn-sm" onclick="event.stopPropagation();arsivGeriAl(${idx})" title="Arşivden çıkar — talep tekrar açık listeye döner" style="padding:2px 8px;font-size:12px;flex-shrink:0;">↩</button>` : ''}
       ${isAdmin ? `<button class="btn btn-sm" onclick="event.stopPropagation();arsivTalepSil(${idx})" title="Talebi arşivden sil" style="padding:2px 8px;font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);flex-shrink:0;">🗑</button>` : ''}
       <span style="color:var(--text3);font-size:18px;flex-shrink:0;">›</span>
