@@ -2,6 +2,8 @@
 
 ## PROJE_DURUMU.md her değişiklikte güncellenir
 
+**Önemli bir özellik eklendiğinde, değiştirildiğinde veya kaldırıldığında commit'ten önce PROJE_DURUMU.md'yi güncelle.**
+
 Kodda/workflow'da anlamlı bir değişiklik commit'lenirken **aynı commit içinde** `PROJE_DURUMU.md` de güncellenmeli:
 
 1. Üstteki `Son güncelleme:` tarihini ve son commit referansını düzelt.

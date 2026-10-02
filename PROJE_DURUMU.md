@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-10-02 (son commit: `a4f8859`, 2026-09-24)
+> Son güncelleme: 2026-10-02
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -50,6 +50,50 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 - **Görevler:** Ekip içi görev atama (ayrı `gorevler` tablosu).
 - **Finans:** Mail Order (sanal KK ile tedarikçi ödemesi, onay akışı, kaşe) + **Tahsilat Takip Merkezi**.
 - **Yönetim:** Sürüm bandı/otomatik yenileme (CalVer), hard reset, sunucu deposu kartı, tema.
+
+## AI Satın Alma Akışı (uçtan uca)
+
+1. **Gelen mail taraması → talep** (`otoTalepTara`): Outlook gelen kutusu (Graph) zaman pencereli +
+   sayfalı okunur; periyodik çalışır. Claude (backend proxy, Haiku-first; PDF ayrıştırılamazsa Sonnet'e
+   düşer — `_claudeAiCagirAkilli`) maili sınıflar: yeni talep / müşteri onayı / revizyon. Müşteri
+   gönderen domainden eşleşir; kendi domainimiz asla müşteri sayılmaz, FW iç iletmelerde asıl talep
+   sahibi gövdeden bulunur. Ürünler gövde + PDF + Excel eklerinden çıkarılır. Sonuç **taslak** olur,
+   kullanıcı "Yeni Talep / Revizyon olarak al" ile onaylar. mailId tekilliği mükerrer talebi önler;
+   AI yanıtı null ise mail işaretlenmez (sessiz yutulma düzeltmesi), tarama raporu görünür.
+2. **Tedarikçi eşleştirme / RFQ** (`rfqEslesmeSkoruHesapla`, `rfqMailGonder`): Tedarikçi kartındaki
+   ürün/marka metnine göre skor (kelime +2, marka +6) → öneri listesi; manuel ekleme, "Stok Yok",
+   referans görseller. Talep no sunucuda kesinleştirildikten sonra RFQ maili gider (çakışma önlemi).
+3. **Teklif ayrıştırma** (`maildenFiyatlariCikar`, `outlookTeklifleriKontrolEt`): Tedarikçi yanıtları
+   yalnız ilgili talep no'lu mail zincirinden okunur (tam token eşleşmesi); yeni kişi kurumsal
+   domainle tedarikçiye bağlanır. Claude birim fiyat + para birimi + alternatif ürün önerisi çıkarır
+   (TR/EN sayı formatı kuralları, fiyat yoksa 0). Revize (indirim) yanıtları da içeri alınır.
+4. **Fiyat karşılaştırma** (`teklifleriKarsilastir`): Fiyatlı teklif satırları ürün bazında yan yana;
+   fiyatsız tedarikçi/satırlar katlanır, alternatifler ayrı satır. Seçilen maliyet → Satış Fiyatlama
+   (müşteri hedef marjı, kargo, kur) → fiyat onayı → teklif PDF/mail (oto-talep zincirinde yanıt).
+5. **Müşteri yanıtı** (`teklifYanitlariTara`): onay/revizyon mailleri taranır; onayla sipariş,
+   tedarikçi siparişi, kargo/fatura ve tamamlama maili akışı devam eder.
+
+## Yönetici Uzakta (Away) Modu
+
+- Ayarlar'da `AYARLAR.awayMode` (global, sunucuda). Açıkken satıcının "onaya gönder"i admin
+  beklemeden **otomatik onaylanır** (`🌙 Otomatik onay` notu, `otomatikOnay: true`, Lamport
+  `fiyatOnaySira` damgası) ve admine bilgi maili gider (`otoOnayBildirimGonder`).
+- **Marj kapısı:** Herhangi bir kalem müşteri hedef marjının altındaysa ya da marj hesaplanamıyorsa
+  (fail-safe) otomatik onay **yapılmaz**, talep normal admin onayına düşer; satıcıya ve admin mailine
+  sebep yazılır. Kapı, ekrandaki kırmızı marj uyarısıyla aynı koşuldan beslenir.
+- Teklife dahil edilmeyen (hariç) kalemler marj kapısını tetiklemez.
+
+## Talep Yeniden Açma / Kalem Seçme (2026-09-24, `a4f8859`)
+
+- **Tamamlanmış talebi yeniden aç** (`tamamlandiGeriAl`): Arşivde "Tamamlandı" satırında ↩ butonu.
+  Sevk kaydı (kargo, sipariş tarihi, fatura) silinmez, yalnız statü geri alınır; `t.yenidenAcildi`
+  iz bırakır, onay ekranındaki sipariş-sonrası uyarı korunur. Müşterinin sonradan istediği ek
+  kalemler için yeni tur açılır.
+- **Teklife girecek kalem seçimi:** Satış tablosunda satır başına "teklife dahil" kutucuğu; seçim
+  talebin üzerinde `t.satisKalemHaric` olarak tutulur (cihazlar arası senkron). Hariç kalem toplama,
+  müşteri tablosu/PDF/onay çıktısına girmez, marj kapısını tetiklemez; satır ve fiyatı ekranda kalır.
+- Aynı turda: kapalı (sevk edilmiş/arşivdeki) talebe gelen fiyat onayı artık çıkmaza girmiyor
+  (`3c43818`, TLP-00237).
 
 ## Dış Servisler / CDN'ler
 
