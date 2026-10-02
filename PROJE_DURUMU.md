@@ -1,75 +1,135 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-05-25
-> Bu dosya projenin yaşayan özetidir. Önemli değişikliklerden sonra güncelleyin.
+> Son güncelleme: 2026-10-02 (son commit: `a4f8859`, 2026-09-24)
+> Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
+> (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
 ## Genel Bakış
 
 **EMON FAST**, bir **satın alma acentesi / teklif yönetim paneli**dir. Müşteri taleplerini
-alır, tedarikçilerden fiyat toplar, kar marjı + kargo/nakliye ekleyerek satış fiyatı ve
-teklif (PDF) üretir.
+alır, tedarikçilerden fiyat toplar (RFQ), kar marjı + kargo/nakliye ekleyerek satış fiyatı ve
+teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödemesine kadar süreci izler.
 
-- **Mimari:** Tek dosyalık web uygulaması — `satin_alma_acentesi.html` (~783 KB, ~11.800 satır).
+- **Mimari:** Tek dosyalık web uygulaması — `satin_alma_acentesi.html` (~1,6 MB, ~26.700 satır).
   HTML + CSS + vanilla JS hepsi tek dosyada.
-- **Sunucu:** Hetzner Cloud · `fast.emon.com.tr` · Node süreç pm2 (`emonfast`) ile yönetiliyor.
-- **Backend API:** `window.location.origin` üzerinden — `/api/giris` (login), `/api/veri`
-  (veri oku/yaz). Bu repoda yalnızca frontend HTML var; backend sunucuda.
-- **Yerel depolama:** `localStorage` (44+ kullanım) ana veri katmanı; sunucu API'si ile senkron.
+- **Sunucu:** Hetzner Cloud · `fast.emon.com.tr` · Node süreci pm2 (`emonfast`) · PostgreSQL.
+  80/443 yalnızca WireGuard VPN (10.0.0.0/24) üzerinden erişilebilir.
+- **Backend:** Repoda değil; sunucudaki `server.js`. Değişiklikler `deploy.yml` içindeki
+  "Patch backend" adımlarıyla CI'da enjekte edilir (SSH'ten elle yapıştırma kullanılmıyor).
+- **Başlıca API'ler:** `/api/giris`, `/api/veri` (ana blob, full-replace + merge),
+  `/api/kullanicilar`, `/api/gorevler`, `/api/mailorder`, `/api/tahsilat`, talep-no sequence,
+  oto-talep durumu, AI proxy (Claude, `.env CLAUDE_API_KEY`), sistem-durum (disk/DB).
+- **Yerel depolama:** `localStorage` önbellek + sunucu senkronu (kayıt bazlı merge, tombstone,
+  Lamport damgası). Kota dolunca yerel kopya kapalı talepleri düşürerek küçülür.
 
 ## Roller
 
 | Rol | Açıklama |
 |-----|----------|
-| `admin` 👑 | Tam yetki — fiyat onayı, ayarlar, şirket bilgileri, entegrasyonlar |
-| `satıcı` 🧑‍💼 | Talep/fiyat girişi. Müşteri kar marjı, ayarlar, entegrasyonlar gizli |
-| `müşteri` | (sınırlı görünüm) |
+| `admin` 👑 | Tam yetki — fiyat onayı, ayarlar, kullanıcılar, entegrasyonlar, arşivleme/silme |
+| `satıcı` 🧑‍💼 | Kendi talepleri/müşterileri; müşteri/tedarikçi değişiklikleri admin onayına gider |
+| `operasyon` | Görev/operasyon takibi (2026-06) |
+| `müşteri` | (sınırlı görünüm / portal talebi) |
 
-## Başlıca Özellikler
+İzin/Vekil: tatildeki satıcının işleri vekile devredilebilir.
 
-- **Talep yönetimi:** Yeni talep açma, Excel/tablo yapıştırma, `.xlsx` yükleme.
-- **Döviz kurları:** `frankfurter.app` üzerinden sistem kurları. Tek döviz görüntüleme
-  (USD/EUR/TRY). Teklif kuru sistem kurundan otomatik dolar, manuel güncellenebilir.
-- **Fiyatlandırma:** Kar marjı, müşteri hedef marjı karşılaştırması, satır bazlı kargo
-  (3 mod: standart / proje paylaşımı / tüm satırlara uygula), gerçek maliyet hesabı.
-- **Tedarikçi yönetimi:** Ekle/düzenle, Excel aktar/yükle, şablon indir.
-- **AI fiyat çıkarımı:** Outlook mail + PDF içeriğinden Claude API (`api.anthropic.com`)
-  ile fiyat okuma. Kullanıcı kendi API key'ini girer.
-- **Onay akışı:** Admin fiyat onayı (tablodaki değerleri düzenleyip onaylayabilir),
-  çoklu cihaz senkronu, **Away (uzakta) modu** — açıkken satıcı talepleri otomatik onaylanır.
-- **Yedekleme:** Export/Import + günlük lokal snapshot + OneDrive otomatik yedek
-  (Microsoft Graph App Folder, 4 saatte bir).
-- **Teklif PDF:** jsPDF + autotable ile üretim.
-- **Entegrasyonlar:** Microsoft 365 (Graph/MSAL — mail oku/gönder), Aras Kargo sorgulama.
+## Başlıca Modüller
+
+- **Talepler:** Elle, Excel yapıştırma/`.xlsx`, ya da **gelen maillerden otomatik** (Outlook taraması,
+  AI ile ürün çıkarma, FW iç iletmeler, Excel ekleri, revizyon eşleştirme). Talep no `TLP-00001`
+  biçiminde, sunucu-taraflı atomik sequence. Örnek ürün görselleri RFQ'ya eklenebilir.
+- **RFQ / Tedarikçi teklifleri:** Tedarikçiye mail, yanıtı aynı zincirde okuma, AI fiyat çıkarımı,
+  alternatif ürünler, "Stok Yok", son revize (indirim) isteme, bedava kargo eşiği, HP sarf iskontosu.
+- **Satış fiyatlama & Fiyat onayı:** Müşteri hedef marjı, satır bazlı kargo, admin onayı + e-posta
+  bildirimleri (`#talep=NO` derin link), **Away modu** (hedef marjın altı otomatik onaylanmaz).
+- **Teklifler:** PDF/mail (müşteri döviz kuru tipi, ödeme şartı, teslim süresi), müşteri yanıtı
+  taraması, otomatik hatırlatma (tur/kapsam; istemeyen müşteri kapatılabilir), revizyon.
+- **Sipariş:** Tedarikçi sipariş modülü (tek/toplu, manuel/telefon), kargo & fatura, tamamlama maili.
+- **Arşiv:** Tamamlanan/Karşılanamadı/Arşivlendi talepler; tamamlanmış talep yeniden açılabilir.
+- **CRM:** Etkileşim, pipeline, müşteri/talep istatistikleri, yeni müşteri kazanımı (demo müşteriler hariç).
+- **Görevler:** Ekip içi görev atama (ayrı `gorevler` tablosu).
+- **Finans:** Mail Order (sanal KK ile tedarikçi ödemesi, onay akışı, kaşe) + **Tahsilat Takip Merkezi**.
+- **Yönetim:** Sürüm bandı/otomatik yenileme (CalVer), hard reset, sunucu deposu kartı, tema.
 
 ## Dış Servisler / CDN'ler
 
-- `api.anthropic.com/v1/messages` — AI fiyat çıkarımı
-- `api.frankfurter.app/latest` — döviz kurları
-- `graph.microsoft.com` + `login.microsoftonline.com` — Outlook mail, OneDrive yedek
-- `kargo.aras.com.tr` — kargo takip
-- SheetJS (xlsx), jsPDF + autotable, JSZip — CDN'den yükleniyor
+- Claude API — backend proxy üzerinden (Haiku-first maliyet optimizasyonu)
+- `api.frankfurter.app` — döviz kurları
+- `graph.microsoft.com` + `login.microsoftonline.com` — Outlook mail, OneDrive yedek, MS 365 SSO
+  (tenant'ta kullanıcı onayı kapalı: yeni Graph izni = önce Azure'da admin consent)
+- `kargo.aras.com.tr` / Yurtiçi takip
+- SheetJS, jsPDF + autotable, JSZip — CDN (defer)
 
-## Deploy
+## Deploy & Operasyon
 
-`.github/workflows/deploy.yml` — `main`'e push'ta otomatik:
-1. Sunucuda mevcut `index.html` yedeklenir (`.bak`)
-2. `satin_alma_acentesi.html` SCP ile yüklenir → `index.html` olarak rename edilir
-3. `pm2 restart emonfast`
+- `.github/workflows/deploy.yml` — `main`'e push'ta: `index.html` yedeği → HTML yükleme →
+  backend patch adımları (veri-guard, build-guard, görevler, mailorder, tahsilat, talep görselleri,
+  veri-delta, veri-etag, …) → rename + `pm2 restart` → nginx gzip.
+- `.github/workflows/sertifika-kontrol.yml` — günlük SSL sertifika süresi kontrolü + alarm.
+- `KURULUM-ACIL-DURUM.md` — acil durum / sıfırdan kurulum runbook'u.
+- `tools/` — yedek doğrulama (`yedek-dogrula.sh`, cron), backend patch, regresyon testleri
+  (`*-test.js`: senkron, delta, ETag, onay tüketimi, marj kapısı, hayalet satır, …).
 
-## Repo Notları
+## ⚠️ Bilinen Durumlar / Dikkat
 
-- `README.md` neredeyse boş (sadece başlık).
-- `client2-5.conf` — WireGuard config dosyaları (untracked). `.DS_Store` ile birlikte
-  `.gitignore`'a eklenmeli; repoya girmemeli.
+- **`YENI_SENKRON_YOLU = false` (kill-switch, 2026-09-03):** Delta talep yazımı + ETag/304 kodu
+  repoda ve backend'de var ama istemcide **kapalı**; tam gövde yolu kullanılıyor. Açmadan önce
+  kimlikli yazım testi yapılmalı.
+- Backend veri-guard küçülen tabloları reddeder; toplu silme/temizlik "kasten" bayraklarıyla ve
+  partiler halinde yapılmalı.
+- macOS güncellemesi WireGuard tünelini düşürebilir (config kaybolmaz, yeniden içe aktar).
 
-## Son Commitler (referans)
+## Son Değişiklikler
 
-- `55724ff` Talep açılışında müşteri marjını her zaman otomatik getir
-- `d58b249` Away (uzakta) modu: açıkken satıcı talepleri otomatik onaylanır
-- `82d9259` Tek döviz görüntüleme modu (USD/EUR/TRY)
-- `de2579b` Teklif kuru: sistem kurlarından otomatik doldur + Güncelle butonu
-- `d2456d9` Teklif kuru: EUR ürünleri de manuel kura dahil
+Yeni kayıtlar en üste eklenir.
+
+### 2026-09
+- `a4f8859` Tamamlanmış talebi yeniden açma + teklife girecek kalemleri seçme
+- `3c43818` Kapalı talebe gelen fiyat onayı çıkmaza giriyordu (TLP-00237)
+- `baa6cbf`…`1c316ea` Tedarikçi kartı ikizlenmesi + mezar taşı + guard-güvenli temizlik
+- `e4db530` Satış fiyatlama tablosu tekliflerle birlikte tazelensin (TLP-00307)
+- `ce8294e`, `8d70772` Manuel RFQ'da boş/mükerrer teklif satırı (TLP-00298/299)
+- `c7d600f` Mükerrer müşteriler: veri-guard kilidi açıldı
+- `2d84168` Şifreyle girişte MS 365 hesabı düşüyordu (mail gitmiyor/taranmıyor)
+- `797d359` Onay verify-then-consume
+- `60a4ceb`, `2e679c3`, `8179cba` Delta yazım + ETag (→ `0cd4337` kill-switch ile kapalı)
+- `7aeaeac`, `f3cbabc` localStorage kotası → veri kaybı düzeltmesi
+- `90d75bd` Away modunda hedef marj altı otomatik onaylanmıyor
+- `72da14e`, `385de3b` Fiyatsız satırların gizlenmesi/katlanması
+
+### 2026-08
+- Tedarikçi sipariş modülü (`4f97bec`), manuel sipariş, alternatif ürün siparişi, son revize isteme
+- Talep arşive alma (`bdc9280`), Talep karşılanamadı (`91141c7`), sıralama/arama (talep no)
+- Fiyat onayı geri düşme düzeltmeleri (`a1c4a9f`…`a945936`, 413/satisTablosu)
+- Hatırlatma istemeyen müşteri, sipariş sonrası fiyat revizesi, müşteri vadeli gün zorunlu
+- Tedarikçi kondisyonu açık tekliflere yansıyor; RFQ alternatif düzeltmesi
+- Sertifika günlük kontrol workflow'u (`7743010`); WireGuard client6/7
+
+### 2026-07
+- Finans: Mail Order genişletmeleri + **Tahsilat Takip Merkezi** (`d6dcb2c`, backend `/api/tahsilat`)
+- Gelen mail taraması: sessiz yutulma, FW eşleştirme, zaman pencereli/sayfalı okuma, Excel ekleri
+- Senkron sertleştirme: absence-delete clobber, MUSTERILER dedup, TALEPLER tombstone, uyarı bandı
+- Talep görselleri / RFQ eki, sürüm numarası (CalVer) + hard reset, performans (defer, gzip)
+- Teklif hatırlatma otomasyonu, RFQ onay snapshot, müşteri onayı kaybı düzeltmesi
+
+### 2026-06
+- Senkron: kayıt/alan bazlı merge, wipe korumaları, veri-guard + build-guard (backend)
+- Mail Order modülü, İzin/Vekil, Görevler + operasyon rolü, HP sarf iskontosu
+- Fiyat onayı e-posta bildirimleri + derin link, kargo/fatura + tamamlama maili
+- CRM istatistik/kazanım panoları, demo müşteri tipi, açık tema
+- MS 365 SSO → backend JWT, Claude API backend proxy, kullanıcı yönetimi auth tablosuna bağlandı
+- Acil durum runbook'u + yedek doğrulama cron'u
+
+### 2026-05 (25–31)
+- CRM ilk sürüm, gelen maillerden otomatik talep (Faz 1–2), satıcı bazlı görünürlük
+- Satıcı yetki kısıtlamaları + müşteri/tedarikçi değişikliklerinin admin onayına gitmesi
+- Mobil uyum, AI maliyet optimizasyonu (Haiku-first)
 
 ## Açık / Sıradaki İşler
 
-- [ ] (buraya devam edilecek işleri ekleyin)
+- [ ] Delta senkron yolunun kimlikli yazım testi → `YENI_SENKRON_YOLU` tekrar açılsın mı?
+- [ ] RFQ maliyeti → müşteri `altKalemler` köprüsü (alternatif ürünler)
+- [ ] Tedarikçi siparişinde kısmi sipariş açıkları
+- [ ] Tedarikçi tarafında vadeli gün zorunluluğu
+- [ ] `renderArsiv` / `renderTalepler` `TALEP_KAPALI_DURUMLAR` sabitini kullanmıyor
+- [ ] Mail Order: tedarikçi formunun PDF/görsel olarak oto-doldurulması (kalan kısım)
