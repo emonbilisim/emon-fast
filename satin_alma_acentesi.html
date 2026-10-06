@@ -9008,6 +9008,46 @@ function tkSatirlariAcKapa(tkIdx) {
   renderTalepTeklifleri();
 }
 
+// Kayıtlı tedarikçi firma adları (tekil, sıralı) — manuel teklif satırının öneri listesi
+function _tkKayitliFirmalar() {
+  const set = new Set();
+  TEDARIKCILER.forEach(r => { const f = String(r?.[0] || '').trim(); if (f) set.add(f); });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
+}
+// Yazılan ad kayıtlı bir firmaya (büyük/küçük harf, baş/son boşluk farkıyla) karşılık geliyorsa
+// kayıttaki TAM adı döndürür. Kondisyon (ödeme/kargo) tk.tedarikci === r[0] ile bulunduğundan
+// "abc ltd" yazılıp "ABC LTD" kaydı kullanılmazsa şartlar maliyete hiç yansımaz.
+function _tkKayitliFirmaAdi(ad) {
+  const n = _tedNorm(ad);
+  if (!n) return null;
+  const r = TEDARIKCILER.find(x => _tedNorm(x?.[0]) === n);
+  return r ? String(r[0]) : null;
+}
+// Manuel teklif satırında listeden seçim / alandan çıkış: kayıtlı firmaysa kayıttaki ada
+// oturt ve satırı "kayıtlı" görünümüne al (şartları rozet olarak görünür). Değilse serbest metin kalır.
+function tkTedarikciSec(tkIdx, deger) {
+  const t = TALEPLER[aktifTalepIdx];
+  const tk = talepTeklifleri[t?.no]?.[tkIdx];
+  if (!tk) return;
+  const kayitli = _tkKayitliFirmaAdi(deger);
+  if (!kayitli) return;
+  if (tk.tedarikci !== kayitli) talepTeklifGuncelle(tkIdx, 'tedarikci', kayitli);
+  tk._manuelMod = false;
+  delete tk._taslak;   // artık adı olan gerçek satır → sunucuya yazılsın
+  renderTalepTeklifleri();
+  veriKaydet();
+}
+// Kayıtlı firmanın maliyete giren şartları (ödeme + kargo) — kısa rozet satırı
+function _tkKondisyonOzeti(firma) {
+  const r = tedKondisyonSatiri(firma);
+  if (!r || !tedKondisyonDolu(r)) {
+    return '<div style="font-size:10px;color:var(--text3);">\u015eart girilmemi\u015f</div>';
+  }
+  const odeme = odemeBadgeleri(r[5]);
+  return '<div style="display:flex;flex-wrap:wrap;gap:3px;" title="Kay\u0131tl\u0131 tedarik\u00e7i \u015fartlar\u0131 \u2014 maliyet hesab\u0131na dahil">'
+    + (odeme.includes('badge') ? odeme : '') + kargoBadge(r[6]) + '</div>';
+}
+
 // Tedarikçi adı hücresi — tedarikçi bloğunun ilk satırında, rowspan ile
 function _tkTedarikciHucresi(tr, tk, tkIdx, satirSayisi) {
     const td0 = tr.insertCell();
@@ -9022,11 +9062,14 @@ function _tkTedarikciHucresi(tr, tk, tkIdx, satirSayisi) {
       + (kayitliMi
           ? '<div style="font-weight:500;font-size:12px;">' + (tk.tedarikci||'\u2014') + '</div>'
             + '<button onclick=\'tkManuelModa(' + tkIdx + ')\' title="Manuel d\u00fczenle" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0;">\u270f\ufe0f</button>'
-          : '<input type="text" value="' + (tk.tedarikci||'') + '" placeholder="Tedarik\u00e7i ad\u0131..." '
+          : '<input type="text" list="tk-tedarikci-list" value="' + String(tk.tedarikci||'').replace(/"/g,'&quot;') + '" placeholder="Kay\u0131tl\u0131 tedarik\u00e7i se\u00e7 veya yaz..." '
             + 'style="font-size:12px;padding:4px 6px;border:1px solid var(--border2);border-radius:4px;width:100%;background:var(--bg3);color:var(--text);" '
-            + 'oninput="talepTeklifGuncelle(' + tkIdx + ',\'tedarikci\',this.value)">'
+            + 'oninput="talepTeklifGuncelle(' + tkIdx + ',\'tedarikci\',this.value);if(!event.inputType||event.inputType===\'insertReplacementText\')tkTedarikciSec(' + tkIdx + ',this.value)" '
+            + 'onchange="tkTedarikciSec(' + tkIdx + ',this.value)">'
         )
       + '</div>'
+      // Kayıtlı firmanın ödeme/kargo şartı maliyete (gercekMaliyetHesapla) bu satırdan girer — görünür olsun
+      + (kayitliMi ? _tkKondisyonOzeti(tk.tedarikci) : '')
       + '<div style="display:flex;gap:4px;align-items:center;">'
       + (tk.webLink
           ? '<a href="' + tk.webLink + '" target="_blank" style="font-size:11px;color:var(--accent2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px;" title="' + tk.webLink + '">\ud83d\udd17 ' + tk.webLink.replace(/^https?:\/\/(www\.)?/,'').substring(0,20) + '\u2026</a>'
@@ -9611,6 +9654,11 @@ function renderTalepTeklifleri() {
   const empty = document.getElementById('td-teklifler-empty');
   if (!tbody) return;
   tbody.innerHTML = '';
+
+  // Manuel satırın tedarikçi alanı için kayıtlı firma önerileri
+  let dl = document.getElementById('tk-tedarikci-list');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'tk-tedarikci-list'; document.body.appendChild(dl); }
+  dl.innerHTML = _tkKayitliFirmalar().map(f => '<option value="' + f.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;') + '">').join('');
 
   liste.forEach((tk, i) => {
     renderTalapTeklifleri_satir(tbody, tk, i, t);

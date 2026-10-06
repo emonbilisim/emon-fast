@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-10-02
+> Son güncelleme: 2026-10-06
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -126,6 +126,9 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 ## Son Değişiklikler
 
 Yeni kayıtlar en üste eklenir.
+
+### 2026-10
+- "+ Teklif Ekle" manuel satırında kayıtlı tedarikçi önerisi: listeden seçilen/eşleşen firma kayıttaki ada oturur, ödeme/kargo şartları maliyete girer ve rozet olarak görünür; kayıtsız firma serbest metin kalır
 
 ### 2026-09
 - `a4f8859` Tamamlanmış talebi yeniden açma + teklife girecek kalemleri seçme
