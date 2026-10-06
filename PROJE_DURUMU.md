@@ -128,7 +128,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-10
-- Teklif girişinde kalem seçici: çok kalemli talepte fiyat girilecek kalemler tek tek açılır, fiyat girilmeyenler o tedarikçi için yok sayılır (karşılaştırma/kargo payı zaten fiyatsızı dışarıda tutuyordu)
+- Karışık dövizli müşteri teklifi (mail, PDF, hatırlatma maili): toplam tek sayıya toplanıp ilk satırın dövizi yazılıyordu; artık "x USD + y TL" (tek döviz seçiliyse tek toplam). Mailde satırlar da kendi döviz sembolüyle
+- `48a14cd` Teklif girişinde kalem seçici: çok kalemli talepte fiyat girilecek kalemler tek tek açılır, fiyat girilmeyenler o tedarikçi için yok sayılır (karşılaştırma/kargo payı zaten fiyatsızı dışarıda tutuyordu)
 - `c8e366a` "+ Teklif Ekle" satırı artık hep boş açılıyor (RFQ'daki ilk firma kendiliğinden yazılmıyordu)
 - `4cdd567` "+ Teklif Ekle" manuel satırında kayıtlı tedarikçi önerisi: listeden seçilen/eşleşen firma kayıttaki ada oturur, ödeme/kargo şartları maliyete girer ve rozet olarak görünür; kayıtsız firma serbest metin kalır
 

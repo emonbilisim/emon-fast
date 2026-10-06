@@ -10318,6 +10318,29 @@ function satisKalemHaricMi(t, uIdx) {
 // (musteriTeklifFiyatlar t.urunler ile hizalı kalmalı); müşteriye giden her çıktıda bu filtre.
 function teklifDahil(satirlar) { return (satirlar || []).filter(x => x && !x.haric); }
 
+// Teklif toplamı PARA BİRİMİ BAZINDA: satış tablosunda "tek döviz" seçilmediyse kalemler kendi
+// dövizinde kalır ve müşteriye "x USD + y TL" gider. Eskiden tüm satırlar tek sayıya toplanıp
+// ilk satırın dövizi yazılıyordu → 100 USD + 1.000 TL teklif "1.100 USD" gidiyordu.
+// Sıra: dövizler (ilk görülme sırasıyla) önce, TL en sonda. Tek dövizde tek eleman döner.
+function teklifParaToplamlari(satirlar) {
+  const m = new Map();
+  (satirlar || []).forEach(u => {
+    if (!u) return;
+    const p = u.para || 'TRY';
+    m.set(p, (m.get(p) || 0) + (parseFloat(u.toplam) || 0));
+  });
+  const liste = Array.from(m, ([para, tutar]) => ({ para, tutar }));
+  return liste.filter(x => x.para !== 'TRY').concat(liste.filter(x => x.para === 'TRY'));
+}
+// fmt(tutar, para) → tek tutar metni; toplamlar " + " ile birleşir
+function teklifToplamMetni(toplamlar, fmt) {
+  return (toplamlar.length ? toplamlar : [{ para: 'TRY', tutar: 0 }]).map(x => fmt(x.tutar, x.para)).join(' + ');
+}
+// Kur açıklaması / "1 USD = …" satırı için baz para: teklifte döviz varsa ilk döviz, yoksa TL
+function teklifKurParasi(toplamlar) {
+  return (toplamlar.find(x => x.para !== 'TRY') || toplamlar[0] || { para: 'TRY' }).para;
+}
+
 function satisKalemDahilToggle(uIdx, dahil) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -12075,11 +12098,12 @@ async function teklifMailGonderEt() {
     if (_gonderBtn) { _gonderBtn.disabled = false; _gonderBtn.textContent = '📧 Gönder'; }
     return;
   }
-  const toplamTutar = urunSatirlari.reduce((s, u) => s + u.toplam, 0);
-  const toplamPara  = urunSatirlari[0]?.para || 'TRY';
+  const toplamTutar = urunSatirlari.reduce((s, u) => s + u.toplam, 0);   // yalnız tek dövizde anlamlı
+  const toplamlar   = teklifParaToplamlari(urunSatirlari);
+  const toplamPara  = teklifKurParasi(toplamlar);
 
-  const sembol = paraSembolu[toplamPara] || '₺';
-  const fmt    = n => sembol + n.toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  // Her tutar KENDİ dövizinin sembolüyle (karışık dövizde satırlar farklı para birimindedir)
+  const fmt    = (n, para) => (paraSembolu[para] || '₺') + n.toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2});
   const gecerlilik = new Date(Date.now() + 7*86400000).toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit',year:'numeric'});
 
   // Müşterinin döviz kuru tipine göre kur açıklaması (mail notu + dinamik güncel kur)
@@ -12133,13 +12157,13 @@ async function teklifMailGonderEt() {
           ).join('') : '')
         + '</td>'
       + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center;">' + u.adet + ' ' + u.birim + '</td>'
-      + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:right;">' + fmt(u.birimFiyat) + '</td>'
-      + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:right;font-weight:600;">' + fmt(u.toplam) + '</td>'
+      + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:right;">' + fmt(u.birimFiyat, u.para) + '</td>'
+      + '<td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:right;font-weight:600;">' + fmt(u.toplam, u.para) + '</td>'
       + '</tr>'
     ).join('')
   + '<tr style="background:#e3f2fd;">'
   + '<td colspan="5" style="padding:10px 12px;border:1px solid #bbdefb;text-align:right;font-weight:700;font-size:14px;">TOPLAM ' + (kdv > 0 ? '(KDV %'+kdv+' Dahil)' : '(KDV Hari\u00e7)') + '</td>'
-  + '<td style="padding:10px 12px;border:1px solid #bbdefb;text-align:right;font-weight:700;font-size:16px;color:#1565C0;">' + fmt(toplamTutar) + '</td>'
+  + '<td style="padding:10px 12px;border:1px solid #bbdefb;text-align:right;font-weight:700;font-size:16px;color:#1565C0;">' + teklifToplamMetni(toplamlar, fmt) + '</td>'
   + '</tr></tbody></table>'
 
   // TCMB + lojistik notu — her zaman göster
@@ -15745,7 +15769,11 @@ async function _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara) {
   // Etiket ile rakam ayni font boyunda; rakam sag kenara, etiket rakamin
   // solunda sabit 8mm boslukla — rakam genisligi (max 8 hane) ne olursa olsun ust uste binmez.
   const TF=9;
-  const valTxt=symMap[toplamPara]+' '+fmt2(toplamTutar);
+  // Karışık dövizde "USD x + TL y" — tek sayıya toplanmaz (bkz. teklifParaToplamlari)
+  const _toplamlar=teklifParaToplamlari(urunSatirlari);
+  const valTxt=_toplamlar.length>1
+    ? teklifToplamMetni(_toplamlar,(n,p)=>(symMap[p]||'TL')+' '+fmt2(n))
+    : symMap[toplamPara]+' '+fmt2(toplamTutar);
   const valX=LM+CW-2;
   sf(YESIL,TF,'bold');
   const valW=doc.getTextWidth(valTxt);
@@ -15835,7 +15863,7 @@ async function teklifPdfBase64(talepIdx, urunSatirlariParam, toplamTutarParam, t
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
   const urunSatirlari = urunSatirlariParam || teklifDahil(musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx));
   const toplamTutar = toplamTutarParam != null ? toplamTutarParam : urunSatirlari.reduce((s,u)=>s+u.toplam,0);
-  const toplamPara  = toplamParaParam || urunSatirlari[0]?.para || 'TRY';
+  const toplamPara  = toplamParaParam || teklifKurParasi(teklifParaToplamlari(urunSatirlari));
   await _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara);
   return doc.output('datauristring').split(',')[1];
 }
@@ -15852,7 +15880,7 @@ async function teklifPdfIndir(talepIdx) {
   const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
   const urunSatirlari = teklifDahil(musteriTeklifSatirlari(talepIdx != null ? talepIdx : aktifTalepIdx));
   const toplamTutar = urunSatirlari.reduce((s,u)=>s+u.toplam,0);
-  const toplamPara  = urunSatirlari[0]?.para || 'TRY';
+  const toplamPara  = teklifKurParasi(teklifParaToplamlari(urunSatirlari));
   await _pdfCiz(doc, t, urunSatirlari, toplamTutar, toplamPara);
   const fn = 'EMON_Teklif_'+(t.no||'').replace(/[^A-Z0-9]/gi,'_')+'_'+t.musteri.replace(/[^a-zA-Z0-9]/g,'_').substring(0,20)+'.pdf';
   doc.save(fn);
@@ -16534,6 +16562,9 @@ async function teklifHatirlatMailiGonder(t, toMail, ccList) {
   const imzaHtmlBlok = imzaHtml();
 
   const hasFiyat = kayitliFiyatlar.length > 0;
+  // Para birimi bazında toplam (karışık dövizde "x USD + y TL") — bkz. teklifParaToplamlari
+  const _hatToplamlar = teklifParaToplamlari(urunler.map((u, i) => kayitliFiyatlar[i]
+    ? { para: kayitliFiyatlar[i].para || 'TRY', toplam: (kayitliFiyatlar[i].birimFiyat || 0) * (parseFloat(u.adet) || 1) } : null));
   const urunTabloHtml = '<table style="border-collapse:collapse;width:100%;font-size:13px;font-family:Calibri,Arial,sans-serif;margin:16px 0;">'
     + '<thead><tr style="background:#1565C0;color:#ffffff;">'
     + '<th style="padding:9px 12px;text-align:center;border:1px solid #1565C0;width:36px;">#</th>'
@@ -16558,15 +16589,14 @@ async function teklifHatirlatMailiGonder(t, toMail, ccList) {
     + (hasFiyat ? '<tr style="background:#e3f2fd;">'
         + '<td colspan="5" style="padding:10px 12px;border:1px solid #bbdefb;text-align:right;font-weight:700;font-size:14px;">TOPLAM (KDV Haric)</td>'
         + '<td style="padding:10px 12px;border:1px solid #bbdefb;text-align:right;font-weight:700;font-size:16px;color:#1565C0;">'
-        + (paraSembolu[kayitliFiyatlar[0]?.para]||'₺')
-        + urunler.reduce((s,u,i) => s + (kayitliFiyatlar[i]?.birimFiyat||0)*(parseFloat(u.adet)||1), 0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})
+        + teklifToplamMetni(_hatToplamlar, (n, p) => (paraSembolu[p]||'₺') + n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}))
         + '</td></tr>' : '')
     + '</tbody></table>';
 
   const subject = 'Hatirlatma: [' + t.no + '] Fiyat Teklifimiz - ' + t.urun;
 
   // Müşterinin döviz kuru tipine göre kur açıklaması
-  const kurAck = musteriKurAciklama(m, kayitliFiyatlar[0]?.para || 'TRY');
+  const kurAck = musteriKurAciklama(m, teklifKurParasi(_hatToplamlar));
 
   const htmlBody = '<!DOCTYPE html><html><body style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#212121;line-height:1.6;margin:0;padding:20px;">'
     + '<div style="max-width:720px;">'
