@@ -9000,6 +9000,19 @@ function _tkSatirDolu(tk, urunIdx) {
 
 // Hangi tedarikçilerin boş satırları elle açıldı — sadece ekran durumu (veriye yazılmaz)
 let teklifBosSatirAcik = new Set();
+// Kalem seçiciyle tek tek açılan fiyatsız kalemler: 'talepNo|tkIdx' → Set(urunIdx).
+// Sadece ekran durumu; fiyat girilen kalem zaten "dolu" sayılıp kalıcı olarak görünür.
+let teklifUrunSecili = new Map();
+function tkUrunSecToggle(tkIdx, urunIdx) {
+  const t = TALEPLER[aktifTalepIdx];
+  if (!t) return;
+  const k = t.no + '|' + tkIdx;
+  const set = teklifUrunSecili.get(k) || new Set();
+  if (set.has(urunIdx)) set.delete(urunIdx); else set.add(urunIdx);
+  teklifUrunSecili.set(k, set);
+  renderTalepTeklifleri();
+  if (set.has(urunIdx)) document.getElementById('tk-fiyat-' + tkIdx + '-' + urunIdx)?.focus();
+}
 function tkSatirlariAcKapa(tkIdx) {
   const t = TALEPLER[aktifTalepIdx];
   if (!t) return;
@@ -9119,7 +9132,10 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
   const dolular  = urunler.map((u, i) => i).filter(i => _tkSatirDolu(tk, i));
   const gizlenir = urunler.length > 1 && dolular.length < urunler.length;
   const acik     = !gizlenir || teklifBosSatirAcik.has(t.no + '|' + tkIdx);
-  const gorunen  = acik ? urunler.map((u, i) => i) : dolular;
+  // Kalem seçici ile tek tek açılan (henüz fiyatsız) kalemler + fiyatlılar, talep sırasıyla
+  const secili   = teklifUrunSecili.get(t.no + '|' + tkIdx) || new Set();
+  const gorunen  = acik ? urunler.map((u, i) => i)
+                        : urunler.map((u, i) => i).filter(i => dolular.includes(i) || secili.has(i));
   const satirSayisi = gorunen.length + (gizlenir ? 1 : 0);   // +1 = aç/kapa satırı
 
   gorunen.forEach((urunIdx, _sira) => {
@@ -9145,7 +9161,11 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     const hasAlt  = !!(altUrun || altKod);
     const tdUrun = tr.insertCell();
     tdUrun.style.cssText = 'padding:7px 10px;vertical-align:middle;font-size:12px;color:var(--text2);max-width:190px;' + (hasAlt ? 'background:rgba(245,166,35,0.13);box-shadow:inset 3px 0 0 var(--amber);' : '');
-    tdUrun.innerHTML = '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _attr(urun.aciklama) + '">' + (urun.aciklama||'—') + '</div>'
+    const _kapatilir = gizlenir && !acik && !dolular.includes(urunIdx);   // seçiciden açılmış, fiyatsız
+    tdUrun.innerHTML = '<div style="display:flex;gap:4px;align-items:center;">'
+      + '<div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _attr(urun.aciklama) + '">' + (urun.aciklama||'—') + '</div>'
+      + (_kapatilir ? '<button onclick="tkUrunSecToggle(' + tkIdx + ',' + urunIdx + ')" title="Bu kalemi kapat — fiyat girilmezse bu tedarikçi için yok sayılır" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:0 2px;">✕</button>' : '')
+      + '</div>'
       + (urun.kod ? '<div style="font-size:10px;color:var(--text3);font-family:var(--font-mono);">' + urun.kod + '</div>' : '')
       + (hasAlt ? '<div style="display:inline-block;background:var(--amber);color:#241a05;font-weight:700;font-size:9px;letter-spacing:0.03em;padding:2px 7px;border-radius:10px;margin-top:4px;" title="Bu tedarikçi istenen ürün yerine ALTERNATİF bir ürün veriyor — fiyat alternatife aittir">↹ ALTERNATİF ÜRÜN</div>' : '')
       + '<div style="display:flex;gap:3px;margin-top:3px;" title="Tedarikçi istenen ürün yerine alternatif bir ürün önerdiyse adını ve kodunu yazın — fiyat alternatife aittir">'
@@ -9199,13 +9219,28 @@ function renderTalapTeklifleri_satir(tbody, tk, tkIdx, t) {
     tdAc.colSpan = 3;
     tdAc.style.cssText = 'padding:5px 10px;font-size:11px;color:var(--text3);cursor:pointer;background:var(--bg2);'
       + 'border-top:1px dashed var(--border2);';
-    tdAc.title = 'Bu tedarikçinin fiyat vermediği kalemler';
-    tdAc.onclick = () => tkSatirlariAcKapa(tkIdx);
-    tdAc.innerHTML = acik
-      ? '▲ Fiyatlanmamış ' + (urunler.length - dolular.length) + ' satırı gizle'
-      : (dolular.length === 0
-          ? '▼ Bu tedarikçiden fiyat gelmedi — ' + urunler.length + ' satırı aç / elle gir'
-          : '▼ Fiyat verilmeyen ' + (urunler.length - dolular.length) + ' satır gizlendi — göster');
+    tdAc.title = 'Bu tedarikçinin fiyat vermediği kalemler — fiyat girilmeyen kalem bu tedarikçi için yok sayılır';
+    if (acik) {
+      tdAc.onclick = () => tkSatirlariAcKapa(tkIdx);
+      tdAc.innerHTML = '▲ Fiyatlanmamış ' + (urunler.length - dolular.length) + ' satırı gizle';
+    } else {
+      // Kalem seçici: yalnız fiyat girilecek kalemler tek tıkla açılır; gerisi yok sayılır
+      const kapali = urunler.map((u, i) => i).filter(i => !gorunen.includes(i));
+      const _esc = x => String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+      tdAc.style.cursor = 'default';
+      tdAc.innerHTML = '<div style="margin-bottom:4px;">'
+        + (!kapali.length
+            ? 'Tüm kalemler açık'
+            : dolular.length === 0 && !secili.size
+            ? 'Fiyat girilecek kalemleri seçin'
+            : 'Fiyat girilmeyen ' + kapali.length + ' kalem yok sayılıyor — eklemek için seçin')
+        + ' · <a href="#" onclick="event.preventDefault();tkSatirlariAcKapa(' + tkIdx + ')" style="color:var(--accent2);">tümünü aç</a></div>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:4px;">'
+        + kapali.map(i => '<button class="btn btn-sm" style="padding:2px 8px;font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" '
+            + 'title="' + _esc(urunler[i].aciklama) + '" onclick="tkUrunSecToggle(' + tkIdx + ',' + i + ')">+ '
+            + (i + 1) + '. ' + _esc(urunler[i].aciklama || urunler[i].kod || '—') + '</button>').join('')
+        + '</div>';
+    }
     if (gorunen.length === 0) _tkYanHucreler(trAc, tk, tkIdx, satirSayisi);
   }
 }
@@ -9939,6 +9974,8 @@ function talepTeklifSil(i) {
   // union merge YALNIZ açıkça silinen satırı düşürsün — aynı tedarikçinin diğer
   // alternatif satırları ayakta kalmalı
   _silinenTeklifSatir.add(_teklifSilmeAnahtari(t.no, liste, i));
+  // Ekran durumu satır indeksine bağlı → silmeden sonra kayar; bu talebinkini sıfırla
+  Array.from(teklifUrunSecili.keys()).forEach(k => { if (k.startsWith(t.no + '|')) teklifUrunSecili.delete(k); });
   liste.splice(i, 1);
   renderTalepTeklifleri();
   veriKaydet(); // teklif satırı silme ortak sunucuya yazılsın (merge'de geri gelmesin)
