@@ -128,7 +128,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-10
-- "+ Teklif Ekle" manuel satırında kayıtlı tedarikçi önerisi: listeden seçilen/eşleşen firma kayıttaki ada oturur, ödeme/kargo şartları maliyete girer ve rozet olarak görünür; kayıtsız firma serbest metin kalır
+- "+ Teklif Ekle" satırı artık hep boş açılıyor (RFQ'daki ilk firma kendiliğinden yazılmıyordu)
+- `4cdd567` "+ Teklif Ekle" manuel satırında kayıtlı tedarikçi önerisi: listeden seçilen/eşleşen firma kayıttaki ada oturur, ödeme/kargo şartları maliyete girer ve rozet olarak görünür; kayıtsız firma serbest metin kalır
 
 ### 2026-09
 - `a4f8859` Tamamlanmış talebi yeniden açma + teklife girecek kalemleri seçme

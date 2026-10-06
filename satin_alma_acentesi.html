@@ -9835,18 +9835,14 @@ function yeniTeklifSatirEkle() {
     showToast('Boş bir teklif satırı zaten açık — önce onu doldurun.');
     return;
   }
-  const mevcutlar = talepTeklifleri[t.no].map(x => x.tedarikci);
-  const rfqFirmalar = Array.from(rfqSeciliTedarikciler);
-  const eklenecek = rfqFirmalar.find(f => !mevcutlar.includes(f)) || '';
-  const manuelMod = !eklenecek; // RFQ'dan tedarikçi kalmadıysa manuel mod
-  if (eklenecek) {                                // sil→yeniden ekle: silme seti düşürmesin
-    const on = String(t.no) + '|' + eklenecek + '#';   // anahtar artık pozisyonlu → hepsini temizle
-    Array.from(_silinenTeklifSatir).forEach(k => { if (k.startsWith(on)) _silinenTeklifSatir.delete(k); });
-  }
+  // Satır HER ZAMAN boş açılır: tedarikçi kullanıcı tarafından seçilir/yazılır (kayıtlı
+  // firmalar öneri listesinde, bkz. tkTedarikciSec). Eskiden RFQ'daki teklif vermemiş ilk
+  // firma kendiliğinden yazılıyordu — kullanıcı bambaşka bir firmanın teklifini girerken
+  // yanlış adla satır oluşuyordu.
   talepTeklifleri[t.no].push({
-    tedarikci: eklenecek,
-    _manuelMod: manuelMod,
-    ...(eklenecek ? {} : { _taslak: true }), // adsız satır: doldurulana kadar YALNIZ bu cihazda
+    tedarikci: '',
+    _manuelMod: true,
+    _taslak: true, // adsız satır: doldurulana kadar YALNIZ bu cihazda
     birimFiyat: 0,
     urunFiyatlari: {},
     teslimat: '', gecerlilik: '', odeme: '', not: '', webLink: ''
@@ -9854,7 +9850,6 @@ function yeniTeklifSatirEkle() {
   renderTalepTeklifleri();
   // Boş taslağı sunucuya YAZMA: adı/verisi yokken yazılırsa, ad girildiğinde merge
   // anahtarı değişeceği için sunucuda boş satır olarak KALIRDI (TLP-00299).
-  if (eklenecek) veriKaydet();
 }
 
 function tkManuelModa(tkIdx) {
