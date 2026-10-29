@@ -129,6 +129,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
   kimlikli yazım testi yapılmalı.
 - Backend veri-guard küçülen tabloları reddeder; toplu silme/temizlik "kasten" bayraklarıyla ve
   partiler halinde yapılmalı.
+- **Sunucu yazımı tek kuyruk:** `_veriPush` yalnız `_veriPushSirali` üzerinden çağrılmalı (tam gövde
+  full-replace olduğundan paralel iki yazımda yavaş olan yenisini ezer; `tools/push-sira-test.js`).
 - macOS güncellemesi WireGuard tünelini düşürebilir (config kaybolmaz, yeniden içe aktar).
 
 ## Son Değişiklikler
@@ -136,7 +138,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-10
-- Fiyat Onayları'na "Revize İstendi — Satıcı Fiyat Hazırlıyor" bölümü: revizyonu bekleyip henüz onaya gönderilmemiş talepler admin'e görünür (TLP-00546)
+- Sunucu yazımları sıraya alındı (`_veriPushSirali`): fiyat düzenlemesinin arka plan kaydı sürerken "Admin Onayı İste" ikinci kaydı başlatıyor, yavaş eski kayıt sonra bitip onay isteğini full-replace ile eziyordu (uyarısız; "2.–3. denemede düşüyor", TLP-00546)
+- `1b4e67d` Fiyat Onayları'na "Revize İstendi — Satıcı Fiyat Hazırlıyor" bölümü: revizyonu bekleyip henüz onaya gönderilmemiş talepler admin'e görünür (TLP-00546)
 - `947fad9` Away modunda revizyon fiyat onayları artık otomatik onaylanmıyor; Fiyat Onayları'nda ayrı "✏️ Revizyon" bölümünde, mailde ayrı konuyla görünüyor
 - Karışık dövizli müşteri teklifi (mail, PDF, hatırlatma maili): toplam tek sayıya toplanıp ilk satırın dövizi yazılıyordu; artık "x USD + y TL" (tek döviz seçiliyse tek toplam). Mailde satırlar da kendi döviz sembolüyle
 - `48a14cd` Teklif girişinde kalem seçici: çok kalemli talepte fiyat girilecek kalemler tek tek açılır, fiyat girilmeyenler o tedarikçi için yok sayılır (karşılaştırma/kargo payı zaten fiyatsızı dışarıda tutuyordu)

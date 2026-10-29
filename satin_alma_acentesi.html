@@ -24360,6 +24360,35 @@ let _sonKayitVeri = null;
 // Yerel snapshot'ı sunucunun güncel haliyle MERGE edip gönderir. Hem debounce
 // zamanlayıcısı hem de veriKaydetFlush (çıkış öncesi) bu tek yoldan geçer →
 // kayıt mantığı tek yerde, çıkışta da await edilebilir.
+/* PUSH SIRALAYICI — aynı anda YALNIZ BİR _veriPush çalışır.
+   Kök neden (TLP-00546, "2. ve 3. denemede düşüyor"): fiyat düzenlemesi 1 sn'lik
+   debounce ile bir push başlatıyordu; push tam blobu çekip tam gövdeyi POST ettiği için
+   VPN üzerinde saniyeler sürüyor. Satıcı bu arada "Admin Onayı İste"ye basınca
+   kaliciVeriKaydet İKİNCİ bir push başlatıyordu. Yavaş olan ESKİ push (onay isteği
+   içermeyen snapshot + eski sunucu hâliyle yapılmış merge) SONRA bitip full-replace ile
+   yeni yazımı EZİYORDU — ikisi de 200 döndüğü için hiçbir uyarı çıkmıyordu. Tekrar
+   denemede arkada push olmadığından tutuyordu.
+   Çözüm: push'lar zincirlenir; sırada zaten bekleyen varsa ona katılınır (o, başlarken
+   EN SON snapshot'ı — _sonKayitVeri — gönderir, yani yeni değişiklik de içindedir).
+   Bir push bitmeden sonraki başlamaz → sonraki, öncekinin kurduğu _sunucuBaz ve taze
+   sunucu hâliyle merge eder; ezilme imkânsız. _apiKaydetBekliyor kuyruk boşalana kadar
+   true kalır → canlı tazeleme araya girip bekleyen yazımı ezemez. */
+let _pushAktif = null, _pushSirada = null;
+function _veriPushSirali() {
+  if (_pushSirada) return _pushSirada;
+  const onceki = _pushAktif || Promise.resolve();
+  const p = onceki.catch(() => {}).then(() => {
+    _pushSirada = null; _pushAktif = p;
+    return _veriPush(_sonKayitVeri);
+  }).finally(() => {
+    if (_pushAktif === p) _pushAktif = null;
+    _apiKaydetBekliyor = !!(_pushAktif || _pushSirada || _apiKaydetTimer);
+  });
+  _pushSirada = p;
+  _apiKaydetBekliyor = true;
+  return p;
+}
+
 async function _veriPush(veri) {
   if (!veri || !apiTokenAl()) {
     _apiKaydetBekliyor = false;
@@ -24568,7 +24597,7 @@ function talepBlobGuvenli() {
 // kalıp yeniden girişte sunucudan gelen eski veriyle ezilmesin.
 async function veriKaydetFlush() {
   if (_apiKaydetTimer) { clearTimeout(_apiKaydetTimer); _apiKaydetTimer = null; }
-  if (_sonKayitVeri && apiTokenAl()) return await _veriPush(_sonKayitVeri);
+  if (_sonKayitVeri && apiTokenAl()) return await _veriPushSirali();
   return false;
 }
 
@@ -24680,7 +24709,7 @@ function veriKaydet() {
     // Sonra API'ye gönder (debounce — 1 saniyede bir) — HER ZAMAN MERGE
     if (_apiKaydetTimer) clearTimeout(_apiKaydetTimer);
     _apiKaydetBekliyor = true; // canlı tazeleme bu kaydı ezmesin diye işaretle
-    _apiKaydetTimer = setTimeout(() => { _veriPush(veri); }, 1000);
+    _apiKaydetTimer = setTimeout(() => { _apiKaydetTimer = null; _veriPushSirali(); }, 1000);
 
   } catch (e) {
     console.warn('Veri kayıt hatası:', e.message);
