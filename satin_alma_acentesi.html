@@ -565,6 +565,10 @@
       <span class="icon">✅</span> Fiyat Onayları
       <span id="onay-bekleyen-badge" style="display:none;background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
     </div>
+    <div class="nav-item" onclick="goPage('revizyonlar',this)" id="nav-revizyonlar" style="display:none;">
+      <span class="icon">✏️</span> Revizyonlar
+      <span id="revizyon-badge" style="display:none;background:#7c3aed;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
+    </div>
     <div class="nav-item" onclick="onayModalAc()" id="nav-kayit-onaylari" style="display:none;">
       <span class="icon">⏳</span> Kayıt Onayları
       <span id="onay-kayit-badge" style="background:var(--amber);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
@@ -714,6 +718,18 @@
         <button class="btn btn-sm btn-primary" onclick="goPage('fiyatOnaylari', document.getElementById('nav-fiyat-onaylari'))">İncele</button>
       </div>
       <div id="panel-fiyat-onay-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
+    </div>
+
+    <!-- 2b) Revizyon talepleri (sadece admin) -->
+    <div class="card" id="panel-revizyon-card" style="display:none;margin-bottom:20px;border-left:3px solid #7c3aed;">
+      <div class="card-header">
+        <div>
+          <div class="card-title">✏️ Revizyon Talepleri</div>
+          <div class="card-sub">Müşterinin revize istediği teklifler — onay bekleyen ve fiyatı hazırlanan</div>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="goPage('revizyonlar', document.getElementById('nav-revizyonlar'))">İncele</button>
+      </div>
+      <div id="panel-revizyon-icerik" style="display:flex;flex-direction:column;gap:8px;padding:4px 0;"></div>
     </div>
 
     <!-- 3) Yeni tedarikçi/müşteri kayıt & değişiklik onayları (sadece admin) -->
@@ -1236,6 +1252,22 @@
     <!-- 🛒 TEDARİKÇİ SİPARİŞİ — müşteri siparişi alındıktan sonra satın alma
          (renderTedSiparis doldurur; müşteri sipariş vermeden görünmez) -->
     <div class="card" id="td-tedsiparis-section" style="display:none;margin-top:16px;"></div>
+  </div>
+
+  <!-- REVİZYONLAR PAGE (Admin) -->
+  <div class="content page" id="page-revizyonlar">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">✏️ Revizyon Talepleri</div>
+          <div class="card-sub">Müşterinin revize istediği teklifler — away modunda bile otomatik onaylanmaz</div>
+        </div>
+        <button class="btn btn-sm" onclick="revizyonlarTazele()">🔄 Yenile</button>
+      </div>
+      <div id="revizyonlar-icerik">
+        <div style="padding:24px;text-align:center;color:var(--text3);">Yükleniyor...</div>
+      </div>
+    </div>
   </div>
 
   <!-- FİYAT ONAYLARI PAGE (Admin) -->
@@ -5533,7 +5565,7 @@ document.addEventListener('touchend', e => {
 
 // NAVİGASYON
 // Sadece admin'in erişebileceği sayfalar — satıcı doğrudan çağırsa bile engellenir
-const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari', 'tahsilat'];
+const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari', 'revizyonlar', 'tahsilat'];
 function goPage(id, el) {
   if (ADMIN_ONLY_SAYFALAR.includes(id) && aktifKullanici?.rol !== 'admin') {
     showToast('Bu sayfaya erişim yetkiniz yok.');
@@ -5556,13 +5588,14 @@ function goPage(id, el) {
   document.getElementById('page-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order',tahsilat:'Tahsilat Takip Merkezi'};
+  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order',tahsilat:'Tahsilat Takip Merkezi',revizyonlar:'Revizyonlar',fiyatOnaylari:'Fiyat Onayları'};
   document.getElementById('page-title').textContent = titles[id] || id;
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
   if (typeof teklifTaramaDurdur === 'function') teklifTaramaDurdur(); // başka sayfaya geçince teklif taramasını durdur
   if (id === 'panel') { renderPanelMetrikler(); onayBadgeGuncelle(); }
   if (id === 'fiyatOnaylari') fiyatOnaylariTazele();
+  if (id === 'revizyonlar') revizyonlarTazele();
   if (id === 'teklifler') { renderMusteriTeklifleri(); teklifTaramaBaslat(); }
   if (id === 'arsiv') renderArsiv();
   if (id === 'kullanicilar') { renderKullanicilar(); onayBadgeGuncelle(); apiKullanicilarYukle().catch(()=>{}); }
@@ -13812,6 +13845,8 @@ function rolUygula() {
   if (navKullanici) navKullanici.style.display = isAdmin ? '' : 'none';
   const navOnay = document.getElementById('nav-fiyat-onaylari');
   if (navOnay) navOnay.style.display = isAdmin ? '' : 'none';
+  const navRev = document.getElementById('nav-revizyonlar');
+  if (navRev) navRev.style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
   });
@@ -15145,12 +15180,20 @@ async function adminFiyatReddet() {
 
 // Sidebar badge
 function onayBekleyenBadgeGuncelle() {
-  const sayisi = TALEPLER.filter(fiyatOnayGorunur).length;
+  const sayisi = TALEPLER.filter(t => fiyatOnayGorunur(t) && !t.fiyatOnayTalep?.revizyon).length;
   const badge = document.getElementById('onay-bekleyen-badge');
   if (badge) {
     badge.textContent = sayisi;
     badge.style.display = sayisi > 0 ? 'inline' : 'none';
   }
+  // Revizyonlar rozeti: onay bekleyen revizyon + fiyatı hazırlanan revizyon
+  const rb = document.getElementById('revizyon-badge');
+  if (rb) {
+    const r = revizyonListeleri().toplam;
+    rb.textContent = r;
+    rb.style.display = r > 0 ? 'inline' : 'none';
+  }
+  if (typeof renderPanelRevizyonlar === 'function') renderPanelRevizyonlar();
 }
 
 // ✅ Admin ONAYLADI ama müşteriye HENÜZ gönderilmedi → satıcı dikkati.
@@ -15246,28 +15289,29 @@ function fiyatOnaylariTazele() {
   sunucudanTazele(true).then(ok => { if (ok) renderFiyatOnaylari(); }); // taze gelince yeniden çiz
 }
 
-// Admin: onay bekleyen fiyatları listele
-function renderFiyatOnaylari() {
-  const icerik = document.getElementById('fiyat-onaylari-icerik');
-  if (!icerik) return;
+/* ── REVİZYONLAR (admin) ──────────────────────────────────────────────────
+   Revizyon talepleri Fiyat Onayları'ndan AYRI bir sayfada ve menü rozetinde görünür;
+   ayrıca revize istendiği anda admin'e e-posta gider (revizyonIstendiBildirimGonder).
+   İki grup:
+     • onay bekleyen revizyon  — satıcı yeni fiyatı gönderdi (fiyatOnayTalep.revizyon)
+     • fiyat hazırlanıyor      — revize istendi / onay düştü, satıcı henüz göndermedi
+   "Hazırlanıyor" grubu yalnız son REVIZYON_TAKIP_GUN gün: terk edilmiş eski talepler
+   rozeti kalıcı şişirmesin (TLP-00546'da admin hiçbir uyarı görmemişti). */
+const REVIZYON_TAKIP_GUN = 30;
+function _revizyonAni(t) {
+  return Date.parse(t.teklifRevizeTarih || '') || t.fiyatOnaySira || 0;
+}
+function revizyonListeleri() {
+  const sinir = Date.now() - REVIZYON_TAKIP_GUN * 86400000;
+  const bekleyen = TALEPLER.filter(t => fiyatOnayGorunur(t) && t.fiyatOnayTalep?.revizyon)
+    .sort((a, b) => (Date.parse(b.fiyatOnayTalep.tarih) || 0) - (Date.parse(a.fiyatOnayTalep.tarih) || 0));
+  const hazirlanan = TALEPLER.filter(t => fiyatRevizyonHazirlaniyor(t) && Math.max(_revizyonAni(t), t.fiyatOnaySira || 0) >= sinir)
+    .sort((a, b) => Math.max(_revizyonAni(b), b.fiyatOnaySira || 0) - Math.max(_revizyonAni(a), a.fiyatOnaySira || 0));
+  return { bekleyen, hazirlanan, toplam: bekleyen.length + hazirlanan.length };
+}
 
-  const bekleyenler = TALEPLER.filter(fiyatOnayGorunur);
-  const hazirlanan = TALEPLER.filter(fiyatRevizyonHazirlaniyor)
-    .sort((a,b) => (b.fiyatOnaySira || Date.parse(b.teklifRevizeTarih) || 0) - (a.fiyatOnaySira || Date.parse(a.teklifRevizeTarih) || 0));
-  const gecmis = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu))
-    .sort((a,b) => new Date(b.fiyatOnayTalep?.adminTarih||0) - new Date(a.fiyatOnayTalep?.adminTarih||0))
-    .slice(0, 10);
-
-  if (bekleyenler.length === 0 && gecmis.length === 0 && hazirlanan.length === 0) {
-    icerik.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text3);"><div style="font-size:28px;margin-bottom:8px;">✅</div>Onay bekleyen fiyat yok.</div>';
-    return;
-  }
-
-  let html = '';
-
-  // Revizyonlar (önceden fiyatlanmış/onaylanmış/müşteriye gitmiş talebin yeni fiyatı) AYRI
-  // bölümde, mor kenarlı gösterilir — away modu bunları otomatik onaylamaz (fiyatOnayRevizyonSebebi).
-  const bekleyenKart = t => {
+// Onay bekleyen fiyat kartı (Fiyat Onayları + Revizyonlar ortak)
+function fiyatOnayBekleyenKart(t) {
       const idx = TALEPLER.indexOf(t);
       const rev = t.fiyatOnayTalep?.revizyon;
       return `<div style="border:1px solid ${rev ? 'rgba(167,139,250,0.45)' : 'rgba(251,191,36,0.3)'};border-radius:var(--radius);padding:14px;margin-bottom:10px;background:${rev ? 'rgba(167,139,250,0.07)' : 'rgba(251,191,36,0.05)'};">
@@ -15291,25 +15335,10 @@ function renderFiyatOnaylari() {
           </div>
         </div>
       </div>`;
-  };
-  const revBekleyen  = bekleyenler.filter(t => t.fiyatOnayTalep?.revizyon);
-  const yeniBekleyen = bekleyenler.filter(t => !t.fiyatOnayTalep?.revizyon);
-  if (revBekleyen.length > 0) {
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:10px;">✏️ Revizyon Onayı Bekleyen (' + revBekleyen.length + ')</div>';
-    html += revBekleyen.map(bekleyenKart).join('');
-  }
-  if (yeniBekleyen.length > 0) {
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--amber);margin-bottom:10px;' + (revBekleyen.length ? 'margin-top:16px;' : '') + '">⏳ Onay Bekleyen (' + yeniBekleyen.length + ')</div>';
-    html += yeniBekleyen.map(bekleyenKart).join('');
-  }
+}
 
-  // Revizyon var ama satıcı yeni fiyatı henüz onaya göndermedi → onaylanacak bir şey yok,
-  // yalnız takip için görünür (en yeni 15; fazlası sayıyla belirtilir).
-  if (hazirlanan.length > 0) {
-    const HZ_MAX = 15;
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:4px;' + (bekleyenler.length ? 'margin-top:16px;' : '') + '">✏️ Revize İstendi — Satıcı Fiyat Hazırlıyor (' + hazirlanan.length + ')</div>'
-      + '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Önceki onay geçersiz; satıcı yeni fiyatı onaya gönderince yukarıdaki revizyon bölümüne düşer.</div>';
-    html += hazirlanan.slice(0, HZ_MAX).map(t => {
+// Revize istendi, satıcı yeni fiyatı henüz onaya göndermedi → salt takip kartı
+function revizyonHazirlanKart(t) {
       const idx = TALEPLER.indexOf(t);
       const sorumlu = talepSorumluKullanici(t);
       const saticiAd = (sorumlu && sorumlu.ad) || t.fiyatOnayTalep?.satici || '—';
@@ -15326,8 +15355,58 @@ function renderFiyatOnaylari() {
           <button class="btn btn-sm" onclick="talepDetayAc(${idx})" style="font-size:12px;flex-shrink:0;">📋 Detay</button>
         </div>
       </div>`;
-    }).join('');
-    if (hazirlanan.length > HZ_MAX) html += '<div style="font-size:11px;color:var(--text3);margin-bottom:8px;">+' + (hazirlanan.length - HZ_MAX) + ' talep daha (Talepler ekranından görülebilir)</div>';
+}
+
+function renderRevizyonlar() {
+  const icerik = document.getElementById('revizyonlar-icerik');
+  if (!icerik) return;
+  const { bekleyen, hazirlanan } = revizyonListeleri();
+  if (!bekleyen.length && !hazirlanan.length) {
+    icerik.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text3);"><div style="font-size:28px;margin-bottom:8px;">✏️</div>Açık revizyon talebi yok.</div>';
+    return;
+  }
+  let html = '';
+  if (bekleyen.length) {
+    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:10px;">✅ Onayınızı Bekleyen Revizyonlar (' + bekleyen.length + ')</div>';
+    html += bekleyen.map(fiyatOnayBekleyenKart).join('');
+  }
+  if (hazirlanan.length) {
+    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:4px;' + (bekleyen.length ? 'margin-top:16px;' : '') + '">⏳ Revize İstendi — Satıcı Fiyat Hazırlıyor (' + hazirlanan.length + ')</div>'
+      + '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Önceki onay geçersiz; satıcı yeni fiyatı gönderince yukarıdaki onay bölümüne geçer. (Son ' + REVIZYON_TAKIP_GUN + ' gün)</div>';
+    html += hazirlanan.map(revizyonHazirlanKart).join('');
+  }
+  icerik.innerHTML = html;
+}
+function revizyonlarTazele() {
+  renderRevizyonlar();
+  sunucudanTazele(true).then(ok => { if (ok) renderRevizyonlar(); });
+}
+
+// Admin: onay bekleyen fiyatları listele
+function renderFiyatOnaylari() {
+  const icerik = document.getElementById('fiyat-onaylari-icerik');
+  if (!icerik) return;
+
+  // Revizyonlar AYRI sayfada (Revizyonlar) — burada yalnız ilk tur onaylar.
+  const bekleyenler = TALEPLER.filter(t => fiyatOnayGorunur(t) && !t.fiyatOnayTalep?.revizyon);
+  const revSayi = revizyonListeleri().toplam;
+  const gecmis = TALEPLER.filter(t => ['onaylandi','reddedildi'].includes(t.fiyatOnayDurumu))
+    .sort((a,b) => new Date(b.fiyatOnayTalep?.adminTarih||0) - new Date(a.fiyatOnayTalep?.adminTarih||0))
+    .slice(0, 10);
+
+  let html = '';
+  if (revSayi > 0) {
+    html += '<div onclick="goPage(\'revizyonlar\', document.getElementById(\'nav-revizyonlar\'))" style="cursor:pointer;border:1px solid rgba(167,139,250,0.45);background:rgba(167,139,250,0.08);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-size:13px;color:#a78bfa;font-weight:600;">✏️ ' + revSayi + ' revizyon talebi ayrı ekranda — Revizyonlar →</div>';
+  }
+
+  if (bekleyenler.length === 0 && gecmis.length === 0) {
+    icerik.innerHTML = html + '<div style="padding:32px;text-align:center;color:var(--text3);"><div style="font-size:28px;margin-bottom:8px;">✅</div>Onay bekleyen fiyat yok.</div>';
+    return;
+  }
+
+  if (bekleyenler.length > 0) {
+    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--amber);margin-bottom:10px;">⏳ Onay Bekleyen (' + bekleyenler.length + ')</div>';
+    html += bekleyenler.map(fiyatOnayBekleyenKart).join('');
   }
 
   if (gecmis.length > 0) {
@@ -16509,6 +16588,8 @@ function teklifRevizeIste(idx) {
   t.teklifRevizeTarih = new Date().toISOString();
   const onayDustu = fiyatOnayiniGecersizKil(t); // revizyon → fiyat tekrar admin onayına düşsün
   veriKaydet();
+  revizyonIstendiBildirimGonder(t, { kaynak: 'elle', not: neden });   // admin'e uyarı (fire-and-forget)
+  onayBekleyenBadgeGuncelle();
   renderMusteriTeklifleri();
   if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
   if (aktifTalepIdx === idx && typeof satisBolumunuGuncelle === 'function') satisBolumunuGuncelle();
@@ -18109,6 +18190,42 @@ async function onayTalepBildirimGonder(t) {
   } catch (e) { console.error('onayTalepBildirimGonder hatası:', e); }
 }
 
+// Müşteri revize İSTEDİĞİ anda → admine uyarı maili. Satıcının yeni fiyatı onaya göndermesi
+// beklenmez: admin revizyonun varlığını hemen bilsin (TLP-00546'da hiç haberi olmamıştı).
+// Satıcı sonra fiyatı gönderince ayrıca "[Fiyat Revizyonu Onayı]" maili gider.
+// opts: { kaynak: 'elle' | 'mail', not, eklenen, guncellenen }
+async function revizyonIstendiBildirimGonder(t, opts) {
+  try {
+    if (!t) return;
+    if (aktifKullanici?.rol === 'admin') return;   // revizyonu admin kendisi işaretledi → zaten biliyor
+    const to = onaylayanMailiCoz();
+    if (!to) { showToast('⚠ Admin\'e revizyon bildirimi gidemedi — Ayarlar\'da onay e-postası tanımlı değil.'); return; }
+    const o = opts || {};
+    const sorumlu = talepSorumluKullanici(t);
+    const saticiAd = (sorumlu && sorumlu.ad) || t.fiyatOnayTalep?.satici || aktifKullanici?.ad || '—';
+    const degisim = (o.eklenen || o.guncellenen) ? `${o.eklenen || 0} ürün eklendi, ${o.guncellenen || 0} ürün güncellendi` : '';
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;color:#5b21b6;">✏️ Müşteri Revizyon İstedi</h2>
+        <p style="color:#666;margin:0 0 16px;">Teklif için revizyon talebi geldi. Önceki fiyat onayı geçersiz sayıldı; satıcı yeni fiyatı hazırlayıp onayınıza gönderecek.
+          EMON FAST > <b>Revizyonlar</b> ekranından takip edebilirsiniz. Revizyonlar away modunda da <b>otomatik onaylanmaz</b>.</p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${_htmlKacir(t.no || '—')}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${_htmlKacir(t.musteri || '—')}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Sorumlu Satıcı</td><td>${_htmlKacir(saticiAd)}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">İşaretleyen</td><td>${_htmlKacir(aktifKullanici?.ad || '—')}${o.kaynak === 'mail' ? ' (müşteri mailinden)' : ''}</td></tr>
+          ${o.not ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Revize Notu</td><td>${_htmlKacir(o.not)}</td></tr>` : ''}
+          ${degisim ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Ürün Değişikliği</td><td>${degisim}</td></tr>` : ''}
+          ${t.fiyatOnayTalep?.toplamStr ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Önceki Toplam</td><td>${_htmlKacir(t.fiyatOnayTalep.toplamStr)}</td></tr>` : ''}
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Tarih</td><td>${new Date().toLocaleString('tr-TR')}</td></tr>
+        </table>
+        ${talepLinkButonuHtml(t, '🔗 Talebi İncele')}
+      </div>`;
+    const ok = await graphMailHtmlGonder([to], `[Revizyon Talebi] ${t.no || ''} — ${t.musteri || ''} revize istedi`, html);
+    if (!ok) showToast('⚠ Admin\'e revizyon bildirimi gönderilemedi — Outlook (M365) bağlı değil olabilir.');
+  } catch (e) { console.error('revizyonIstendiBildirimGonder hatası:', e); }
+}
+
 // Away modunda talep OTOMATİK onaylanınca → admine bilgi maili.
 // Manuel onayda admin zaten ekranda görüyor; otomatik onayda ise fiyat admin hiç görmeden
 // müşteriye gidebiliyor. Bu mail "onay iste" değil BİLGİLENDİRME: admin dönüşte neyin
@@ -18643,7 +18760,7 @@ function renderPanelFiyatOnaylari() {
   const icerik = document.getElementById('panel-fiyat-onay-icerik');
   if (!kart || !icerik) return;
   const isAdmin = aktifKullanici?.rol === 'admin';
-  const bekleyen = TALEPLER.filter(fiyatOnayGorunur);
+  const bekleyen = TALEPLER.filter(t => fiyatOnayGorunur(t) && !t.fiyatOnayTalep?.revizyon);
   if (!isAdmin || bekleyen.length === 0) { kart.style.display = 'none'; return; }
   kart.style.display = 'block';
   icerik.innerHTML = bekleyen.map(t => {
@@ -18658,6 +18775,32 @@ function renderPanelFiyatOnaylari() {
       <span class="btn btn-sm btn-primary" style="font-size:11px;">İncele →</span>
     </div>`;
   }).join('');
+}
+
+// Panelde revizyon talepleri (sadece admin): onay bekleyen + fiyatı hazırlanan
+function renderPanelRevizyonlar() {
+  const kart   = document.getElementById('panel-revizyon-card');
+  const icerik = document.getElementById('panel-revizyon-icerik');
+  if (!kart || !icerik) return;
+  const { bekleyen, hazirlanan } = revizyonListeleri();
+  if (aktifKullanici?.rol !== 'admin' || (!bekleyen.length && !hazirlanan.length)) { kart.style.display = 'none'; return; }
+  kart.style.display = 'block';
+  const satir = (t, onayda) => {
+    const sorumlu = talepSorumluKullanici(t);
+    const satici = t.fiyatOnayTalep?.satici || (sorumlu && sorumlu.ad) || 'Satıcı';
+    const tarih = onayda ? t.fiyatOnayTalep?.tarih : (t.teklifRevizeTarih || (t.fiyatOnaySira ? new Date(t.fiyatOnaySira).toISOString() : ''));
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius);cursor:pointer;" onclick="talepDetayAc(${TALEPLER.indexOf(t)})">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;">#${_htmlKacir(t.no || '')} — ${_htmlKacir(t.musteri || '—')}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${_htmlKacir(satici)}${tarih ? ' · ' + tarihFmt(tarih) : ''}${onayda && t.fiyatOnayTalep?.toplamStr ? ' · ' + t.fiyatOnayTalep.toplamStr : ''}</div>
+      </div>
+      ${onayda
+        ? '<span class="btn btn-sm btn-primary" style="font-size:11px;">✅ Onay bekliyor →</span>'
+        : '<span style="font-size:11px;color:#a78bfa;font-weight:600;white-space:nowrap;">⏳ fiyat hazırlanıyor</span>'}
+    </div>`;
+  };
+  icerik.innerHTML = bekleyen.map(t => satir(t, true)).join('') + hazirlanan.slice(0, 8).map(t => satir(t, false)).join('')
+    + (hazirlanan.length > 8 ? '<div style="font-size:11px;color:var(--text3);">+' + (hazirlanan.length - 8) + ' revizyon daha</div>' : '');
 }
 
 function renderPanelMetrikler() {
@@ -18827,6 +18970,7 @@ function renderPanelMetrikler() {
   mailorderNavGuncelle();
   // Satıcılardan gelen fiyat onay talepleri (sadece admin)
   renderPanelFiyatOnaylari();
+  renderPanelRevizyonlar();
   // Onay bekleyenler (sadece admin)
   if (aktifKullanici?.rol === 'admin') {
     onayBadgeGuncelle();
@@ -23000,12 +23144,14 @@ function otoOnayRevizeUygula(taslakId, revize, noOverride) {
       (ts.not ? ': ' + ts.not : '') + ' — "' + (ts.konu || '') + '"';
     if (teklifGitti) t.teklifDurumu = 'revize';   // yalnız gönderilmiş teklifte "revize istendi"
     fiyatOnayiniGecersizKil(t); // revizyon → fiyat tekrar admin onayına düşsün
+    revizyonIstendiBildirimGonder(t, { kaynak: 'mail', not: ts.not || '', eklenen: birlesim.eklenen, guncellenen: birlesim.guncellenen });
   } else {
     t.teklifDurumu = 'kabul';
     t.teklifKabulTarih = new Date().toISOString();
   }
   cfg.taslaklar.splice(ix, 1);
   veriKaydet(); otoTalepDurumKaydet();
+  onayBekleyenBadgeGuncelle();
   if (typeof renderMusteriTeklifleri === 'function') renderMusteriTeklifleri();
   if (typeof renderTalepler === 'function') renderTalepler();
   otoTalepTaslakRender(); otoTalepDurumGuncelle();
@@ -24947,6 +25093,7 @@ async function sunucudanTazele(zorla = false) {
       gorevlerYenile(); // başka kullanıcıların atadığı/güncellediği görevler + rozet
       // Fiyat Onayları sayfası açıksa, başka cihazdan gelen onay taleplerini yansıt
       if (document.getElementById('page-fiyatOnaylari')?.classList.contains('active')) renderFiyatOnaylari();
+      if (document.getElementById('page-revizyonlar')?.classList.contains('active')) renderRevizyonlar();
     }
     return basarili;
   } catch (_) { return false; }
