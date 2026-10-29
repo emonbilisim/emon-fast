@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-10-06
+> Son güncelleme: 2026-10-29
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -41,7 +41,7 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 - **RFQ / Tedarikçi teklifleri:** Tedarikçiye mail, yanıtı aynı zincirde okuma, AI fiyat çıkarımı,
   alternatif ürünler, "Stok Yok", son revize (indirim) isteme, bedava kargo eşiği, HP sarf iskontosu.
 - **Satış fiyatlama & Fiyat onayı:** Müşteri hedef marjı, satır bazlı kargo, admin onayı + e-posta
-  bildirimleri (`#talep=NO` derin link), **Away modu** (hedef marjın altı otomatik onaylanmaz).
+  bildirimleri (`#talep=NO` derin link), **Away modu** (hedef marjın altı ve revizyonlar otomatik onaylanmaz).
 - **Teklifler:** PDF/mail (müşteri döviz kuru tipi, ödeme şartı, teslim süresi), müşteri yanıtı
   taraması, otomatik hatırlatma (tur/kapsam; istemeyen müşteri kapatılabilir), revizyon.
 - **Sipariş:** Tedarikçi sipariş modülü (tek/toplu, manuel/telefon), kargo & fatura, tamamlama maili.
@@ -82,6 +82,11 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
   (fail-safe) otomatik onay **yapılmaz**, talep normal admin onayına düşer; satıcıya ve admin mailine
   sebep yazılır. Kapı, ekrandaki kırmızı marj uyarısıyla aynı koşuldan beslenir.
 - Teklife dahil edilmeyen (hariç) kalemler marj kapısını tetiklemez.
+- **Revizyon kapısı:** Fiyat onay talebi bir revizyonsa (müşteri revize istedi / revizyon uygulandı,
+  teklif müşteriye daha önce gitti, ya da önceki onay/red sonrası yeniden gönderildi —
+  `fiyatOnayRevizyonSebebi`) otomatik onay **yapılmaz**. `fiyatOnayTalep.revizyon` = sebep metni;
+  Fiyat Onayları ekranında ayrı "✏️ Revizyon Onayı Bekleyen" bölümünde mor kartla, admin mailinde
+  "[Fiyat Revizyonu Onayı]" konusuyla görünür.
 
 ## Talep Yeniden Açma / Kalem Seçme (2026-09-24, `a4f8859`)
 
@@ -128,6 +133,7 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-10
+- Away modunda revizyon fiyat onayları artık otomatik onaylanmıyor; Fiyat Onayları'nda ayrı "✏️ Revizyon" bölümünde, mailde ayrı konuyla görünüyor
 - Karışık dövizli müşteri teklifi (mail, PDF, hatırlatma maili): toplam tek sayıya toplanıp ilk satırın dövizi yazılıyordu; artık "x USD + y TL" (tek döviz seçiliyse tek toplam). Mailde satırlar da kendi döviz sembolüyle
 - `48a14cd` Teklif girişinde kalem seçici: çok kalemli talepte fiyat girilecek kalemler tek tek açılır, fiyat girilmeyenler o tedarikçi için yok sayılır (karşılaştırma/kargo payı zaten fiyatsızı dışarıda tutuyordu)
 - `c8e366a` "+ Teklif Ekle" satırı artık hep boş açılıyor (RFQ'daki ilk firma kendiliğinden yazılmıyordu)

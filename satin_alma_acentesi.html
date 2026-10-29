@@ -14096,6 +14096,24 @@ function fiyatOnayiniYenidenAc() {
   showToast('🔄 Onay geri alındı — fiyatı güncelleyip tekrar onaya gönderebilirsiniz.');
 }
 
+/* REVİZYON TESPİTİ — fiyat onay talebi bir REVİZYON mu? (fiyatOnayTalep üzerine
+   yazılmadan ÖNCE çağrılmalı; önceki turun izine bakar.) Revizyon = daha önce
+   fiyatlanmış/onaya gitmiş/müşteriye gönderilmiş bir talebin fiyatı yeniden onaya geliyor.
+   Away modu revizyonu OTOMATİK ONAYLAMAZ: önceki onayı/reddi ya da müşteriye giden
+   teklifi değiştiren fiyat tam olarak admin'in görmesi gereken durumdur.
+   Döner: okunur sebep metni ya da null (ilk tur, revizyon değil). */
+function fiyatOnayRevizyonSebebi(t) {
+  if (!t) return null;
+  if (t.teklifDurumu === 'revize' || t.teklifRevizeTarih) return 'Müşteri revizyon istedi';
+  if (t.musteriTeklifGonderildi) return 'Teklif müşteriye daha önce gönderilmişti — fiyat değişiyor';
+  const oT = t.fiyatOnayTalep;
+  if (!oT) return null;
+  // Hâlâ bekleyen talebi yeniden göndermek yeni bir tur değildir → önceki etiketi taşı.
+  if (t.fiyatOnayDurumu === 'bekliyor') return oT.revizyon || null;
+  if (t.fiyatOnayDurumu === 'reddedildi') return 'Reddedilen fiyat yeniden onaya gönderildi';
+  return 'Daha önce onaylanmış fiyat değiştirilip yeniden onaya gönderildi';
+}
+
 // Mevcut satış tablosu durumunu (marj/baz/KDV/nakliye/toplam para) yakala
 function satisTabloDurumuYakala() {
   return {
@@ -14152,6 +14170,7 @@ async function fiyatOnayTalep() {
   // Satış verisi gibi bu da TALEPLER ile güvenli senkronlanır → admin, ayrı senkronlanan
   // talepTeklifleri objesi cihazına ulaşmasa/boşalsa bile maliyet kırılımını görebilir.
   const teklifSnapshot = JSON.parse(JSON.stringify(talepTeklifleri[t.no] || []));
+  const _revizyon = fiyatOnayRevizyonSebebi(t);   // önceki tur ezilmeden ÖNCE
   t.fiyatOnayTalep  = {
     satici: aktifKullanici.ad,
     tarih:  new Date().toISOString(),
@@ -14167,6 +14186,7 @@ async function fiyatOnayTalep() {
     saticiMail: aktifKullanici.email || '',
     saticiUsername: aktifKullanici.username || '',
   };
+  if (_revizyon) t.fiyatOnayTalep.revizyon = _revizyon;
   // Talep kapalıyken (sevk edilmiş/arşivlenmiş) bilerek gönderilen istek: statüyü damgala
   // ki onay listeleri onu bayat bayrak sanıp susturmasın (bkz. fiyatOnayGorunur).
   if (talepKapaliMi(t)) t.fiyatOnayTalep.kapaliDurum = t.durum;
@@ -14190,8 +14210,9 @@ async function fiyatOnayTalep() {
     delete t.fiyatOnayTalep.marjAltiUyari;   // önceki turdan kalan uyarı taşınmasın
   }
 
-  // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez)
-  if (AYARLAR.awayMode && !_marjKapisi) {
+  // Admin away modunda → talep otomatik onaylanır (manuel onay beklemez).
+  // Revizyonlar HARİÇ: onlar her zaman admin'in manuel onayına düşer.
+  if (AYARLAR.awayMode && !_marjKapisi && !_revizyon) {
     t.fiyatOnayDurumu = 'onaylandi';
     t.fiyatOnaySira = _onaySiraYeni(t);   // monotonik karar damgası (merge'de en yeni kazanır)
     t.fiyatOnayTalep.adminNot        = '🌙 Otomatik onay — admin away (uzakta) modunda.' + (not ? ' • Satıcı notu: ' + not : '');
@@ -14223,7 +14244,9 @@ async function fiyatOnayTalep() {
   }
   // Away açıkken marj kapısı devreye girdiyse satıcı "neden otomatik onaylanmadı?"
   // sorusunu sormasın — sebebi açıkça söyle.
-  if (AYARLAR.awayMode && _marjKapisi) {
+  if (AYARLAR.awayMode && _revizyon) {
+    showToast('✏️ Bu bir fiyat REVİZYONU (' + _revizyon + ') — away modunda olsa bile otomatik onaylanmadı, admin onayına gönderildi.');
+  } else if (AYARLAR.awayMode && _marjKapisi) {
     const _n = Array.isArray(_marjAlti) ? _marjAlti.length : 0;
     showToast(_n
       ? '🎯 ' + _n + ' kalem müşteri hedef marjının ALTINDA — away modunda olsa bile otomatik onaylanmadı, admin onayına gönderildi.'
@@ -15228,14 +15251,16 @@ function renderFiyatOnaylari() {
 
   let html = '';
 
-  if (bekleyenler.length > 0) {
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--amber);margin-bottom:10px;">⏳ Onay Bekleyen (' + bekleyenler.length + ')</div>';
-    html += bekleyenler.map(t => {
+  // Revizyonlar (önceden fiyatlanmış/onaylanmış/müşteriye gitmiş talebin yeni fiyatı) AYRI
+  // bölümde, mor kenarlı gösterilir — away modu bunları otomatik onaylamaz (fiyatOnayRevizyonSebebi).
+  const bekleyenKart = t => {
       const idx = TALEPLER.indexOf(t);
-      return `<div style="border:1px solid rgba(251,191,36,0.3);border-radius:var(--radius);padding:14px;margin-bottom:10px;background:rgba(251,191,36,0.05);">
+      const rev = t.fiyatOnayTalep?.revizyon;
+      return `<div style="border:1px solid ${rev ? 'rgba(167,139,250,0.45)' : 'rgba(251,191,36,0.3)'};border-radius:var(--radius);padding:14px;margin-bottom:10px;background:${rev ? 'rgba(167,139,250,0.07)' : 'rgba(251,191,36,0.05)'};">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <div style="flex:1;">
-            <div style="font-size:13px;font-weight:600;">${t.no} — ${t.musteri}${fiyatOnayKapaliRozet(t)}</div>
+            <div style="font-size:13px;font-weight:600;">${t.no} — ${t.musteri}${fiyatOnayKapaliRozet(t)}${rev ? '<span style="font-size:10px;color:#a78bfa;font-weight:700;margin-left:8px;padding:1px 6px;border:1px solid rgba(167,139,250,0.5);border-radius:4px;">✏️ REVİZYON</span>' : ''}</div>
+            ${rev ? '<div style="font-size:11px;color:#a78bfa;margin-top:3px;line-height:1.5;">✏️ ' + _htmlKacir(rev) + (AYARLAR.awayMode ? ' — away modu açık, ama revizyon olduğu için otomatik onaylanmadı.' : '') + '</div>' : ''}
             <div style="font-size:12px;color:var(--text2);">${t.urun}</div>
             ${fiyatOnayKapaliAsim(t) ? '<div style="font-size:11px;color:var(--amber);margin-top:3px;line-height:1.5;">📦 Bu talep <b>' + _htmlKacir(t.fiyatOnayTalep.kapaliDurum || t.durum || '') + '</b> durumunda (arşivde) — satıcı ek kalemler için fiyatı yeniden onaya gönderdi. Onaylarsanız müşteriye gönderilmek üzere satıcının paneline düşer.</div>' : ''}
             <div style="font-size:11px;color:var(--text3);margin-top:3px;">
@@ -15252,7 +15277,16 @@ function renderFiyatOnaylari() {
           </div>
         </div>
       </div>`;
-    }).join('');
+  };
+  const revBekleyen  = bekleyenler.filter(t => t.fiyatOnayTalep?.revizyon);
+  const yeniBekleyen = bekleyenler.filter(t => !t.fiyatOnayTalep?.revizyon);
+  if (revBekleyen.length > 0) {
+    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:10px;">✏️ Revizyon Onayı Bekleyen (' + revBekleyen.length + ')</div>';
+    html += revBekleyen.map(bekleyenKart).join('');
+  }
+  if (yeniBekleyen.length > 0) {
+    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--amber);margin-bottom:10px;' + (revBekleyen.length ? 'margin-top:16px;' : '') + '">⏳ Onay Bekleyen (' + yeniBekleyen.length + ')</div>';
+    html += yeniBekleyen.map(bekleyenKart).join('');
   }
 
   if (gecmis.length > 0) {
@@ -18007,8 +18041,13 @@ async function onayTalepBildirimGonder(t) {
     const oT = t.fiyatOnayTalep || {};
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
-        <h2 style="margin:0 0 4px;">⏳ Fiyat Onayı Bekliyor</h2>
+        <h2 style="margin:0 0 4px;">${oT.revizyon ? '✏️ Fiyat Revizyonu Onayı Bekliyor' : '⏳ Fiyat Onayı Bekliyor'}</h2>
         <p style="color:#666;margin:0 0 16px;">Bir satıcı fiyat onayınızı bekliyor. EMON FAST > <b>Fiyat Onayları</b> ekranından inceleyebilirsiniz.</p>
+        ${oT.revizyon ? `<div style="background:#f5f3ff;border-left:4px solid #7c3aed;padding:10px 14px;margin:0 0 16px;border-radius:4px;">
+          <div style="font-weight:700;color:#5b21b6;margin-bottom:4px;">✏️ Revizyon</div>
+          <div style="font-size:13px;color:#4c1d95;">${_htmlKacir(oT.revizyon)}</div>
+          ${AYARLAR.awayMode ? '<div style="font-size:12px;color:#4c1d95;margin-top:6px;">Away (uzakta) modunuz AÇIK, ancak revizyonlar <b>otomatik onaylanmaz</b> — kararı size bırakıldı.</div>' : ''}
+        </div>` : ''}
         ${marjAltiOzet(oT) ? `<div style="background:#fef2f2;border-left:4px solid #dc2626;padding:10px 14px;margin:0 0 16px;border-radius:4px;">
           <div style="font-weight:700;color:#b91c1c;margin-bottom:4px;">🎯 Hedef marjın altında</div>
           <div style="font-size:13px;color:#7f1d1d;">${marjAltiOzet(oT)}</div>
@@ -18024,7 +18063,7 @@ async function onayTalepBildirimGonder(t) {
         </table>
         ${talepLinkButonuHtml(t, '🔗 Talebi İncele ve Onayla')}
       </div>`;
-    const ok = await graphMailHtmlGonder([to], `[Fiyat Onayı] ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
+    const ok = await graphMailHtmlGonder([to], `${oT.revizyon ? '[Fiyat Revizyonu Onayı]' : '[Fiyat Onayı]'} ${t.no || ''} — ${oT.satici || 'satıcı'} onay bekliyor`, html);
     if (!ok) showToast('⚠ Admin\'e bildirim maili gönderilemedi — Outlook (M365) bağlı değil olabilir.');
   } catch (e) { console.error('onayTalepBildirimGonder hatası:', e); }
 }

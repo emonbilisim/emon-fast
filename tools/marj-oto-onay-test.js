@@ -20,6 +20,8 @@ function kes(bas) {
 const ctx = { console, JSON, Array, Math, String, Object, AYARLAR: { awayMode: false } };
 vm.createContext(ctx);
 vm.runInContext(kes('function marjAltiOzet(oT)'), ctx);
+vm.runInContext(kes('function fiyatOnayRevizyonSebebi(t)'), ctx);
+const rev = t => vm.runInContext('fiyatOnayRevizyonSebebi(T)', Object.assign(ctx, { T: t }));
 const ozet = oT => vm.runInContext('marjAltiOzet(O)', Object.assign(ctx, { O: oT }));
 
 /* Üretimdeki kapı ifadesinin BİREBİR kendisi (HTML'den doğrulanıyor, aşağıda T0). */
@@ -37,7 +39,7 @@ const iddia = (ad, k, ek) => { k ? (gecti++, console.log('  ✓ ' + ad)) : (kald
 console.log('\n=== T0: kaynak bütünlüğü — test üretimdeki ifadelerin AYNISINI kullanıyor ===');
 {
   iddia('kapı ifadesi HTML\'de birebir var', HTML.includes(KAPI_KAYNAK));
-  iddia('oto-onay koşulu marj kapısına bağlı', HTML.includes('if (AYARLAR.awayMode && !_marjKapisi) {'));
+  iddia('oto-onay koşulu marj kapısına bağlı', HTML.includes('if (AYARLAR.awayMode && !_marjKapisi && !_revizyon) {'));
   iddia('biriktirme, kırmızı uyarı koşulunun İÇİNDE',
     /if \(fark < -0\.05\) \{[\s\S]{0,200}window\._satisMarjAlti\.push\(/.test(HTML));
   iddia('liste her render başında sıfırlanıyor', HTML.includes('window._satisMarjAlti = [];'));
@@ -115,6 +117,24 @@ console.log('\n=== T7: uyarı bayrağı taşınmıyor (marj düzeltilince temizl
   const kapali = kapi([]);
   if (!kapali && oT.marjAltiUyari) delete oT.marjAltiUyari;
   iddia('★ marj düzelince uyarı düşüyor', ozet(oT) === null);
+}
+
+console.log('\n=== T8: ★ REVİZYON — away modunda otomatik onaylanmaz ===');
+{
+  iddia('sebep, önceki tur EZİLMEDEN önce hesaplanıyor',
+    /const _revizyon = fiyatOnayRevizyonSebebi\(t\);[\s\S]{0,80}t\.fiyatOnayTalep  = \{/.test(HTML));
+  iddia('işaret yeni onay talebine yazılıyor', HTML.includes('if (_revizyon) t.fiyatOnayTalep.revizyon = _revizyon;'));
+  iddia('ilk tur (taze talep) revizyon DEĞİL → away eskisi gibi', rev({ durum: 'Yeni' }) === null);
+  iddia('★ müşteri revize istedi', !!rev({ teklifDurumu: 'revize' }));
+  iddia('★ müşteri revizyonu uygulandı (teklif gitmemiş)', !!rev({ teklifRevizeTarih: '2026-10-01' }));
+  iddia('★ teklif müşteriye gitmiş', !!rev({ musteriTeklifGonderildi: true }));
+  iddia('★ onay geri açılıp yeniden gönderildi', !!rev({ fiyatOnayDurumu: null, fiyatOnayTalep: { tarih: 'x' } }));
+  iddia('★ onaylıyken yeniden gönderildi', !!rev({ fiyatOnayDurumu: 'onaylandi', fiyatOnayTalep: { tarih: 'x' } }));
+  iddia('★ reddedilen yeniden gönderildi', /Reddedilen/.test(rev({ fiyatOnayDurumu: 'reddedildi', fiyatOnayTalep: {} }) || ''));
+  iddia('bekleyen talep yeniden gönderilince yeni tur sayılmaz',
+    rev({ fiyatOnayDurumu: 'bekliyor', fiyatOnayTalep: { tarih: 'x' } }) === null);
+  iddia('bekleyen revizyon yeniden gönderilince etiket korunur',
+    rev({ fiyatOnayDurumu: 'bekliyor', fiyatOnayTalep: { revizyon: 'R' } }) === 'R');
 }
 
 console.log(`\n=== TOPLAM: ${gecti} geçti, ${kaldi} başarısız ===`);
