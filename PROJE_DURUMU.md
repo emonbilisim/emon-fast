@@ -87,6 +87,9 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
   `fiyatOnayRevizyonSebebi`) otomatik onay **yapılmaz**. `fiyatOnayTalep.revizyon` = sebep metni;
   Fiyat Onayları ekranında ayrı "✏️ Revizyon Onayı Bekleyen" bölümünde mor kartla, admin mailinde
   "[Fiyat Revizyonu Onayı]" konusuyla görünür.
+- **Revize hazırlanıyor:** Onayı revizyonla düşmüş (ya da müşteri revize istemiş) ama satıcının henüz
+  yeniden göndermediği açık talepler, Fiyat Onayları'nda "✏️ Revize İstendi — Satıcı Fiyat Hazırlıyor"
+  bölümünde salt-takip olarak listelenir (`fiyatRevizyonHazirlaniyor`; TLP-00546 burada kayboluyordu).
 
 ## Talep Yeniden Açma / Kalem Seçme (2026-09-24, `a4f8859`)
 
@@ -133,7 +136,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-10
-- Away modunda revizyon fiyat onayları artık otomatik onaylanmıyor; Fiyat Onayları'nda ayrı "✏️ Revizyon" bölümünde, mailde ayrı konuyla görünüyor
+- Fiyat Onayları'na "Revize İstendi — Satıcı Fiyat Hazırlıyor" bölümü: revizyonu bekleyip henüz onaya gönderilmemiş talepler admin'e görünür (TLP-00546)
+- `947fad9` Away modunda revizyon fiyat onayları artık otomatik onaylanmıyor; Fiyat Onayları'nda ayrı "✏️ Revizyon" bölümünde, mailde ayrı konuyla görünüyor
 - Karışık dövizli müşteri teklifi (mail, PDF, hatırlatma maili): toplam tek sayıya toplanıp ilk satırın dövizi yazılıyordu; artık "x USD + y TL" (tek döviz seçiliyse tek toplam). Mailde satırlar da kendi döviz sembolüyle
 - `48a14cd` Teklif girişinde kalem seçici: çok kalemli talepte fiyat girilecek kalemler tek tek açılır, fiyat girilmeyenler o tedarikçi için yok sayılır (karşılaştırma/kargo payı zaten fiyatsızı dışarıda tutuyordu)
 - `c8e366a` "+ Teklif Ekle" satırı artık hep boş açılıyor (RFQ'daki ilk firma kendiliğinden yazılmıyordu)

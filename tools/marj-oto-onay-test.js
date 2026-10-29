@@ -22,6 +22,10 @@ vm.createContext(ctx);
 vm.runInContext(kes('function marjAltiOzet(oT)'), ctx);
 vm.runInContext(kes('function fiyatOnayRevizyonSebebi(t)'), ctx);
 const rev = t => vm.runInContext('fiyatOnayRevizyonSebebi(T)', Object.assign(ctx, { T: t }));
+vm.runInContext(HTML.match(/const TALEP_KAPALI_DURUMLAR = \[[^\]]*\];/)[0].replace('const ', 'var '), ctx);
+vm.runInContext(HTML.match(/function talepKapaliMi\(t\) \{[^\n]*\}/)[0], ctx);
+vm.runInContext(kes('function fiyatRevizyonHazirlaniyor(t)'), ctx);
+const hz = t => vm.runInContext('fiyatRevizyonHazirlaniyor(T)', Object.assign(ctx, { T: t }));
 const ozet = oT => vm.runInContext('marjAltiOzet(O)', Object.assign(ctx, { O: oT }));
 
 /* Üretimdeki kapı ifadesinin BİREBİR kendisi (HTML'den doğrulanıyor, aşağıda T0). */
@@ -135,6 +139,23 @@ console.log('\n=== T8: ★ REVİZYON — away modunda otomatik onaylanmaz ===');
     rev({ fiyatOnayDurumu: 'bekliyor', fiyatOnayTalep: { tarih: 'x' } }) === null);
   iddia('bekleyen revizyon yeniden gönderilince etiket korunur',
     rev({ fiyatOnayDurumu: 'bekliyor', fiyatOnayTalep: { revizyon: 'R' } }) === 'R');
+}
+
+console.log('\n=== T9: ★ revize var ama satıcı henüz göndermedi → admin listesinde GÖRÜNÜR ===');
+{
+  // TLP-00546'nın canlı verideki hâli (2026-10-29): oto-onay geçersiz kılınmış, yeniden gönderilmemiş
+  const t546 = { no: 'TLP-00546', durum: 'Müşteriye İletildi', fiyatOnayDurumu: null, teklifDurumu: 'revize',
+    teklifRevizeTarih: '2026-10-28T08:23:00.165Z', musteriTeklifGonderildi: true,
+    fiyatOnayTalep: { satici: 'Zennube', tarih: '2026-10-28T08:24:29.362Z', otomatikOnay: true } };
+  iddia('★ TLP-00546 listede görünür', hz(t546) === true);
+  iddia('revize istendi, hiç onay turu yok → görünür', hz({ durum: 'Müşteriye İletildi', teklifDurumu: 'revize' }) === true);
+  iddia('onay geri açıldı (tur var, durum boş) → görünür', hz({ durum: 'Fiyatlandı', fiyatOnayTalep: { tarih: 'x' } }) === true);
+  iddia('onaya gönderilince bu listeden çıkar (bekliyor)', hz(Object.assign({}, t546, { fiyatOnayDurumu: 'bekliyor' })) === false);
+  iddia('onaylanınca çıkar', hz(Object.assign({}, t546, { fiyatOnayDurumu: 'onaylandi' })) === false);
+  iddia('kapalı talep listelenmez', hz(Object.assign({}, t546, { durum: 'Tamamlandı' })) === false);
+  iddia('müşteri reddettiyse listelenmez', hz(Object.assign({}, t546, { teklifDurumu: 'red' })) === false);
+  iddia('taze talep (tur yok, revize yok) listelenmez', hz({ durum: 'Yeni' }) === false);
+  iddia('kaydı silinmiş geçmiş listelenmez', hz({ durum: 'Müşteriye İletildi', musteriTeklifGonderildi: true }) === false);
 }
 
 console.log(`\n=== TOPLAM: ${gecti} geçti, ${kaldi} başarısız ===`);
