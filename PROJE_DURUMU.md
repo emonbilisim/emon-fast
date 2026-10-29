@@ -85,13 +85,15 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 - **Revizyon kapısı:** Fiyat onay talebi bir revizyonsa (müşteri revize istedi / revizyon uygulandı,
   teklif müşteriye daha önce gitti, ya da önceki onay/red sonrası yeniden gönderildi —
   `fiyatOnayRevizyonSebebi`) otomatik onay **yapılmaz**. `fiyatOnayTalep.revizyon` = sebep metni.
-- **Revizyonlar sayfası (admin):** Menüde ayrı "✏️ Revizyonlar" (mor rozet) + panelde "Revizyon Talepleri"
-  kartı. İki grup (`revizyonListeleri`): onay bekleyen revizyonlar (Onayla/Reddet) ve "Revize istendi —
+- **Revizyonlar sayfası (admin + satıcı):** Menüde ayrı "✏️ Revizyonlar" (mor rozet) + panelde "Revizyon Talepleri"
+  kartı. Satıcı yalnız kendi taleplerini görür (`talepBenim`), Onayla/Reddet yerine "✏️ Fiyatla"; satıcı rozeti
+  yalnız fiyatını hazırlaması gerekenleri sayar. Operasyon rolüne kapalı. İki grup (`revizyonListeleri`): onay bekleyen revizyonlar (Onayla/Reddet) ve "Revize istendi —
   satıcı fiyat hazırlıyor" (`fiyatRevizyonHazirlaniyor`, son `REVIZYON_TAKIP_GUN`=30 gün). Fiyat Onayları
   ve onun rozeti artık yalnız ilk tur onayları gösterir.
 - **E-posta:** Revize istendiği anda ("Revize İstendi" butonu ya da mailden revizyon uygulama) admin'e
-  "[Revizyon Talebi]" (`revizyonIstendiBildirimGonder`; işaretleyen admin ise gitmez); satıcı yeni fiyatı
-  gönderince "[Fiyat Revizyonu Onayı]".
+  "[Revizyon Talebi]" (`revizyonIstendiBildirimGonder`; işaretleyen admin ise gitmez); revizyonu sorumlu
+  satıcıdan başkası işaretlediyse satıcıya "[Revizyon] … fiyatı hazırlayın" (`revizyonSaticiBildirimGonder`);
+  satıcı yeni fiyatı gönderince "[Fiyat Revizyonu Onayı]".
 
 ## Talep Yeniden Açma / Kalem Seçme (2026-09-24, `a4f8859`)
 
@@ -140,7 +142,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-10
-- Ayrı "✏️ Revizyonlar" sayfası + menü rozeti + panel kartı; revize istendiğinde admin'e "[Revizyon Talebi]" e-postası (admin revizyondan habersiz kalıyordu, TLP-00546)
+- Revizyonlar sayfası satıcıya da açıldı (yalnız kendi talepleri, "Fiyatla" butonu, panel kartı, rozet); revizyonu başkası işaretlerse sorumlu satıcıya e-posta
+- `40b8345` Ayrı "✏️ Revizyonlar" sayfası + menü rozeti + panel kartı; revize istendiğinde admin'e "[Revizyon Talebi]" e-postası (admin revizyondan habersiz kalıyordu, TLP-00546)
 - `d174bb8` Sunucu yazımları sıraya alındı (`_veriPushSirali`): fiyat düzenlemesinin arka plan kaydı sürerken "Admin Onayı İste" ikinci kaydı başlatıyor, yavaş eski kayıt sonra bitip onay isteğini full-replace ile eziyordu (uyarısız; "2.–3. denemede düşüyor", TLP-00546)
 - `1b4e67d` Fiyat Onayları'na "Revize İstendi — Satıcı Fiyat Hazırlıyor" bölümü: revizyonu bekleyip henüz onaya gönderilmemiş talepler admin'e görünür (TLP-00546)
 - `947fad9` Away modunda revizyon fiyat onayları artık otomatik onaylanmıyor; Fiyat Onayları'nda ayrı "✏️ Revizyon" bölümünde, mailde ayrı konuyla görünüyor

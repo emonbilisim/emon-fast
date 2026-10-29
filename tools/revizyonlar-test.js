@@ -27,7 +27,9 @@ const ctx = {
   document: { getElementById: el },
   _htmlKacir: x => String(x == null ? '' : x).replace(/</g, '&lt;'),
   tarihFmt: x => String(x).slice(0, 10),
-  talepSorumluKullanici: t => ({ ad: t.saticiAd || 'Zennube' }),
+  talepSorumluKullanici: t => ({ ad: t.saticiAd || 'Zennube', email: t.saticiEmail || '' }),
+  // talepBenim'in özü: admin → hepsi, satıcı → saticiEmail kendisi
+  talepBenim: t => ctx.aktifKullanici.rol === 'admin' || (t.saticiEmail || '') === (ctx.aktifKullanici.email || ''),
   fiyatOnayKapaliRozet: () => '', fiyatOnayKapaliAsim: () => false, marjAltiOzet: () => null,
   onaylayanMailiCoz: () => 'selim@emon.com.tr',
   talepLinkButonuHtml: (t) => '<a href="#talep=' + t.no + '">link</a>',
@@ -42,20 +44,20 @@ vm.runInContext(HTML.match(/const REVIZYON_TAKIP_GUN = \d+;/)[0].replace('const 
 for (const f of ['function fiyatOnayGorunur(t)', 'function fiyatRevizyonHazirlaniyor(t)', 'function _revizyonAni(t)',
   'function revizyonListeleri()', 'function fiyatOnayBekleyenKart(t)', 'function revizyonHazirlanKart(t)',
   'function renderRevizyonlar()', 'function renderPanelRevizyonlar()', 'function onayBekleyenBadgeGuncelle()',
-  'async function revizyonIstendiBildirimGonder(t, opts)']) vm.runInContext(kes(f), ctx);
+  'async function revizyonIstendiBildirimGonder(t, opts)', 'async function revizyonSaticiBildirimGonder(t, opts)']) vm.runInContext(kes(f), ctx);
 
 const simdi = Date.now();
 const iso = ms => new Date(ms).toISOString();
 ctx.TALEPLER = [
   // TLP-00546'nın canlı hâli: revize istendi, onay düştü, yeniden gönderilmedi
-  { no: 'TLP-00546', musteri: 'KANADEVIA', durum: 'Müşteriye İletildi', fiyatOnayDurumu: null, teklifDurumu: 'revize',
+  { no: 'TLP-00546', musteri: 'KANADEVIA', saticiEmail: 'zennube@emon.com.tr', durum: 'Müşteriye İletildi', fiyatOnayDurumu: null, teklifDurumu: 'revize',
     teklifRevizeTarih: iso(simdi - 86400000), fiyatOnaySira: simdi - 3600000, musteriTeklifGonderildi: true,
     fiyatOnayTalep: { satici: 'Zennube', tarih: iso(simdi - 86400000), otomatikOnay: true } },
   // satıcı revize fiyatı gönderdi → onay bekleyen revizyon
-  { no: 'TLP-00600', musteri: 'A', durum: 'Fiyatlandı', fiyatOnayDurumu: 'bekliyor', urun: 'x',
+  { no: 'TLP-00600', musteri: 'A', saticiEmail: 'zennube@emon.com.tr', durum: 'Fiyatlandı', fiyatOnayDurumu: 'bekliyor', urun: 'x',
     fiyatOnayTalep: { satici: 'Zennube', tarih: iso(simdi), revizyon: 'Müşteri revizyon istedi', toplamStr: '1.000 TL' } },
   // ilk tur onay → Revizyonlar'da DEĞİL
-  { no: 'TLP-00601', musteri: 'B', durum: 'Fiyatlandı', fiyatOnayDurumu: 'bekliyor', urun: 'y',
+  { no: 'TLP-00601', musteri: 'B', saticiEmail: 'ali@emon.com.tr', durum: 'Fiyatlandı', fiyatOnayDurumu: 'bekliyor', urun: 'y',
     fiyatOnayTalep: { satici: 'Ali', tarih: iso(simdi) } },
   // 90 gün önce revize istenmiş, terk edilmiş → takip penceresi dışında
   { no: 'TLP-00100', musteri: 'C', durum: 'Müşteriye İletildi', fiyatOnayDurumu: null, teklifDurumu: 'revize',
@@ -68,9 +70,10 @@ ctx.TALEPLER = [
   console.log('\n=== T0: kaynak bütünlüğü — menü, sayfa, yetki, tetikleyiciler ===');
   iddia('menü öğesi + rozet var', HTML.includes('id="nav-revizyonlar"') && HTML.includes('id="revizyon-badge"'));
   iddia('sayfa var', HTML.includes('id="page-revizyonlar"') && HTML.includes('id="revizyonlar-icerik"'));
-  iddia('admin-only', /ADMIN_ONLY_SAYFALAR = \[[^\]]*'revizyonlar'/.test(HTML));
+  iddia('satıcıya açık (admin-only değil)', !/ADMIN_ONLY_SAYFALAR = \[[^\]]*'revizyonlar'/.test(HTML));
   iddia('goPage sayfayı tazeliyor', HTML.includes("if (id === 'revizyonlar') revizyonlarTazele();"));
-  iddia('menü yalnız admin\'e açılıyor', HTML.includes("if (navRev) navRev.style.display = isAdmin ? '' : 'none';"));
+  iddia('menü admin+satıcıya açık, operasyona kapalı', HTML.includes("if (navRev) navRev.style.display = isOperasyon ? 'none' : '';"));
+  iddia('operasyon sayfaya giremiyor', !/const OPERASYON_SAYFALAR = \[[^\]]*'revizyonlar'/.test(HTML));
   iddia('canlı tazelemede yeniden çiziliyor', HTML.includes("page-revizyonlar')?.classList.contains('active')) renderRevizyonlar();"));
   iddia('"Revize İstendi" butonu mail atıyor', /fiyatOnayiniGecersizKil\(t\);[^\n]*\n  veriKaydet\(\);\n  revizyonIstendiBildirimGonder\(t, \{ kaynak: 'elle'/.test(HTML));
   iddia('mailden revizyon uygulanınca mail atıyor', HTML.includes("revizyonIstendiBildirimGonder(t, { kaynak: 'mail'"));
@@ -98,16 +101,40 @@ ctx.TALEPLER = [
     el('panel-revizyon-card').style.display === 'block' && el('panel-revizyon-icerik').innerHTML.includes('TLP-00546'));
 
   console.log('\n=== T3: ★ revize istendiğinde admin\'e e-posta ===');
-  ctx.aktifKullanici = { rol: 'satici', ad: 'Zennube' };
+  ctx.aktifKullanici = { rol: 'satici', ad: 'Zennube', email: 'zennube@emon.com.tr' };
   await vm.runInContext("revizyonIstendiBildirimGonder(TALEPLER[0], { kaynak: 'elle', not: 'iskonto istiyor' })", ctx);
-  iddia('★ mail gitti', mailler.length === 1);
+  iddia('★ mail gitti (satıcı kendisi işaretledi → kendine mail yok)', mailler.length === 1, mailler.map(x => x.konu).join(' | '));
   const m = mailler[0] || {};
   iddia('admin adresine', (m.to || []).join() === 'selim@emon.com.tr');
   iddia('konu ayrı: [Revizyon Talebi]', /^\[Revizyon Talebi\] TLP-00546/.test(m.konu || ''), m.konu);
   iddia('revize notu ve derin link içeriyor', (m.html || '').includes('iskonto istiyor') && (m.html || '').includes('#talep=TLP-00546'));
-  ctx.aktifKullanici = { rol: 'admin', ad: 'Selim' };
-  await vm.runInContext("revizyonIstendiBildirimGonder(TALEPLER[0], {})", ctx);
-  iddia('admin kendisi işaretlediyse kendine mail atmıyor', mailler.length === 1);
+  ctx.aktifKullanici = { rol: 'admin', ad: 'Selim', email: 'selim@emon.com.tr' };
+  await vm.runInContext("revizyonIstendiBildirimGonder(TALEPLER[0], { kaynak: 'mail' })", ctx);
+  iddia('admin kendisi işaretlediyse kendine mail atmıyor', !mailler.slice(1).some(x => /^\[Revizyon Talebi\]/.test(x.konu)));
+  const sm = mailler.slice(1).find(x => /^\[Revizyon\] /.test(x.konu));
+  iddia('★ admin işaretleyince SORUMLU SATICIYA mail', !!sm && sm.to.join() === 'zennube@emon.com.tr', mailler.map(x => x.konu + '→' + x.to).join(' | '));
+  iddia('satıcı mailinde derin link + "mailinden" kaynağı', !!sm && sm.html.includes('#talep=TLP-00546') && sm.html.includes('müşteri mailinden'));
+
+  console.log('\n=== T4: ★ SATICI görünümü — yalnız kendi talepleri, onay butonu yok ===');
+  ctx.aktifKullanici = { rol: 'satici', ad: 'Zennube', email: 'zennube@emon.com.tr' };
+  const S = vm.runInContext('revizyonListeleri()', ctx);
+  iddia('★ satıcı kendi hazırlanacak revizyonunu görüyor', S.hazirlanan.map(t => t.no).join() === 'TLP-00546');
+  iddia('satıcı kendi onaydaki revizyonunu görüyor', S.bekleyen.map(t => t.no).join() === 'TLP-00600');
+  iddia('★ satıcı rozeti yalnız yapacağı iş (1)', S.rozet === 1, S.rozet);
+  ctx.aktifKullanici = { rol: 'satici', ad: 'Ali', email: 'ali@emon.com.tr' };
+  iddia('başka satıcı Zennube\'nin revizyonlarını görmüyor', vm.runInContext('revizyonListeleri()', ctx).toplam === 0);
+  ctx.aktifKullanici = { rol: 'satici', ad: 'Zennube', email: 'zennube@emon.com.tr' };
+  vm.runInContext('renderRevizyonlar()', ctx);
+  const sh = el('revizyonlar-icerik').innerHTML;
+  iddia('★ satıcı sayfasında "Fiyatla" var', sh.includes('Fiyatla') && sh.includes('Hazırlamanız Gerekenler'));
+  iddia('★ satıcıda Onayla/Reddet YOK', !sh.includes('adminFiyatOnayla') && !sh.includes('adminFiyatReddet'));
+  iddia('satıcıda "Admin onayında" etiketi', sh.includes('Admin onayında'));
+  iddia('satıcıda önce yapacağı iş listeleniyor', sh.indexOf('TLP-00546') < sh.indexOf('TLP-00600'));
+  vm.runInContext('renderPanelRevizyonlar()', ctx);
+  iddia('★ satıcı panel kartı görünür', el('panel-revizyon-card').style.display === 'block' && el('panel-revizyon-icerik').innerHTML.includes('Fiyatla'));
+  ctx.aktifKullanici = { rol: 'operasyon', ad: 'Op', email: 'op@emon.com.tr' };
+  vm.runInContext('renderPanelRevizyonlar()', ctx);
+  iddia('operasyon rolünde panel kartı gizli', el('panel-revizyon-card').style.display === 'none');
 
   console.log(`\n=== TOPLAM: ${gecti} geçti, ${kaldi} başarısız ===`);
   process.exit(kaldi ? 1 : 0);

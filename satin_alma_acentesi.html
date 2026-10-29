@@ -725,7 +725,7 @@
       <div class="card-header">
         <div>
           <div class="card-title">✏️ Revizyon Talepleri</div>
-          <div class="card-sub">Müşterinin revize istediği teklifler — onay bekleyen ve fiyatı hazırlanan</div>
+          <div class="card-sub">Müşterinin revize istediği teklifler — fiyatı hazırlanan ve onay bekleyen</div>
         </div>
         <button class="btn btn-sm btn-primary" onclick="goPage('revizyonlar', document.getElementById('nav-revizyonlar'))">İncele</button>
       </div>
@@ -1260,7 +1260,7 @@
       <div class="card-header">
         <div>
           <div class="card-title">✏️ Revizyon Talepleri</div>
-          <div class="card-sub">Müşterinin revize istediği teklifler — away modunda bile otomatik onaylanmaz</div>
+          <div class="card-sub">Müşterinin revize istediği teklifler — away modunda bile otomatik onaylanmaz (satıcı yalnız kendi taleplerini görür)</div>
         </div>
         <button class="btn btn-sm" onclick="revizyonlarTazele()">🔄 Yenile</button>
       </div>
@@ -5565,7 +5565,7 @@ document.addEventListener('touchend', e => {
 
 // NAVİGASYON
 // Sadece admin'in erişebileceği sayfalar — satıcı doğrudan çağırsa bile engellenir
-const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari', 'revizyonlar', 'tahsilat'];
+const ADMIN_ONLY_SAYFALAR = ['ayarlar', 'kullanicilar', 'fiyatOnaylari', 'tahsilat'];
 function goPage(id, el) {
   if (ADMIN_ONLY_SAYFALAR.includes(id) && aktifKullanici?.rol !== 'admin') {
     showToast('Bu sayfaya erişim yetkiniz yok.');
@@ -13846,7 +13846,7 @@ function rolUygula() {
   const navOnay = document.getElementById('nav-fiyat-onaylari');
   if (navOnay) navOnay.style.display = isAdmin ? '' : 'none';
   const navRev = document.getElementById('nav-revizyonlar');
-  if (navRev) navRev.style.display = isAdmin ? '' : 'none';
+  if (navRev) navRev.style.display = isOperasyon ? 'none' : '';   // admin: tümü · satıcı: kendi revizyonları
   document.querySelectorAll('[data-admin-only]').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
   });
@@ -15189,7 +15189,7 @@ function onayBekleyenBadgeGuncelle() {
   // Revizyonlar rozeti: onay bekleyen revizyon + fiyatı hazırlanan revizyon
   const rb = document.getElementById('revizyon-badge');
   if (rb) {
-    const r = revizyonListeleri().toplam;
+    const r = revizyonListeleri().rozet;
     rb.textContent = r;
     rb.style.display = r > 0 ? 'inline' : 'none';
   }
@@ -15303,11 +15303,14 @@ function _revizyonAni(t) {
 }
 function revizyonListeleri() {
   const sinir = Date.now() - REVIZYON_TAKIP_GUN * 86400000;
-  const bekleyen = TALEPLER.filter(t => fiyatOnayGorunur(t) && t.fiyatOnayTalep?.revizyon)
+  // Satıcı yalnız KENDİ taleplerini görür (talepBenim: admin → hepsi, vekil → izindekinin işi)
+  const bekleyen = TALEPLER.filter(t => talepBenim(t) && fiyatOnayGorunur(t) && t.fiyatOnayTalep?.revizyon)
     .sort((a, b) => (Date.parse(b.fiyatOnayTalep.tarih) || 0) - (Date.parse(a.fiyatOnayTalep.tarih) || 0));
-  const hazirlanan = TALEPLER.filter(t => fiyatRevizyonHazirlaniyor(t) && Math.max(_revizyonAni(t), t.fiyatOnaySira || 0) >= sinir)
+  const hazirlanan = TALEPLER.filter(t => talepBenim(t) && fiyatRevizyonHazirlaniyor(t) && Math.max(_revizyonAni(t), t.fiyatOnaySira || 0) >= sinir)
     .sort((a, b) => Math.max(_revizyonAni(b), b.fiyatOnaySira || 0) - Math.max(_revizyonAni(a), a.fiyatOnaySira || 0));
-  return { bekleyen, hazirlanan, toplam: bekleyen.length + hazirlanan.length };
+  // Rozet: admin için ikisi de iş; satıcı için yalnız "fiyat hazırla" iş (onaydaki admin'i bekliyor)
+  const rozet = aktifKullanici?.rol === 'admin' ? bekleyen.length + hazirlanan.length : hazirlanan.length;
+  return { bekleyen, hazirlanan, toplam: bekleyen.length + hazirlanan.length, rozet };
 }
 
 // Onay bekleyen fiyat kartı (Fiyat Onayları + Revizyonlar ortak)
@@ -15330,8 +15333,10 @@ function fiyatOnayBekleyenKart(t) {
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0;">
             <button class="btn btn-sm" onclick="talepDetayAc(${idx})" style="font-size:12px;">📋 Detay</button>
-            <button class="btn btn-sm btn-primary" onclick="talepDetayAc(${idx});setTimeout(adminFiyatOnayla,300)" style="font-size:12px;">✅ Onayla</button>
-            <button class="btn btn-sm" onclick="talepDetayAc(${idx});setTimeout(adminFiyatReddet,300)" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">❌ Reddet</button>
+            ${aktifKullanici?.rol === 'admin'
+              ? `<button class="btn btn-sm btn-primary" onclick="talepDetayAc(${idx});setTimeout(adminFiyatOnayla,300)" style="font-size:12px;">✅ Onayla</button>
+            <button class="btn btn-sm" onclick="talepDetayAc(${idx});setTimeout(adminFiyatReddet,300)" style="font-size:12px;color:var(--red);border-color:rgba(240,96,96,0.3);">❌ Reddet</button>`
+              : '<span style="font-size:11px;color:var(--amber);font-weight:600;align-self:center;white-space:nowrap;">⏳ Admin onayında</span>'}
           </div>
         </div>
       </div>`;
@@ -15349,10 +15354,12 @@ function revizyonHazirlanKart(t) {
           <div style="flex:1;min-width:0;">
             <div style="font-size:13px;font-weight:600;">${_htmlKacir(t.no || '')} — ${_htmlKacir(t.musteri || '')}</div>
             <div style="font-size:11px;color:#a78bfa;margin-top:2px;">✏️ ${sebep}${tarih ? ' · ' + new Date(tarih).toLocaleString('tr-TR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : ''}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:2px;">Satıcı: ${_htmlKacir(saticiAd)} · ⏳ yeni fiyat henüz onaya gönderilmedi</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${aktifKullanici?.rol === 'admin'
+              ? 'Satıcı: ' + _htmlKacir(saticiAd) + ' · ⏳ yeni fiyat henüz onaya gönderilmedi'
+              : '👉 Revize fiyatı hazırlayıp <b>Admin Onayı İste</b> ile gönderin'}</div>
             ${t.teklifRevizeNot ? '<div style="font-size:12px;color:var(--text2);margin-top:3px;">Revize notu: ' + _htmlKacir(t.teklifRevizeNot) + '</div>' : ''}
           </div>
-          <button class="btn btn-sm" onclick="talepDetayAc(${idx})" style="font-size:12px;flex-shrink:0;">📋 Detay</button>
+          <button class="btn btn-sm${aktifKullanici?.rol === 'admin' ? '' : ' btn-primary'}" onclick="talepDetayAc(${idx})" style="font-size:12px;flex-shrink:0;">${aktifKullanici?.rol === 'admin' ? '📋 Detay' : '✏️ Fiyatla →'}</button>
         </div>
       </div>`;
 }
@@ -15365,17 +15372,20 @@ function renderRevizyonlar() {
     icerik.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text3);"><div style="font-size:28px;margin-bottom:8px;">✏️</div>Açık revizyon talebi yok.</div>';
     return;
   }
-  let html = '';
-  if (bekleyen.length) {
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:10px;">✅ Onayınızı Bekleyen Revizyonlar (' + bekleyen.length + ')</div>';
-    html += bekleyen.map(fiyatOnayBekleyenKart).join('');
-  }
-  if (hazirlanan.length) {
-    html += '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:#a78bfa;margin-bottom:4px;' + (bekleyen.length ? 'margin-top:16px;' : '') + '">⏳ Revize İstendi — Satıcı Fiyat Hazırlıyor (' + hazirlanan.length + ')</div>'
-      + '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Önceki onay geçersiz; satıcı yeni fiyatı gönderince yukarıdaki onay bölümüne geçer. (Son ' + REVIZYON_TAKIP_GUN + ' gün)</div>';
-    html += hazirlanan.map(revizyonHazirlanKart).join('');
-  }
-  icerik.innerHTML = html;
+  const admin = aktifKullanici?.rol === 'admin';
+  const baslik = (renk, metin, ust) => '<div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:' + renk + ';margin-bottom:4px;' + (ust ? 'margin-top:16px;' : '') + '">' + metin + '</div>';
+  const bekleyenHtml = bekleyen.length
+    ? baslik('#a78bfa', (admin ? '✅ Onayınızı Bekleyen Revizyonlar (' : '⏳ Admin Onayında Bekleyen Revizyonlarım (') + bekleyen.length + ')', false)
+      + '<div style="height:6px;"></div>' + bekleyen.map(fiyatOnayBekleyenKart).join('') : '';
+  const hazirHtml = hazirlanan.length
+    ? baslik('#a78bfa', (admin ? '⏳ Revize İstendi — Satıcı Fiyat Hazırlıyor (' : '✏️ Revize Fiyatı Hazırlamanız Gerekenler (') + hazirlanan.length + ')', false)
+      + '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">' + (admin
+        ? 'Önceki onay geçersiz; satıcı yeni fiyatı gönderince yukarıdaki onay bölümüne geçer.'
+        : 'Müşteri revize istedi ya da önceki onay düştü — fiyatı güncelleyip admin onayına gönderin.')
+      + ' (Son ' + REVIZYON_TAKIP_GUN + ' gün)</div>' + hazirlanan.map(revizyonHazirlanKart).join('') : '';
+  // Admin için önce onaylanacaklar; satıcı için önce kendi yapacakları
+  const parcalar = admin ? [bekleyenHtml, hazirHtml] : [hazirHtml, bekleyenHtml];
+  icerik.innerHTML = parcalar.filter(Boolean).join('<div style="height:16px;"></div>');
 }
 function revizyonlarTazele() {
   renderRevizyonlar();
@@ -18197,6 +18207,7 @@ async function onayTalepBildirimGonder(t) {
 async function revizyonIstendiBildirimGonder(t, opts) {
   try {
     if (!t) return;
+    revizyonSaticiBildirimGonder(t, opts);         // sorumlu satıcı (başkası işaretlediyse)
     if (aktifKullanici?.rol === 'admin') return;   // revizyonu admin kendisi işaretledi → zaten biliyor
     const to = onaylayanMailiCoz();
     if (!to) { showToast('⚠ Admin\'e revizyon bildirimi gidemedi — Ayarlar\'da onay e-postası tanımlı değil.'); return; }
@@ -18224,6 +18235,34 @@ async function revizyonIstendiBildirimGonder(t, opts) {
     const ok = await graphMailHtmlGonder([to], `[Revizyon Talebi] ${t.no || ''} — ${t.musteri || ''} revize istedi`, html);
     if (!ok) showToast('⚠ Admin\'e revizyon bildirimi gönderilemedi — Outlook (M365) bağlı değil olabilir.');
   } catch (e) { console.error('revizyonIstendiBildirimGonder hatası:', e); }
+}
+
+// Revizyonu sorumlu satıcıdan BAŞKASI işaretlediyse (admin müşteri mailinden uyguladı, vekil vb.)
+// satıcıya da mail: revize fiyatı hazırlayacak kişi o. Kendisi işaretlediyse zaten biliyor.
+async function revizyonSaticiBildirimGonder(t, opts) {
+  try {
+    const sorumlu = talepSorumluKullanici(t);
+    const to = (sorumlu && sorumlu.email || '').toLowerCase();
+    if (!to || to === (aktifKullanici?.email || '').toLowerCase()) return;
+    const o = opts || {};
+    const degisim = (o.eklenen || o.guncellenen) ? `${o.eklenen || 0} ürün eklendi, ${o.guncellenen || 0} ürün güncellendi` : '';
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;color:#5b21b6;">✏️ Teklifinize Revizyon İstendi</h2>
+        <p style="color:#666;margin:0 0 16px;">Müşteri teklif için revizyon istedi; önceki fiyat onayı geçersiz sayıldı.
+          Revize fiyatı hazırlayıp <b>Admin Onayı İste</b> ile gönderin. EMON FAST > <b>Revizyonlar</b> ekranında listelenir.</p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Talep No</td><td><strong>${_htmlKacir(t.no || '—')}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td>${_htmlKacir(t.musteri || '—')}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">İşaretleyen</td><td>${_htmlKacir(aktifKullanici?.ad || '—')}${o.kaynak === 'mail' ? ' (müşteri mailinden)' : ''}</td></tr>
+          ${o.not ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Revize Notu</td><td>${_htmlKacir(o.not)}</td></tr>` : ''}
+          ${degisim ? `<tr><td style="padding:2px 12px 2px 0;color:#666;">Ürün Değişikliği</td><td>${degisim}</td></tr>` : ''}
+        </table>
+        ${talepLinkButonuHtml(t, '🔗 Talebi Aç ve Fiyatla')}
+      </div>`;
+    const ok = await graphMailHtmlGonder([to], `[Revizyon] ${t.no || ''} — ${t.musteri || ''} revize istedi, fiyatı hazırlayın`, html);
+    if (!ok) showToast('⚠ Satıcıya revizyon bildirimi gönderilemedi — Outlook (M365) bağlı değil olabilir.');
+  } catch (e) { console.error('revizyonSaticiBildirimGonder hatası:', e); }
 }
 
 // Away modunda talep OTOMATİK onaylanınca → admine bilgi maili.
@@ -18783,7 +18822,8 @@ function renderPanelRevizyonlar() {
   const icerik = document.getElementById('panel-revizyon-icerik');
   if (!kart || !icerik) return;
   const { bekleyen, hazirlanan } = revizyonListeleri();
-  if (aktifKullanici?.rol !== 'admin' || (!bekleyen.length && !hazirlanan.length)) { kart.style.display = 'none'; return; }
+  const admin = aktifKullanici?.rol === 'admin';
+  if (!aktifKullanici || aktifKullanici.rol === 'operasyon' || (!bekleyen.length && !hazirlanan.length)) { kart.style.display = 'none'; return; }
   kart.style.display = 'block';
   const satir = (t, onayda) => {
     const sorumlu = talepSorumluKullanici(t);
@@ -18795,11 +18835,15 @@ function renderPanelRevizyonlar() {
         <div style="font-size:11px;color:var(--text3);margin-top:1px;">${_htmlKacir(satici)}${tarih ? ' · ' + tarihFmt(tarih) : ''}${onayda && t.fiyatOnayTalep?.toplamStr ? ' · ' + t.fiyatOnayTalep.toplamStr : ''}</div>
       </div>
       ${onayda
-        ? '<span class="btn btn-sm btn-primary" style="font-size:11px;">✅ Onay bekliyor →</span>'
-        : '<span style="font-size:11px;color:#a78bfa;font-weight:600;white-space:nowrap;">⏳ fiyat hazırlanıyor</span>'}
+        ? (admin ? '<span class="btn btn-sm btn-primary" style="font-size:11px;">✅ Onay bekliyor →</span>'
+                 : '<span style="font-size:11px;color:var(--amber);font-weight:600;white-space:nowrap;">⏳ admin onayında</span>')
+        : (admin ? '<span style="font-size:11px;color:#a78bfa;font-weight:600;white-space:nowrap;">⏳ fiyat hazırlanıyor</span>'
+                 : '<span class="btn btn-sm btn-primary" style="font-size:11px;">✏️ Fiyatla →</span>')}
     </div>`;
   };
-  icerik.innerHTML = bekleyen.map(t => satir(t, true)).join('') + hazirlanan.slice(0, 8).map(t => satir(t, false)).join('')
+  const ust = admin ? bekleyen.map(t => satir(t, true)).join('') : hazirlanan.slice(0, 8).map(t => satir(t, false)).join('');
+  const alt = admin ? hazirlanan.slice(0, 8).map(t => satir(t, false)).join('') : bekleyen.map(t => satir(t, true)).join('');
+  icerik.innerHTML = ust + alt
     + (hazirlanan.length > 8 ? '<div style="font-size:11px;color:var(--text3);">+' + (hazirlanan.length - 8) + ' revizyon daha</div>' : '');
 }
 
