@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-10 (son commit: `68fafbc`)
+> Son güncelleme: 2026-11-10 (son commit: `d1ec0ad`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -142,7 +142,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- Müşteri marjı: satıcının müşteri değişiklik talebi onaylanınca talep anındaki marj/satıcı ataması kopyası kartı eziyordu → admin'in arada yaptığı marj değişikliği "yansımıyordu" (Intetra). Onay artık 3-yollu (`musteriDuzenleTalebiUygula`): yalnız satıcının değiştirdiği alanlar uygulanır. + Satıcı müşteri formunda "📈 Kar marjı değişiklik talebi" (istenen baz % + gerekçe) → Onay Bekleyenler diff'i + admin'e "[Kar Marjı Talebi]" e-postası. Test: `tools/musteri-marj-talep-test.js`
+- Admin'in doğrudan müşteri ekleme/düzenlemesi artık sunucuda doğrulanıyor (`musteriKaydiSunucudaMi`: yazılan her alan sunucudan geri okunur); doğrulanana kadar form açık kalır, başarısızlıkta girdi formda durur ve "Kaydet" tekrar denemedir
+- `d1ec0ad` Müşteri marjı: satıcının müşteri değişiklik talebi onaylanınca talep anındaki marj/satıcı ataması kopyası kartı eziyordu → admin'in arada yaptığı marj değişikliği "yansımıyordu" (Intetra). Onay artık 3-yollu (`musteriDuzenleTalebiUygula`): yalnız satıcının değiştirdiği alanlar uygulanır. + Satıcı müşteri formunda "📈 Kar marjı değişiklik talebi" (istenen baz % + gerekçe) → Onay Bekleyenler diff'i + admin'e "[Kar Marjı Talebi]" e-postası. Test: `tools/musteri-marj-talep-test.js`
 
 ### 2026-10
 - Revizyonlar sayfası satıcıya da açıldı (yalnız kendi talepleri, "Fiyatla" butonu, panel kartı, rozet); revizyonu başkası işaretlerse sorumlu satıcıya e-posta

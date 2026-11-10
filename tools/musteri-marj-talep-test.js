@@ -5,7 +5,7 @@ const HTML = fs.readFileSync(__dirname + '/../satin_alma_acentesi.html', 'utf8')
 const fnAl = ad => { const i = HTML.indexOf('function ' + ad + '('); if (i < 0) throw new Error(ad + ' yok');
   let d = 0, j = HTML.indexOf('{', i); for (; j < HTML.length; j++) { if (HTML[j] === '{') d++; else if (HTML[j] === '}' && --d === 0) break; }
   return HTML.slice(i, j + 1); };
-eval([fnAl('_canon'), fnAl('_kayitBirlestir'), fnAl('musteriDuzenleTalebiUygula')].join('\n'));
+eval([fnAl('_canon'), fnAl('_kayitBirlestir'), fnAl('musteriDuzenleTalebiUygula'), fnAl('musteriKaydiSunucudaMi')].join('\n'));
 
 let gecti = 0, kaldi = 0;
 const iddia = (ad, k, ek) => { k ? (gecti++, console.log('  ✓ ' + ad)) : (kaldi++, console.log('  ✗ ' + ad + (ek ? '  → ' + JSON.stringify(ek) : ''))); };
@@ -51,6 +51,20 @@ console.log('\n=== T4: talep yolu satıcıya bağlı + ortak uygulayıcı kullan
   iddia('form alanı var', HTML.includes('id="mf-marj-talep-baz"') && HTML.includes('id="mf-marj-talep-gerekce"'));
   iddia('admin e-postası tetikleniyor', HTML.includes('if (marjTalebi) marjTalebiBildirimGonder(firma, marjTalebi);'));
   iddia('diff\'te marj talebi gösteriliyor', HTML.includes('📈 Kar marjı talebi:'));
+}
+console.log('\n=== T5: ★ admin doğrudan kaydı SUNUCUDA doğrulanıyor ===');
+{
+  const k = { ...kopya(kart), fpKurallari: { baz: 12, urunGrubu: {} }, crmAsama: undefined };
+  const sunucu = JSON.parse(JSON.stringify({ ...k, fpKurallari: { urunGrubu: {}, baz: 12 }, ekAlan: 'başkası' }));
+  iddia('aynı içerik (anahtar sırası farklı, fazladan alan) → doğrulandı', musteriKaydiSunucudaMi(k, sunucu));
+  iddia('sunucuda ESKİ marj → doğrulanmadı', !musteriKaydiSunucudaMi(k, { ...sunucu, fpKurallari: { baz: 25, urunGrubu: {} } }));
+  iddia('başka firma → doğrulanmadı', !musteriKaydiSunucudaMi(k, { ...sunucu, firma: 'X' }));
+  iddia('admin yolu kanıta bağlı', HTML.includes("kanit = ok && await _sunucudaVarMi('MUSTERILER', m => musteriKaydiSunucudaMi(kayit, m));"));
+  const a = HTML.indexOf("kanit = ok && await _sunucudaVarMi('MUSTERILER', m => musteriKaydiSunucudaMi");
+  const b = HTML.indexOf("closeModal('musteriForm');", a);
+  const c = HTML.indexOf('if (!kanit) {', a);
+  iddia('form ancak kanıttan SONRA kapanıyor, başarısızlıkta return', a > 0 && c > a && b > c && HTML.slice(c, b).includes('return;'));
+  iddia('başarısız yeni kayıt tekrar denemede mükerrer açmıyor', HTML.includes("document.getElementById('mf-index').value = 0;"));
 }
 console.log('\n' + (kaldi ? '❌ ' : '✅ ') + gecti + ' geçti, ' + kaldi + ' kaldı');
 process.exit(kaldi ? 1 : 0);

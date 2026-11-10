@@ -3566,7 +3566,7 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
     <input type="hidden" id="mf-index" value="-1">
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('musteriForm')">İptal</button>
-      <button class="btn btn-primary" onclick="musteriKaydet()">💾 Kaydet</button>
+      <button class="btn btn-primary" id="mf-kaydet-btn" onclick="musteriKaydet()">💾 Kaydet</button>
     </div>
   </div>
 </div>
@@ -6962,24 +6962,60 @@ async function musteriKaydet() {
     return;
   }
 
-  if(idx===-1){_silinenMusteriFirmalar.delete(String(firma));MUSTERILER.unshift(kayit);showToast(`"${firma}" eklendi!`); kaliciVeriKaydet('Müşteri');}
-  else{
+  // KAYDET → SUNUCUDA DOĞRULA. Admin'in doğrudan düzenlemesi de onay yolları gibi kanıta
+  // bağlı: HTTP 200 yetmez, kayıt sunucudan geri okunup admin'in yazdığı HER alanın orada
+  // olduğu görülmeli (sunucu sessizce reddederse marj vb. "kaydedildi" görünüp yansımıyordu).
+  // Doğrulanana kadar form AÇIK kalır; başarısızsa admin'in girdisi formda durur, "Kaydet"
+  // tekrar denemedir. Yerel değişiklik geri ALINMAZ (bir sonraki push onu yine götürür).
+  const yeniMi = idx === -1;
+  let tasinan = 0;
+  if (yeniMi) {
+    _silinenMusteriFirmalar.delete(String(firma));
+    MUSTERILER.unshift(kayit);
+    // Doğrulama başarısız olup tekrar denenirse mükerrer kart açılmasın → artık düzenleme
+    document.getElementById('mf-index').value = 0;
+  } else {
     const eskiFirma = MUSTERILER[idx].firma;
     kayit.tarih = MUSTERILER[idx].tarih;
     MUSTERILER[idx] = kayit;
     // Firma adı DEĞİŞTİYSE: bu müşteriye bağlı talep + CRM etkileşimlerini yeni ada taşı
     // (yoksa eski talepler eski adda kalır, müşteri özeti 0 görünür)
-    let tasinan = 0;
     if (eskiFirma && eskiFirma !== kayit.firma) {
       _silinenMusteriFirmalar.add(String(eskiFirma)); // union merge'te eski ad orphan kalmasın
       TALEPLER.forEach(t => { if (t.musteri === eskiFirma) { t.musteri = kayit.firma; tasinan++; } });
       if (Array.isArray(CRM_AKTIVITELER)) CRM_AKTIVITELER.forEach(a => { if (a.musteri === eskiFirma) a.musteri = kayit.firma; });
     }
-    showToast('Müşteri güncellendi!' + (tasinan ? ' (' + tasinan + ' talep yeni ada taşındı)' : ''));
-    kaliciVeriKaydet('Müşteri değişikliği');
   }
+  filterMusteriler();
+  const btn = document.getElementById('mf-kaydet-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Kaydediliyor…'; }
+  let ok = false, kanit = false;
+  try {
+    ok = await kaliciVeriKaydet(yeniMi ? 'Müşteri' : 'Müşteri değişikliği');
+    kanit = ok && await _sunucudaVarMi('MUSTERILER', m => musteriKaydiSunucudaMi(kayit, m));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Kaydet'; }
+  }
+  if (!kanit) {
+    hata.textContent = ok
+      ? '⛔ Sunucuya gönderildi ama değişiklik SUNUCUDA DOĞRULANAMADI — başka bir kullanıcının kaydı çakışmış ya da sunucu reddetmiş olabilir. "Kaydet" ile tekrar deneyin; sürerse bildirin.'
+      : '⛔ Değişiklik sunucuya YAZILAMADI (bağlantı/oturum?). Girdiğiniz bilgiler formda duruyor — bağlantı gelince "Kaydet" ile tekrar deneyin.';
+    hata.style.display = 'block';
+    showToast('⛔ "' + firma + '" sunucuda doğrulanamadı — form açık, tekrar deneyin.');
+    return;
+  }
+  showToast(yeniMi ? `✅ "${firma}" eklendi ve sunucuda doğrulandı.`
+    : '✅ Müşteri güncellendi ve sunucuda doğrulandı.' + (tasinan ? ' (' + tasinan + ' talep yeni ada taşındı)' : ''));
   closeModal('musteriForm');
   filterMusteriler();
+}
+
+/* Sunucudaki müşteri kaydı, kaydedilen kayıttaki HER alanı içeriyor mu?
+   Merge alan-bazlı olduğu için sunucuda fazladan alan olabilir (başka kullanıcı); bunlar
+   sorun değil. Yazılan alanlardan biri farklıysa (ör. fpKurallari) değişiklik yansımamıştır. */
+function musteriKaydiSunucudaMi(kayit, m) {
+  if (!m || !kayit || m.firma !== kayit.firma) return false;
+  return Object.keys(kayit).every(k => kayit[k] === undefined || _canon(m[k]) === _canon(kayit[k]));
 }
 
 function musteriSil(idx) {
