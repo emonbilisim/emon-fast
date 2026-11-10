@@ -2,9 +2,15 @@
    Gerçek fonksiyonlar HTML'den çıkarılıp sahte global durumla çalıştırılır. */
 const fs = require('fs');
 const HTML = fs.readFileSync(__dirname + '/../satin_alma_acentesi.html', 'utf8');
-const fnAl = ad => { const i = HTML.search(new RegExp('(async )?function ' + ad + '\\(')); if (i < 0) throw new Error(ad + ' yok');
-  let d = 0, j = HTML.indexOf('{', HTML.indexOf(')', i)); for (; j < HTML.length; j++) { if (HTML[j] === '{') d++; else if (HTML[j] === '}' && --d === 0) break; }
-  return HTML.slice(i, j + 1); };
+// Üst düzey fonksiyonu çıkar: tek satırlıksa o satır, değilse ilk "\n}\n"e kadar
+// (gövdedeki '{' string'leri saf ayraç sayımını şaşırttığı için satır-sonu kapanışı esas alınır).
+const fnAl = ad => {
+  const i = HTML.search(new RegExp('\\n(async )?function ' + ad + '\\(')) + 1;
+  if (i <= 0) throw new Error(ad + ' yok');
+  const satirSonu = HTML.indexOf('\n', i), ilk = HTML.slice(i, satirSonu);
+  if (/\}\s*$/.test(ilk) && (ilk.match(/\{/g) || []).length === (ilk.match(/\}/g) || []).length) return ilk;
+  return HTML.slice(i, HTML.indexOf('\n}\n', i) + 2);
+};
 let gecti = 0, kaldi = 0;
 const iddia = (ad, k, ek) => { k ? (gecti++, console.log('  ✓ ' + ad)) : (kaldi++, console.log('  ✗ ' + ad + (ek !== undefined ? '  → ' + JSON.stringify(ek) : ''))); };
 
@@ -14,7 +20,7 @@ let ADAYLAR = [], MUSTERILER = [], TALEPLER = [], OTO_DURUM = { taslaklar: [] },
 const _benEmail = () => (aktifKullanici.email || '').toLowerCase();
 const talepBenim = t => aktifKullanici.rol === 'admin' || (t.saticiEmail || '') === aktifKullanici.email;
 const crmStatTalepler = l => l; const crmStatMusteriler = () => MUSTERILER.filter(m => m.musteriTipi !== 'demo');
-eval(['_musteriNorm','crmSiparisMi','crmDonulduMu','sicakSatisGorunur','_adayAdmin','adayGorunurMu','adayFirmaBul','musteriFirmaVarMi','adaySistemOnerileriHesapla','adayAiYanitCoz'].map(fnAl).join('\n'));
+eval(['_musteriNorm','crmSiparisMi','crmDonulduMu','sicakSatisGorunur','_adayAdmin','adayGorunurMu','adayFirmaBul','musteriFirmaVarMi','adaySistemOnerileriHesapla','_jsonNesneleri','_aiMetin','adayAiYanitCoz','_adayIletisimBirlestir'].map(fnAl).join('\n'));
 const gunOnce = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 
 console.log('\n=== T1: sistem ipuçları ===');
@@ -90,7 +96,30 @@ const content = [
 ];
 const l = adayAiYanitCoz(content);
 iddia('bölünmüş text blokları birleşip JSON çözüldü', l.length === 1 && l[0].firma === 'Hızlı Lojistik', l);
-iddia('bozuk yanıt → boş liste (çökme yok)', adayAiYanitCoz([{ type: 'text', text: 'üzgünüm {adaylar: yok' }]).length === 0);
+iddia('bozuk yanıt → null (okunamadı, "bulunamadı"dan ayrı)', adayAiYanitCoz([{ type: 'text', text: 'üzgünüm {adaylar: yok' }]) === null);
+iddia('gerçekten boş liste → [] ', JSON.stringify(adayAiYanitCoz([{ type: 'text', text: '{"adaylar":[]}' }])) === '[]');
+// ★ eski regex hatası: JSON'dan önce düz metinde "{" geçince hiç okunamıyordu
+const onMetin = [{ type: 'text', text: 'Sorgu kalıbı {sektör} + {şehir} kullandım. Ayrıca {"not":"x"} ara nesne.\n{"adaylar":[{"firma":"A Lojistik","neden":"yeni depo {2026}"},{"firma":"B Nakliyat"}]}' }];
+const ol = adayAiYanitCoz(onMetin);
+iddia('★ önde "{" / ara nesne / string içinde ayraç olsa da okunuyor', ol && ol.length === 2 && ol[0].neden === 'yeni depo {2026}', ol);
+iddia('kesik (max_tokens) yanıt → null', adayAiYanitCoz([{ type: 'text', text: '{"adaylar":[{"firma":"A"},{"firma":"B' }]) === null);
+iddia('birden çok "adaylar" nesnesi → SONUNCUSU (düzeltilmiş liste)', adayAiYanitCoz([{ type: 'text', text: '{"adaylar":[{"firma":"Taslak"}]} düzelttim: {"adaylar":[{"firma":"Son"}]}' }])[0].firma === 'Son');
+
+console.log('\n=== T3b: iletişim zenginleştirme birleştirme ===');
+const h = { firma: 'X', tel: '0212 000', web: '' };
+const dolu = _adayIletisimBirlestir(h, { web: 'x.com.tr', tel: '0216 999', mail: 'info@x.com.tr', kisi: 'Ali Veli', unvan: 'Satın Alma Md.', adres: 'Tuzla/İstanbul', kaynak: 'https://x.com.tr/iletisim' });
+iddia('boş alanlar dolduruldu', h.web === 'x.com.tr' && h.mail === 'info@x.com.tr' && h.kisi === 'Ali Veli' && h.sehir === 'Tuzla/İstanbul', h);
+iddia('dolu alan (tel) EZİLMEDİ', h.tel === '0212 000');
+iddia('doldurulan alan listesi doğru', JSON.stringify(dolu.sort()) === JSON.stringify(['kisi','mail','sehir','unvan','web']), dolu);
+const h2 = {}; _adayIletisimBirlestir(h2, { mail: 'ali.veli at x' });
+iddia('geçersiz e-posta yazılmıyor', !h2.mail);
+
+console.log('\n=== T3c: AI istek ayarları ===');
+iddia('keşif: effort medium (low az arama yapıyordu)', /output_config: \{ effort: 'medium' \}[\s\S]{0,400}web_search_20260209/.test(HTML));
+iddia('keşif + zenginleştirme web_fetch kullanıyor', (HTML.match(/type: 'web_fetch_20260209'/g) || []).length === 2);
+iddia('zenginleştirme paralel 3 işçi', HTML.includes('Promise.all([isci(), isci(), isci()])'));
+iddia('iletişim bitene kadar ekle butonu kilitli', HTML.includes("ekleBtn.disabled = true;"));
+iddia('aday kartında İletişim bul butonu', HTML.includes('id="aday-iletisim-btn"') && HTML.includes('async function adayKartIletisimBul()'));
 
 console.log('\n=== T4: bağlantılar (kaynak) ===');
 iddia('menü + sayfa + rol görünürlüğü', HTML.includes('id="nav-sicak-satis"') && HTML.includes('id="page-sicakSatis"') && HTML.includes("nav.style.display = sicakSatisGorunur() ? '' : 'none';"));
@@ -100,7 +129,7 @@ iddia('müşteri formu dönüşüm bağlamını sıfırlıyor', HTML.includes("_
 iddia('dönüşüm: satıcı yolu (onayda)', HTML.includes("if (_adayDonusumId) { adayDonusumTamamla(_adayDonusumId, firma, true);"));
 iddia('dönüşüm: admin yolu yalnız DOĞRULANDIKTAN sonra', (() => { const a = HTML.indexOf('if (!kanit) {'); const b = HTML.indexOf('if (yeniMi && _adayDonusumId)'); return a > 0 && b > a; })());
 iddia('AI: güncel web arama aracı + Opus 5.5', HTML.includes("type: 'web_search_20260209'") && HTML.includes("model: 'claude-opus-5-5'"));
-iddia('AI: pause_turn devamı', HTML.includes("r.data.stop_reason === 'pause_turn' && devam < 3"));
+iddia('AI: pause_turn devamı', HTML.includes("r.data.stop_reason === 'pause_turn' && devam < (azamiDevam ?? 3)"));
 const DY = fs.readFileSync(__dirname + '/../.github/workflows/deploy.yml', 'utf8');
 iddia('backend: adaylar tablosu + route', DY.includes('CREATE TABLE IF NOT EXISTS adaylar') && DY.includes("app.put('/api/adaylar'"));
 iddia('nginx: proxy_read_timeout 200s (nginx -t + geri alma)', DY.includes('proxy_read_timeout 200s') && /proxy timeout[\s\S]{0,400}GERI ALINDI/.test(DY));

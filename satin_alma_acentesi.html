@@ -2742,6 +2742,7 @@
     <div id="aday-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:8px 12px;font-size:12px;color:var(--red);margin-bottom:10px;"></div>
     <div class="modal-footer" style="flex-wrap:wrap;">
       <button class="btn btn-sm" id="aday-sil-btn" onclick="adaySil()" style="color:var(--red);margin-right:auto;display:none;">🗑 Sil</button>
+      <button class="btn btn-sm" id="aday-iletisim-btn" onclick="adayKartIletisimBul()" style="display:none;" title="Firmanın web sitesinden yayımlanmış iletişim bilgilerini bulur, yalnız boş alanları doldurur">🔍 İletişim bul (AI)</button>
       <button class="btn btn-sm" id="aday-donustur-btn" onclick="adayMusteriyeDonustur()" style="display:none;">🎉 Müşteriye Dönüştür</button>
       <button class="btn" onclick="closeModal('adayForm')">İptal</button>
       <button class="btn btn-primary" id="aday-kaydet-btn" onclick="adayKaydet()">💾 Kaydet</button>
@@ -7058,6 +7059,8 @@ function adayModalAc(id) {
   const sahibiMi = id && (_adayAdmin() || String(a.sahip || '').toLowerCase() === _benEmail());
   document.getElementById('aday-sil-btn').style.display = sahibiMi ? '' : 'none';
   document.getElementById('aday-donustur-btn').style.display = (id && !a.musteriFirma) ? '' : 'none';
+  document.getElementById('aday-iletisim-btn').style.display = id ? '' : 'none';
+  ['aday-web','aday-tel','aday-mail','aday-kisi','aday-unvan','aday-sehir'].forEach(k => { const el = document.getElementById(k); if (el) el.style.borderColor = ''; });
   document.getElementById('aday-hata').style.display = 'none';
   openModal('adayForm');
 }
@@ -7358,13 +7361,55 @@ function adayAiModalAc() {
   openModal('adayAi');
 }
 
-// Model yanıtından aday JSON'unu çıkar (metin blokları birleştirilir; web aramada çok sayıda text bloğu gelir)
-function adayAiYanitCoz(content) {
-  const metin = (content || []).filter(b => b && b.type === 'text').map(b => b.text || '').join('');
-  const m = metin.replace(/```(?:json)?/gi, '').match(/\{[\s\S]*"adaylar"[\s\S]*\}/);
-  if (!m) return [];
-  try { const j = JSON.parse(m[0]); return (Array.isArray(j.adaylar) ? j.adaylar : []).filter(x => x && x.firma); } catch (_) { return []; }
+/* Metindeki TÜM dengeli {...} nesnelerini sırayla döndür (string içi ayraçları ve kaçışları
+   atlayarak). Eski regex ilk "{"ten başladığı için, model JSON'dan önce düz metinde bir "{"
+   yazınca yanıt hiç okunamıyordu → "aday bulamadı" görünüyordu (gerçekte ayrıştırma hatası). */
+function _jsonNesneleri(metin) {
+  const out = [];
+  for (let i = 0; i < metin.length; i++) {
+    if (metin[i] !== '{') continue;
+    let d = 0, str = false, esc = false, j = i;
+    for (; j < metin.length; j++) {
+      const c = metin[j];
+      if (str) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') str = false; continue; }
+      if (c === '"') str = true; else if (c === '{') d++; else if (c === '}' && --d === 0) break;
+    }
+    if (d !== 0) continue;                                // kapanmamış/tek başına '{' → atla, sonrakine bak
+    try { out.push(JSON.parse(metin.slice(i, j + 1))); i = j; } catch (_) { /* iç nesneden dene */ }
+  }
+  return out;
 }
+function _aiMetin(content) { return (content || []).filter(b => b && b.type === 'text').map(b => b.text || '').join(''); }
+
+// Model yanıtından aday listesini çıkar: "adaylar" dizisi taşıyan SON geçerli JSON nesnesi.
+// null = yanıt okunamadı (ayrıştırma/kesilme) · [] = model gerçekten aday bulamadı.
+function adayAiYanitCoz(content) {
+  const adaylar = _jsonNesneleri(_aiMetin(content).replace(/```(?:json)?/gi, '')).filter(j => j && Array.isArray(j.adaylar));
+  if (!adaylar.length) return null;
+  return adaylar[adaylar.length - 1].adaylar.filter(x => x && x.firma);
+}
+
+// Claude çağrısı + pause_turn devamı (sunucu tarafı araç döngüsü sınıra gelince kaldığı yerden sürer)
+async function _adayAiCalistir(govde, azamiDevam) {
+  let r, devam = 0;
+  for (;;) {
+    r = await _claudeGovdeCagir(govde);
+    if (r._err) return r;
+    if (r.data.stop_reason === 'pause_turn' && devam < (azamiDevam ?? 3)) {
+      govde.messages = [govde.messages[0], { role: 'assistant', content: r.data.content }];
+      devam++; continue;
+    }
+    return r;
+  }
+}
+function _adayAiHataMetni(r) {
+  return ({ 'no-key': 'AI kullanılamıyor — sunucuda Claude anahtarı yok ve bu cihazda da tanımlı değil.',
+    'zaman-asimi': 'Arama zaman aşımına uğradı. Kriterleri daraltıp (şehir ekleyin) ya da öneri sayısını azaltıp tekrar deneyin.',
+    'oturum': 'Oturum süresi doldu — tekrar giriş yapın.', 'ag': 'Bağlantı hatası.' }[r._err])
+    || ('AI hatası (' + r._err + ')' + (r.detay ? ': ' + r.detay : '') + (/web_(search|fetch)/i.test(r.detay || '') ? ' — Anthropic konsolunda web araması/getirme kapalı olabilir.' : ''));
+}
+
+const _ADAY_AI_EMON = 'EMON adlı Türk bir BT tedarik/satın alma firması (bilgisayar, sunucu, yazıcı ve sarf malzemesi, yazılım lisansı, telefon, aksesuar tedariği yapar)';
 
 async function adayAiAra() {
   const g = id => (document.getElementById(id)?.value || '').trim();
@@ -7372,60 +7417,53 @@ async function adayAiAra() {
   const sonucEl = document.getElementById('aday-ai-sonuc');
   if (!sektor) { sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">Sektör girin.</div>'; return; }
   const adet = parseInt(g('aday-ai-adet'), 10) || 8;
-  const haric = [...new Set([...MUSTERILER.map(m => m && m.firma), ...ADAYLAR.map(a => a.firma)].filter(Boolean))].slice(0, 400);
-  const sistem = 'Sen EMON adlı Türk bir BT tedarik/satın alma firmasının (bilgisayar, sunucu, yazıcı ve sarf malzemesi, yazılım lisansı, telefon, aksesuar tedariği yapar) B2B satış araştırmacısısın. '
-    + 'Görevin: verilen kriterlere uyan, GERÇEK ve hâlen faaliyette olan Türkiye\'deki firmaları web araması ile bulmak. '
-    + 'Kurallar: (1) Yalnız web aramasında varlığına kanıt bulduğun firmaları yaz; her biri için kanıtın olduğu sayfanın URL\'sini "kaynak" alanına koy. '
-    + '(2) Kişi adı, telefon veya e-posta UYDURMA — yalnız kaynak sayfada açıkça yayımlanmışsa yaz, yoksa boş bırak. '
-    + '(3) Hariç listesindeki firmaları (zaten müşterimiz/adayımız) önerme. '
-    + '(4) "neden": bu firmanın neden iyi bir aday olduğu (somut sinyal: yeni şube, büyüme, ihale, işe alım, yatırım vb.). "ihtiyac": EMON\'un satabileceği olası ürünler. "acilis": satıcının ilk aramada kullanabileceği tek cümlelik, firmaya özel açılış. '
-    + '(5) Yanıtının SONUNDA yalnız şu biçimde tek bir JSON nesnesi ver, başka metin ekleme: '
-    + '{"adaylar":[{"firma":"","sektor":"","sehir":"","web":"","kisi":"","unvan":"","tel":"","mail":"","neden":"","ihtiyac":"","acilis":"","kaynak":""}]}. Tüm metinler Türkçe.';
+  // Zaten müşteri/aday olanlar istemcide de elenir; modele +3 fazla iste ki eleme sonrası liste dolsun
+  const istenen = adet + 3;
+  const haric = [...new Set([...MUSTERILER.map(m => m && m.firma), ...ADAYLAR.map(a => a.firma)].filter(Boolean))].slice(0, 250);
+  const sistem = 'Sen ' + _ADAY_AI_EMON + ' için B2B satış araştırmacısısın. '
+    + 'Görevin: verilen kriterlere uyan, GERÇEK ve hâlen faaliyette olan Türkiye\'deki firmaları web araması ile bulmak.\n'
+    + 'Nasıl aranır: Tek tek firma aramak yerine LİSTE veren kaynakları hedefle — OSB/sanayi bölgesi firma rehberleri, ticaret/sanayi odası üye listeleri, sektör derneği üye listeleri, '
+    + 'fuar katılımcı listeleri, "en büyük X firması" sıralamaları, yatırım/yeni tesis/şube haberleri, kamu ihale sonuçları. Bir liste sayfası birden çok firmaya kaynak olabilir; '
+    + 'gerekirse web_fetch ile liste sayfasını aç. İstenen sayıya ulaşana kadar FARKLI sorgularla aramaya devam et; erken bırakma.\n'
+    + 'Kurallar: (1) Yalnız varlığına web\'de kanıt gördüğün firmaları yaz; kanıt sayfasının URL\'sini "kaynak" alanına koy. '
+    + '(2) Telefon/e-posta/kişi UYDURMA; bu adımda bilmiyorsan boş bırak (sonra ayrıca aranacak). Firmanın resmi web sitesini biliyorsan "web" alanına yaz — bu çok önemli. '
+    + '(3) Hariç listesindeki firmaları önerme. '
+    + '(4) "neden": somut sinyal (yeni şube, büyüme, ihale, işe alım, yatırım, çalışan sayısı vb.). "ihtiyac": EMON\'un satabileceği olası ürünler. "acilis": satıcının ilk aramada kullanabileceği tek cümlelik, firmaya özel açılış.\n'
+    + 'Çıktı: Yanıtının SONUNDA tek bir JSON nesnesi ver (öncesinde kısa açıklama olabilir): '
+    + '{"adaylar":[{"firma":"","sektor":"","sehir":"","web":"","neden":"","ihtiyac":"","acilis":"","kaynak":""}]}. Tüm metinler Türkçe.';
   const istek = 'Kriterler:\n- Sektör: ' + sektor
     + '\n- Şehir/bölge: ' + (g('aday-ai-sehir') || 'Türkiye geneli')
     + (g('aday-ai-odak') ? '\n- Satmak istediğimiz ürünler: ' + g('aday-ai-odak') : '')
     + (g('aday-ai-buyukluk') ? '\n- Firma büyüklüğü: ' + g('aday-ai-buyukluk') : '')
     + (g('aday-ai-not') ? '\n- Ek not: ' + g('aday-ai-not') : '')
-    + '\n- İstenen öneri sayısı: ' + adet
+    + '\n- İstenen öneri sayısı: ' + istenen + ' (en az ' + adet + ')'
     + '\n\nHariç tutulacak firmalar: ' + (haric.join('; ') || '—');
   const btn = document.getElementById('aday-ai-btn');
   btn.disabled = true; btn.textContent = '⏳ Araştırılıyor… (1-3 dk)';
   document.getElementById('aday-ai-ekle-btn').style.display = 'none';
-  sonucEl.innerHTML = '<div style="font-size:12px;color:var(--text3);">AI web\'de arıyor, pencereyi kapatmayın…</div>';
+  sonucEl.innerHTML = '<div style="font-size:12px;color:var(--text3);">1/2 · AI web\'de firma arıyor, pencereyi kapatmayın…</div>';
   try {
-    const govde = {
+    const r = await _adayAiCalistir({
       model: 'claude-opus-5-5', max_tokens: 16000,
-      output_config: { effort: 'low' },
+      // 'low' çabada model az arama yapıp erken bitiriyordu → az/boş sonucun ana nedeni
+      output_config: { effort: 'medium' },
       system: sistem,
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6,
-        user_location: { type: 'approximate', country: 'TR', timezone: 'Europe/Istanbul' } }],
+      tools: [
+        { type: 'web_search_20260209', name: 'web_search', max_uses: 8, user_location: { type: 'approximate', country: 'TR', timezone: 'Europe/Istanbul' } },
+        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 3 },
+      ],
       messages: [{ role: 'user', content: istek }],
-    };
-    let r, devam = 0;
-    for (;;) {
-      r = await _claudeGovdeCagir(govde);
-      if (r._err) break;
-      // Sunucu tarafı arama döngüsü sınıra geldi → aynı konuşmayı gönder, kaldığı yerden devam eder
-      if (r.data.stop_reason === 'pause_turn' && devam < 3) {
-        govde.messages = [govde.messages[0], { role: 'assistant', content: r.data.content }];
-        devam++; continue;
-      }
-      break;
-    }
-    if (r._err) {
-      const msj = { 'no-key': 'AI kullanılamıyor — sunucuda Claude anahtarı yok ve bu cihazda da tanımlı değil.',
-        'zaman-asimi': 'Arama zaman aşımına uğradı. Kriterleri daraltıp (şehir ekleyin) ya da öneri sayısını azaltıp tekrar deneyin.',
-        'oturum': 'Oturum süresi doldu — tekrar giriş yapın.', 'ag': 'Bağlantı hatası.' }[r._err]
-        || ('AI hatası (' + r._err + ')' + (r.detay ? ': ' + r.detay : '') + (/web_search/i.test(r.detay || '') ? ' — Anthropic konsolunda web araması kapalı olabilir.' : ''));
-      sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">⛔ ' + _gorevEsc(msj) + '</div>';
+    }, 4);
+    if (r._err) { sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">⛔ ' + _gorevEsc(_adayAiHataMetni(r)) + '</div>'; return; }
+    if (r.data.stop_reason === 'refusal') { sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">⛔ AI bu isteği yanıtlamadı. Kriterleri farklı ifade edip tekrar deneyin.</div>'; return; }
+    const liste = adayAiYanitCoz(r.data.content);
+    if (liste === null) {
+      console.warn('[Sıcak Satış] AI yanıtı okunamadı', r.data.stop_reason, _aiMetin(r.data.content).slice(-2000));
+      sonucEl.innerHTML = '<div style="color:var(--amber);font-size:12px;">⚠ AI yanıtı okunamadı' + (r.data.stop_reason === 'max_tokens' ? ' (yanıt yarıda kesildi)' : r.data.stop_reason === 'pause_turn' ? ' (arama tamamlanamadı)' : '') + '. Tekrar deneyin; sürerse öneri sayısını azaltın.</div>';
       return;
     }
-    if (r.data.stop_reason === 'refusal') { sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">⛔ AI bu isteği yanıtlamadı. Kriterleri farklı ifade edip tekrar deneyin.</div>'; return; }
-    const kaynaklar = new Set();
-    (r.data.content || []).forEach(b => { if (b && b.type === 'web_search_tool_result' && Array.isArray(b.content)) b.content.forEach(x => x && x.url && kaynaklar.add(x.url)); });
-    const liste = adayAiYanitCoz(r.data.content);
     if (!liste.length) {
-      sonucEl.innerHTML = '<div style="color:var(--amber);font-size:12px;">AI uygun aday bulamadı ya da yanıt okunamadı. Kriterleri genişletip tekrar deneyin.</div>';
+      sonucEl.innerHTML = '<div style="color:var(--amber);font-size:12px;">AI bu kriterlere uyan aday bulamadı. Bölgeyi genişletin ya da sektörü farklı ifade edin (örn. "plastik enjeksiyon üreticileri" yerine "plastik sanayi").</div>';
       return;
     }
     _adayAiOneriler = liste.map(x => {
@@ -7433,33 +7471,131 @@ async function adayAiAra() {
       const firma = s(x.firma);
       const durum = musteriFirmaVarMi(firma) ? 'müşteri' : adayFirmaBul(firma) ? 'aday' : '';
       return { firma, sektor: s(x.sektor) || sektor, sehir: s(x.sehir), web: s(x.web), kisi: s(x.kisi), unvan: s(x.unvan), tel: s(x.tel), mail: s(x.mail),
-        neden: s(x.neden), ihtiyac: s(x.ihtiyac), acilis: s(x.acilis), kaynak: s(x.kaynak), _durum: durum };
+        neden: s(x.neden), ihtiyac: s(x.ihtiyac), acilis: s(x.acilis), kaynak: s(x.kaynak), _durum: durum, _secili: !durum, _ilet: durum ? '' : 'bekliyor' };
     });
-    const esc = _gorevEsc;
-    sonucEl.innerHTML = '<div style="font-size:12px;font-weight:700;margin-bottom:6px;">' + _adayAiOneriler.length + ' öneri — eklemek istediklerinizi seçin</div>'
-      + _adayAiOneriler.map((o, i) => `<label style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:var(--radius);background:var(--bg3);margin-bottom:6px;cursor:pointer;${o._durum ? 'opacity:0.55;' : ''}">
-        <input type="checkbox" class="aday-ai-cb" data-i="${i}" style="width:auto;margin-top:3px;" ${o._durum ? 'disabled' : 'checked'}>
-        <div style="font-size:12px;">
-          <div style="font-size:13px;font-weight:600;">${esc(o.firma)} ${o._durum ? '<span style="font-size:10px;color:var(--amber);">(zaten ' + o._durum + ')</span>' : ''}</div>
-          <div style="color:var(--text3);">${[o.sektor, o.sehir, o.web].filter(Boolean).map(esc).join(' · ')}</div>
-          ${o.neden ? '<div><b>Neden:</b> ' + esc(o.neden) + '</div>' : ''}
-          ${o.ihtiyac ? '<div><b>İhtiyaç:</b> ' + esc(o.ihtiyac) + '</div>' : ''}
-          ${o.kaynak ? '<div><a href="' + esc(_adayWebUrl(o.kaynak)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">🔗 kaynak</a></div>' : '<div style="color:var(--amber);">⚠ kaynak verilmedi — dikkatle doğrulayın</div>'}
-        </div></label>`).join('')
-      + (kaynaklar.size ? '<div style="font-size:11px;color:var(--text3);margin-top:6px;">AI ' + kaynaklar.size + ' web sayfası inceledi.</div>' : '');
+    adayAiListeRender();
     document.getElementById('aday-ai-ekle-btn').style.display = '';
+    // 2/2: her yeni aday için firmanın sitesini açıp iletişim bilgisini bul (paralel, 3'erli)
+    btn.textContent = '⏳ İletişim bilgileri aranıyor…';
+    const ekleBtn = document.getElementById('aday-ai-ekle-btn');
+    ekleBtn.disabled = true; ekleBtn.textContent = '⏳ İletişim bekleniyor…';
+    const kuyruk = _adayAiOneriler.filter(o => !o._durum);
+    let sira = 0;
+    const isci = async () => {
+      while (sira < kuyruk.length) {
+        const o = kuyruk[sira++];
+        o._ilet = 'araniyor'; adayAiListeRender();
+        const bilgi = await adayIletisimAra(o);
+        if (bilgi && !bilgi._err) { _adayIletisimBirlestir(o, bilgi); o._ilet = 'tamam'; }
+        else o._ilet = 'yok';
+        adayAiListeRender();
+      }
+    };
+    try { await Promise.all([isci(), isci(), isci()]); }
+    finally { ekleBtn.disabled = false; ekleBtn.textContent = '➕ Seçilenleri Aday Yap'; }
   } finally {
     btn.disabled = false; btn.textContent = '🔎 Araştır';
   }
 }
 
+function adayAiListeRender() {
+  const sonucEl = document.getElementById('aday-ai-sonuc');
+  if (!sonucEl) return;
+  const esc = _gorevEsc;
+  const iletRozet = { bekliyor: '<span style="color:var(--text3);">⏳ iletişim sırada</span>', araniyor: '<span style="color:var(--accent2);">🔍 iletişim aranıyor…</span>',
+    tamam: '', yok: '<span style="color:var(--text3);">iletişim bulunamadı</span>' };
+  const bitti = _adayAiOneriler.filter(o => o._ilet === 'tamam' || o._ilet === 'yok').length, top = _adayAiOneriler.filter(o => !o._durum).length;
+  sonucEl.innerHTML = '<div style="font-size:12px;font-weight:700;margin-bottom:6px;">' + _adayAiOneriler.length + ' öneri — eklemek istediklerinizi seçin'
+      + (bitti < top ? ' <span style="font-weight:400;color:var(--text3);">(iletişim: ' + bitti + '/' + top + ')</span>' : '') + '</div>'
+    + _adayAiOneriler.map((o, i) => {
+      const iletisim = [o.kisi && ('👤 ' + o.kisi + (o.unvan ? ' (' + o.unvan + ')' : '')), o.tel && ('☎️ ' + o.tel), o.mail && ('✉️ ' + o.mail)].filter(Boolean);
+      return `<label style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:var(--radius);background:var(--bg3);margin-bottom:6px;cursor:pointer;${o._durum ? 'opacity:0.55;' : ''}">
+        <input type="checkbox" style="width:auto;margin-top:3px;" ${o._durum ? 'disabled' : (o._secili ? 'checked' : '')} onchange="_adayAiOneriler[${i}]._secili=this.checked">
+        <div style="font-size:12px;">
+          <div style="font-size:13px;font-weight:600;">${esc(o.firma)} ${o._durum ? '<span style="font-size:10px;color:var(--amber);">(zaten ' + o._durum + ')</span>' : ''}</div>
+          <div style="color:var(--text3);">${[o.sektor, o.sehir, o.web].filter(Boolean).map(esc).join(' · ')}</div>
+          ${iletisim.length ? '<div style="color:var(--green);">' + iletisim.map(esc).join(' · ') + '</div>' : ''}
+          ${iletRozet[o._ilet] ? '<div style="font-size:11px;">' + iletRozet[o._ilet] + '</div>' : ''}
+          ${o.neden ? '<div><b>Neden:</b> ' + esc(o.neden) + '</div>' : ''}
+          ${o.ihtiyac ? '<div><b>İhtiyaç:</b> ' + esc(o.ihtiyac) + '</div>' : ''}
+          ${o.kaynak ? '<div><a href="' + esc(_adayWebUrl(o.kaynak)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">🔗 kaynak</a></div>' : '<div style="color:var(--amber);">⚠ kaynak verilmedi — dikkatle doğrulayın</div>'}
+        </div></label>`;
+    }).join('');
+}
+
+/* İletişim zenginleştirme: firmanın resmi sitesini (iletişim/hakkımızda sayfası) açıp YAYIMLANMIŞ
+   kurumsal iletişimi bul. Keşif adımı yalnız arama özetlerini gördüğü için iletişim hep boş kalıyordu. */
+async function adayIletisimAra(o) {
+  const sistem = 'Sen ' + _ADAY_AI_EMON + ' için B2B iletişim araştırmacısısın. Verilen firmanın YAYIMLANMIŞ kurumsal iletişim bilgilerini bul. '
+    + 'Önce firmanın resmi web sitesini bul (verildiyse onu kullan), web_fetch ile ana sayfayı ve "İletişim / Bize Ulaşın / Hakkımızda" sayfasını aç. '
+    + 'Kurallar: (1) Yalnız resmi sitede, firma rehberinde veya basında AÇIKÇA yayımlanmış bilgiyi yaz; e-posta adresi TAHMİN ETME (ad.soyad@ gibi kalıp üretme). '
+    + '(2) Genel santral telefonu ve info@/satinalma@ gibi kurumsal adresler uygundur; satın alma/IT birimine ait adres varsa onu tercih et. '
+    + '(3) "kisi": yalnız satın alma, bilgi işlem, idari işler veya genel müdür gibi bir yetkilinin adı herkese açık olarak yayımlanmışsa; yoksa boş. '
+    + '(4) Bulamadığın alanı boş bırak. Çıktı: yanıtın SONUNDA tek JSON nesnesi: '
+    + '{"web":"","tel":"","mail":"","adres":"","kisi":"","unvan":"","kaynak":""} ("kaynak" = bilgilerin alındığı sayfa URL\'si).';
+  const istek = 'Firma: ' + o.firma + (o.sehir ? '\nŞehir: ' + o.sehir : '') + (o.sektor ? '\nSektör: ' + o.sektor : '')
+    + (o.web ? '\nWeb sitesi: ' + _adayWebUrl(o.web) : '') + (o.kaynak ? '\nFirmanın geçtiği sayfa: ' + o.kaynak : '');
+  const r = await _adayAiCalistir({
+    model: 'claude-opus-5-5', max_tokens: 4000,
+    output_config: { effort: 'low' },
+    system: sistem,
+    tools: [
+      { type: 'web_search_20260209', name: 'web_search', max_uses: 3, user_location: { type: 'approximate', country: 'TR', timezone: 'Europe/Istanbul' } },
+      { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 3 },
+    ],
+    messages: [{ role: 'user', content: istek }],
+  }, 2);
+  if (r._err) return r;
+  if (r.data.stop_reason === 'refusal') return { _err: 'refusal' };
+  const nes = _jsonNesneleri(_aiMetin(r.data.content).replace(/```(?:json)?/gi, '')).filter(j => j && typeof j === 'object' && ('tel' in j || 'mail' in j || 'web' in j));
+  return nes.length ? nes[nes.length - 1] : { _err: 'okunamadi' };
+}
+
+// Bulunan iletişimi yalnız BOŞ alanlara yaz (kullanıcının girdiğini ezme); e-postayı doğrula
+function _adayIletisimBirlestir(hedef, b) {
+  const s = v => String(v == null ? '' : v).trim().slice(0, 200);
+  const dolu = [];
+  for (const k of ['web', 'tel', 'mail', 'kisi', 'unvan']) {
+    let v = s(b[k]);
+    if (k === 'mail' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) v = '';
+    if (v && !s(hedef[k])) { hedef[k] = v; dolu.push(k); }
+  }
+  const adres = s(b.adres);
+  if (adres && !s(hedef.sehir)) { hedef.sehir = adres; dolu.push('sehir'); }
+  if (s(b.kaynak)) hedef.iletisimKaynak = s(b.kaynak);
+  return dolu;
+}
+
+// Aday kartından: "🔍 İletişim bul" — mevcut adayın boş iletişim alanlarını doldur
+async function adayKartIletisimBul() {
+  const a = ADAYLAR.find(x => x.id === _adayDuzenleId);
+  if (!a) return;
+  const btn = document.getElementById('aday-iletisim-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Aranıyor… (≈30 sn)'; }
+  try {
+    const g = id => (document.getElementById(id)?.value || '').trim();
+    // Formda kaydedilmemiş düzenleme varsa onları esas al
+    const taslak = { ...a, firma: g('aday-firma') || a.firma, sehir: g('aday-sehir'), sektor: g('aday-sektor'), web: g('aday-web'),
+      kisi: g('aday-kisi'), unvan: g('aday-unvan'), tel: g('aday-tel'), mail: g('aday-mail'), kaynak: a.aiOneri?.kaynak || '' };
+    const b = await adayIletisimAra(taslak);
+    if (!b || b._err) { showToast(b && b._err !== 'okunamadi' && b._err !== 'refusal' ? '⛔ ' + _adayAiHataMetni(b) : 'İletişim bilgisi bulunamadı.'); return; }
+    const dolu = _adayIletisimBirlestir(taslak, b);
+    if (!dolu.length) { showToast('Yeni iletişim bilgisi bulunamadı (mevcut alanlar korunur).'); return; }
+    const alan = { web: 'aday-web', tel: 'aday-tel', mail: 'aday-mail', kisi: 'aday-kisi', unvan: 'aday-unvan', sehir: 'aday-sehir' };
+    dolu.forEach(k => { const el = document.getElementById(alan[k]); if (el) { el.value = taslak[k]; el.style.borderColor = 'var(--green)'; } });
+    showToast('✅ ' + dolu.length + ' alan dolduruldu — kontrol edip Kaydet\'e basın.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 İletişim bul (AI)'; }
+  }
+}
+
 async function adayAiSecilenleriEkle() {
-  const secili = [...document.querySelectorAll('.aday-ai-cb:checked')].map(c => _adayAiOneriler[+c.dataset.i]).filter(Boolean);
+  const secili = _adayAiOneriler.filter(o => o._secili && !o._durum);
   if (!secili.length) { showToast('Önce en az bir öneri seçin.'); return; }
   const yeniler = await _adayTopluEkle(secili.map(o => ({
     firma: o.firma, sektor: o.sektor, sehir: o.sehir, web: o.web, kisi: o.kisi, unvan: o.unvan, tel: o.tel, mail: o.mail,
     ilgi: o.ihtiyac, kaynak: 'ai', sicaklik: 'soguk', not: '',
-    aiOneri: { neden: o.neden, ihtiyac: o.ihtiyac, acilis: o.acilis, kaynak: o.kaynak },
+    aiOneri: { neden: o.neden, ihtiyac: o.ihtiyac, acilis: o.acilis, kaynak: o.kaynak, iletisimKaynak: o.iletisimKaynak || '' },
     sahip: _adayAdmin() ? '' : _benEmail(),
   })));
   closeModal('adayAi');
