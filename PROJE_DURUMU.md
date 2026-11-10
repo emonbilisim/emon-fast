@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-10 (son commit: `bc27d33`)
+> Son güncelleme: 2026-11-10 (son commit: `ce82af7`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -151,7 +151,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- Sol kenar çubuğu 220→272px (`--sidebar-w`): Talepler satırı 4 rozetiyle tek satıra sığıyor; nav öğeleri kaydırmasız
+- Panel "✅ Fiyatınız Onaylandı — Müşteriye Gönderilmeyi Bekliyor" kartı şişiyordu: sahiplik filtresi yoktu (admin/satıcı herkesinkini görüyordu) + gönderim kaydı olmayan ama sipariş alınmış / elle "Müşteriye İletildi" yapılmış teklifler takılı kalıyordu. Artık yalnız kendi işin (`onayliGonderimBenim`), admin diğerlerini katlanmış "satıcılarda bekleyen" özetinde görür; satırlarda bekleme günü + sistem dışı gönderim için "✓ Gönderildi". Test: `tools/onayli-gonderim-test.js`
+- `ce82af7` Sol kenar çubuğu 220→272px (`--sidebar-w`): Talepler satırı 4 rozetiyle tek satıra sığıyor; nav öğeleri kaydırmasız
 - `bc27d33` Sıcak Satış AI iyileştirmesi ("az/boş sonuç, iletişim yok"): keşif effort low→medium + liste kaynaklarını (OSB/oda/dernek/fuar) hedefleyen istem + web_fetch; JSON ayrıştırıcı önde `{` geçen yanıtları okuyamıyordu (`_jsonNesneleri`), "okunamadı" artık "bulunamadı"dan ayrı. 2. adım: her öneri için firmanın sitesinden yayımlanmış iletişim (paralel 3'lü) + aday kartında "🔍 İletişim bul (AI)"
 - `23c9ef1` 🔥 Sıcak Satış modülü: aday listesi + görüşme geçmişi + temas rozeti, sistemden aday bulma (kartsız talep / gelen mail / sessiz / dönüşmeyen müşteri), AI ile web araştırması, admin ataması + e-posta, müşteriye dönüştürme. CRM gibi Ayarlar'dan satıcılara aç/kapa (`AYARLAR.sicakSatisAktif`, varsayılan KAPALI; kapalıyken yalnız admin görür, atama maili gitmez). Backend `adaylar` tablosu + nginx proxy timeout 200s (deploy.yml). Test: `tools/sicak-satis-test.js`
 - `366a108` Admin'in doğrudan müşteri ekleme/düzenlemesi artık sunucuda doğrulanıyor (`musteriKaydiSunucudaMi`: yazılan her alan sunucudan geri okunur); doğrulanana kadar form açık kalır, başarısızlıkta girdi formda durur ve "Kaydet" tekrar denemedir

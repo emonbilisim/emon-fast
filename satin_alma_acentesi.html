@@ -16320,7 +16320,20 @@ function onayliGonderimBekliyorMu(t) {
   // müşteriye iletilmesi gerekir, yoksa onay hiçbir yerde görünmeden kaybolur.
   if (talepKapaliMi(t) && !fiyatOnayKapaliAsim(t)) return false;
   if (t.teklifDurumu === 'red') return false;
-  if (!t.musteriTeklifGonderildi) return true;         // hiç gönderilmedi
+  if (!t.musteriTeklifGonderildi) {
+    // Sistemden gönderim kaydı YOK ama teklif belli ki müşteriye ulaşmış:
+    //  • müşteri SİPARİŞİ alınmış → ancak admin onayı siparişten SONRA geldiyse (sipariş sonrası
+    //    fiyat revizesi, #TLP-00142) iletilmesi gerekir; yoksa kart sonsuza dek takılı kalıyordu.
+    //  • durum elle 'Müşteriye İletildi' yapılmış (teklif sistem dışından — kendi Outlook'tan,
+    //    telefonla — iletildi) → gönderilmiş say.
+    if (typeof crmSiparisMi === 'function' && crmSiparisMi(t)) {
+      const onayT = Date.parse(t.fiyatOnayTalep?.adminTarih || '') || 0;
+      const sipT  = Date.parse(t.siparisTarih || '') || 0;
+      return onayT > 0 && sipT > 0 && onayT > sipT;
+    }
+    if (t.durum === 'Müşteriye İletildi') return false;
+    return true;                                        // hiç gönderilmedi
+  }
   // GÖNDERİLDİ → yalnızca son gönderimden SONRA YENİ bir admin onayı (revize) geldiyse
   // tekrar "gönderilmeyi bekliyor" göster. Eskiden bu, adminTarih (admin cihazı saati) ile
   // musteriTeklifTarih (satıcı cihazı saati) WALL-CLOCK karşılaştırmasıyla yapılıyordu;
@@ -16369,32 +16382,89 @@ function onayliRozet(t) {
     ? ' <span class="badge badge-green onayli-yanip" style="font-weight:600;" title="Admin onayladı — müşteriye gönderin">✅ Gönder</span>'
     : '';
 }
+/* "Fiyatınız onaylandı — müşteriye gönderin" bir SATICI işidir. Eskiden kart/rozet TÜM
+   talepleri sayıyordu → admin (ve her satıcı) herkesin bekleyen gönderimini kendi işiymiş gibi
+   görüyordu. Artık yalnız sorumlusu ben olan talepler (satıcı: talepBenim — vekâlet dahil;
+   admin: kendisine atanmış ya da sahipsiz eski kayıtlar). Admin diğerlerini ayrı, katlanmış
+   "satıcılarda bekleyen" özetinde görür (takip amaçlı, iş olarak sayılmaz). */
+function onayliGonderimBenim(t) {
+  if (!aktifKullanici || !t) return false;
+  if (aktifKullanici.rol !== 'admin') return talepBenim(t);
+  if (t.saticiEmail) {
+    if (t.saticiEmail.toLowerCase() === (aktifKullanici.email || '').toLowerCase()) return true;
+    return typeof talepKapsamVekil === 'function' && talepKapsamVekil(t);
+  }
+  if (t.satici != null && t.satici !== '') return t.satici === aktifKullanici.id;
+  return true; // sahipsiz eski kayıt → admin'in işi
+}
+
+// Sistem dışından (kendi Outlook'u, telefon, elden) iletilmiş teklifi "gönderildi" işaretle —
+// karttan çıkmanın tek yolu sistemden mail atmaktı; dışarıdan gönderilenler takılı kalıyordu.
+function onayliGonderildiIsaretle(idx) {
+  const t = TALEPLER[idx];
+  if (!t) return;
+  if (!confirm('#' + t.no + ' — ' + (t.musteri || '') + '\n\nBu teklif müşteriye sistem dışından (kendi e-postanız, telefon vb.) iletildi olarak işaretlensin mi?\nKart panelden kalkar; admin fiyatı yeniden revize ederse tekrar görünür.')) return;
+  if (!['Sipariş Verildi', 'Tamamlandı'].includes(t.durum)) t.durum = 'Müşteriye İletildi';
+  t.musteriTeklifGonderildi = true;
+  t.musteriTeklifTarih = new Date().toISOString();
+  t.gonderilenOnaySira = t.fiyatOnaySira || 0;
+  t.musteriTeklifManuel = { tarih: t.musteriTeklifTarih, kullanici: aktifKullanici?.ad || '' };
+  kaliciVeriKaydet('Teklif gönderildi işareti');
+  onayliGonderimGuncelle();
+  if (typeof renderTalepler === 'function') renderTalepler();
+  showToast('✓ #' + t.no + ' gönderildi olarak işaretlendi.');
+}
+
 // Nav rozeti + Panel afişini güncelle (renderTalepler sonunda + giriş/tazelemede çağrılır)
 function onayliGonderimGuncelle() {
-  const liste = TALEPLER
+  const tum = TALEPLER
     .map((t, idx) => ({ t, idx }))
     .filter(({ t }) => onayliGonderimBekliyorMu(t));
+  const liste = tum.filter(({ t }) => onayliGonderimBenim(t));
+  const digerleri = aktifKullanici?.rol === 'admin' ? tum.filter(({ t }) => !onayliGonderimBenim(t)) : [];
   const n = liste.length;
   const badge = document.getElementById('badge-onayli-gonder');
   if (badge) { badge.textContent = n; badge.style.display = n > 0 ? 'inline-flex' : 'none'; }
   const card = document.getElementById('panel-onayli-gonder-card');
   const ic   = document.getElementById('panel-onayli-gonder-icerik');
-  if (card && ic) {
-    if (n === 0) { card.style.display = 'none'; ic.innerHTML = ''; }
-    else {
-      card.style.display = '';
-      ic.innerHTML = liste.map(({ t, idx }) => {
-        const revize = t.fiyatOnayTalep?.adminDegisiklik;
-        return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border:1px solid rgba(62,207,142,0.3);border-radius:var(--radius);">'
-          + '<span class="mono" style="font-weight:600;">#' + (t.no || '') + '</span>'
-          + '<span style="font-weight:500;">' + (t.musteri || '') + '</span>'
-          + '<span style="font-size:12px;color:var(--text3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (t.urun || '') + '</span>'
-          + (revize ? '<span style="font-size:11px;color:var(--amber);">✏ Admin revize etti</span>' : '')
-          + '<button class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="talepDetayAc(' + idx + ')">📧 Müşteriye Gönder →</button>'
-          + '</div>';
-      }).join('');
-    }
+  if (!card || !ic) return;
+  if (n === 0 && digerleri.length === 0) { card.style.display = 'none'; ic.innerHTML = ''; return; }
+  card.style.display = '';
+  const gunOnce = t => {
+    const d = Date.parse(t.fiyatOnayTalep?.adminTarih || '') || 0;
+    return d ? Math.floor((Date.now() - d) / 86400000) : null;
+  };
+  const satir = ({ t, idx }, sahipGoster) => {
+    const revize = t.fiyatOnayTalep?.adminDegisiklik;
+    const g = gunOnce(t);
+    const sahip = sahipGoster ? (talepSorumluKullanici(t)?.ad || t.fiyatOnayTalep?.satici || 'Atanmamış') : '';
+    return '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--bg2);border:1px solid rgba(62,207,142,0.3);border-radius:var(--radius);">'
+      + '<span class="mono" style="font-weight:600;">#' + _htmlKacir(t.no || '') + '</span>'
+      + '<span style="font-weight:500;">' + _htmlKacir(t.musteri || '') + '</span>'
+      + '<span style="font-size:12px;color:var(--text3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _htmlKacir(t.urun || '') + '</span>'
+      + (sahip ? '<span style="font-size:11px;color:var(--text2);">👤 ' + _htmlKacir(sahip) + '</span>' : '')
+      + (g != null ? '<span style="font-size:11px;color:' + (g >= 7 ? 'var(--red)' : 'var(--text3)') + ';">' + (g === 0 ? 'bugün onaylandı' : g + ' gün önce onaylandı') + '</span>' : '')
+      + (revize ? '<span style="font-size:11px;color:var(--amber);">✏ Admin revize etti</span>' : '')
+      + '<span style="margin-left:auto;display:flex;gap:6px;">'
+      + '<button class="btn btn-sm" title="Teklif müşteriye sistem dışından iletildiyse" onclick="onayliGonderildiIsaretle(' + idx + ')">✓ Gönderildi</button>'
+      + '<button class="btn btn-sm btn-primary" onclick="talepDetayAc(' + idx + ')">📧 Müşteriye Gönder →</button>'
+      + '</span></div>';
+  };
+  // Eski onaylar önce (en çok bekleyen en üstte)
+  const sirala = l => l.slice().sort((a, b) => (gunOnce(b.t) ?? -1) - (gunOnce(a.t) ?? -1));
+  let html = n ? sirala(liste).map(x => satir(x, false)).join('')
+    : '<div style="font-size:12px;color:var(--text3);padding:2px 4px;">Sizin gönderilmeyi bekleyen teklifiniz yok.</div>';
+  if (digerleri.length) {
+    const kisiSay = {};
+    digerleri.forEach(({ t }) => { const k = talepSorumluKullanici(t)?.ad || t.fiyatOnayTalep?.satici || 'Atanmamış'; kisiSay[k] = (kisiSay[k] || 0) + 1; });
+    html += '<details style="margin-top:4px;"><summary style="cursor:pointer;font-size:12px;color:var(--text2);padding:4px;">👥 Satıcılarda gönderilmeyi bekleyen: <b>' + digerleri.length + '</b> <span style="color:var(--text3);">('
+      + Object.entries(kisiSay).sort((a, b) => b[1] - a[1]).map(([k, v]) => _htmlKacir(k) + ' ' + v).join(', ') + ')</span></summary>'
+      + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">' + sirala(digerleri).map(x => satir(x, true)).join('') + '</div></details>';
   }
+  ic.innerHTML = html;
+  // Admin'in kendi işi yokken kart yeşil "iş" vurgusu taşımasın
+  card.style.borderLeftColor = n ? 'var(--green)' : 'var(--border2)';
+  card.style.background = n ? 'rgba(62,207,142,0.07)' : '';
 }
 
 // Fiyat Onayları'nı SUNUCUDAN taze çekip yeniden çiz — başka cihazdaki satıcının
