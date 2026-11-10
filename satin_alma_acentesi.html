@@ -3544,6 +3544,24 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
       </div>
     </div>
 
+    <!-- ── KAR MARJI DEĞİŞİKLİK TALEBİ (yalnız satıcı, mevcut müşteri) ──
+         Satıcı marj alanlarını göremez/değiştiremez; burada istediği baz marjı +
+         gerekçeyi yazar → müşteri değişiklik talebiyle admin onayına gider. -->
+    <div id="mf-marj-talep-wrap" style="display:none;margin-top:18px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.3);border-radius:var(--radius-lg);padding:14px 16px;">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">📈 Kar marjı değişiklik talebi</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Bu müşteri için farklı bir baz kar marjı istiyorsanız yazın — admin onayına gider, onaylanınca tüm yeni fiyatlamalarda kullanılır. Boş bırakırsanız marj talebi gönderilmez.</div>
+      <div class="grid2">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">İstenen baz marj (%)</label>
+          <input type="number" id="mf-marj-talep-baz" placeholder="örn. 18" min="0" max="100" step="0.1">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">Gerekçe</label>
+          <input type="text" id="mf-marj-talep-gerekce" placeholder="örn. Rakip teklif %15 marjla geldi, yıllık hacim yüksek">
+        </div>
+      </div>
+    </div>
+
     <div id="mf-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--red);margin-bottom:12px;"></div>
     <input type="hidden" id="mf-index" value="-1">
     <div class="modal-footer">
@@ -6536,6 +6554,12 @@ function musteriFormAc(idx) {
     const uyari = document.getElementById('mf-satici-yetki-uyari');
     if (uyari) uyari.style.display = isAdmin ? 'none' : 'inline';
   }
+  // Kar marjı değişiklik talebi: yalnız satıcı, yalnız MEVCUT müşteri düzenlemesinde
+  {
+    const w = document.getElementById('mf-marj-talep-wrap');
+    if (w) w.style.display = (aktifKullanici?.rol === 'satici' && idx >= 0) ? '' : 'none';
+    ['mf-marj-talep-baz','mf-marj-talep-gerekce'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  }
 
   if (idx === -1) {
     document.getElementById('mf-baslik').textContent = '👥 Yeni Müşteri Ekle';
@@ -6907,8 +6931,23 @@ async function musteriKaydet() {
     const eski = MUSTERILER[idx];
     if (!eski) { hata.textContent='Müşteri bulunamadı.'; hata.style.display='block'; return; }
     if (eski.fiyatgrup && !kayit.fiyatgrup) kayit.fiyatgrup = eski.fiyatgrup; // ticari alanları koru
+    // 📈 Kar marjı değişiklik talebi (opsiyonel)
+    let marjTalebi = null;
+    {
+      const ham = (document.getElementById('mf-marj-talep-baz')?.value || '').trim();
+      const gerekce = (document.getElementById('mf-marj-talep-gerekce')?.value || '').trim();
+      if (ham !== '') {
+        const baz = parseFloat(ham.replace(',', '.'));
+        if (isNaN(baz) || baz < 0 || baz >= 100) { hata.textContent = 'İstenen baz marj 0 ile 100 arasında olmalı.'; hata.style.display = 'block'; return; }
+        if (!gerekce) { hata.textContent = 'Kar marjı değişiklik talebi için gerekçe yazın.'; hata.style.display = 'block'; document.getElementById('mf-marj-talep-gerekce')?.focus(); return; }
+        marjTalebi = { baz, gerekce, tarih: new Date().toISOString(), satici: aktifKullanici.ad || '' };
+      } else if (gerekce) {
+        hata.textContent = 'Gerekçe yazdınız ama istenen baz marjı boş.'; hata.style.display = 'block'; return;
+      }
+    }
     ONAY_BEKLEYENLER.musteriler.push({
       ...kayit,
+      ...(marjTalebi ? { marjTalebi } : {}),
       _id: _onayYeniId(),
       _tip: 'duzenle',
       eskiMusteri: JSON.parse(JSON.stringify(eski)),
@@ -6918,7 +6957,8 @@ async function musteriKaydet() {
     });
     onayBekleyenleriKaydet();
     closeModal('musteriForm');
-    showToast('🔁 "' + firma + '" için değişiklik talebi admin onayına gönderildi.');
+    if (marjTalebi) marjTalebiBildirimGonder(firma, marjTalebi);
+    showToast('🔁 "' + firma + '" için değişiklik talebi' + (marjTalebi ? ' (kar marjı %' + marjTalebi.baz + ' dahil)' : '') + ' admin onayına gönderildi.');
     return;
   }
 
@@ -13383,6 +13423,54 @@ function musteriOnayDetayHtml(k) {
 }
 
 // Müşteri değişiklik talebi — öncesi→sonrası diff
+/* Satıcının müşteri değişiklik talebini GÜNCEL karta uygula (3-yollu).
+   Eskiden talep kaydı (formun tamamı + talep anındaki fpKurallari/fiyatgrup kopyası)
+   kartın YERİNE yazılıyordu: satıcı talebi açtıktan sonra admin marjı değiştirip talebi
+   onaylayınca ESKİ marj geri geliyordu ("admin'in marj değişikliği yansımıyor" — Intetra).
+   Artık yalnız satıcının talep anındaki karta (eskiMusteri) göre GERÇEKTEN değiştirdiği
+   alanlar uygulanır; geri kalan her şey (marj, sorumlu satıcı, admin'in bu arada yaptığı
+   her değişiklik) güncel karttan gelir. fpKurallari satıcı tarafından hiç değişmez —
+   yalnız açık marjTalebi (admin bu ekranda görüp onaylar) baz marjı günceller. */
+function musteriDuzenleTalebiUygula(guncel, kayit) {
+  const { _tip, eskiMusteri, _onayDurumu, _onayTarih, _onayKullanici, _id, marjTalebi, ...talep } = kayit || {};
+  guncel = guncel || {};
+  const yeni = (eskiMusteri && typeof eskiMusteri === 'object')
+    ? _kayitBirlestir(eskiMusteri, talep, guncel)
+    : { ...guncel, ...talep };                       // çok eski talep (snapshot yok) → eski davranış
+  if (guncel.tarih !== undefined) yeni.tarih = guncel.tarih; // orijinal kayıt tarihini koru
+  if (guncel.fpKurallari !== undefined) yeni.fpKurallari = guncel.fpKurallari;
+  else delete yeni.fpKurallari;
+  const istenen = marjTalebi ? parseFloat(marjTalebi.baz) : NaN;
+  if (!isNaN(istenen)) {
+    yeni.fpKurallari = { urunGrubu: {}, ...(guncel.fpKurallari || {}), baz: istenen };
+  }
+  return JSON.parse(JSON.stringify(yeni));
+}
+
+// Satıcı kar marjı değişikliği istedi → admin'e (onay e-postası) bildirim
+async function marjTalebiBildirimGonder(firma, mt) {
+  try {
+    const to = onaylayanMailiCoz();
+    if (!to) { showToast('⚠ Admin\'e e-posta gidemedi — Ayarlar\'da onay e-postası tanımlı değil (talep yine de Onay Bekleyenler\'de).'); return; }
+    const m = MUSTERILER.find(x => x.firma === firma);
+    const mevcut = m?.fpKurallari?.baz;
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;">📈 Kar Marjı Değişiklik Talebi</h2>
+        <p style="color:#666;margin:0 0 16px;">Bir satıcı müşteri kar marjının değiştirilmesini istiyor. EMON FAST &gt; <b>Müşteriler &gt; Onay Bekleyenler</b> ekranından onaylayabilir veya reddedebilirsiniz.</p>
+        <table style="font-size:13px;border-collapse:collapse;">
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Müşteri</td><td><strong>${_htmlKacir(firma)}</strong></td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Mevcut baz marj</td><td>${mevcut != null && mevcut !== '' ? '%' + _htmlKacir(String(mevcut)) : 'Genel kural'}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">İstenen baz marj</td><td style="font-weight:700;">%${_htmlKacir(String(mt.baz))}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Gerekçe</td><td>${_htmlKacir(mt.gerekce || '—')}</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:#666;">Satıcı</td><td>${_htmlKacir(mt.satici || '—')}</td></tr>
+        </table>
+      </div>`;
+    const ok = await graphMailHtmlGonder([to], `[Kar Marjı Talebi] ${firma} — %${mt.baz}`, html);
+    if (!ok) showToast('⚠ Admin\'e e-posta gönderilemedi (Outlook bağlı değil olabilir) — talep yine de Onay Bekleyenler\'de.');
+  } catch (e) { console.error('marjTalebiBildirimGonder hatası:', e); }
+}
+
 function musteriDiffHtml(eski, yeni) {
   const diff = [];
   const cmp = (label, a, b) => { if ((a || '') !== (b || '')) diff.push('<div style="font-size:12px;margin-top:2px;"><span style="color:var(--text3);">' + label + ':</span> <span style="text-decoration:line-through;color:var(--red);">' + (a || '—') + '</span> → <span style="color:var(--green);">' + (b || '—') + '</span></div>'); };
@@ -13392,7 +13480,19 @@ function musteriDiffHtml(eski, yeni) {
   cmp('Vergi No', eski?.vergino, yeni?.vergino);
   cmp('Vergi Dairesi', eski?.vergidaire, yeni?.vergidaire);
   cmp('Durum', eski?.durum, yeni?.durum);
+  cmp('Fiyat grubu', eski?.fiyatgrup || 'Standart', yeni?.fiyatgrup || 'Standart');
   cmp('Not', eski?.not, yeni?.not);
+  if (yeni?.marjTalebi) {
+    // Mevcut marj GÜNCEL karttan (talep anındaki kopya bayat olabilir)
+    const g = MUSTERILER.find(x => x.firma === (eski?.firma || yeni.firma)) || eski;
+    const mb = g?.fpKurallari?.baz;
+    const ug = Object.keys(g?.fpKurallari?.urunGrubu || {});
+    diff.push('<div style="font-size:12px;margin-top:6px;padding:6px 8px;border-left:3px solid #7c3aed;background:rgba(124,58,237,0.08);border-radius:4px;">'
+      + '<b>📈 Kar marjı talebi:</b> <span style="text-decoration:line-through;color:var(--red);">' + (mb != null && mb !== '' ? '%' + _htmlKacir(String(mb)) : 'Genel kural') + '</span> → <span style="color:var(--green);font-weight:600;">%' + _htmlKacir(String(yeni.marjTalebi.baz)) + '</span>'
+      + '<div style="color:var(--text2);margin-top:2px;">Gerekçe: ' + _htmlKacir(yeni.marjTalebi.gerekce || '—') + '</div>'
+      + (ug.length ? '<div style="color:var(--text3);margin-top:2px;">Not: ürün grubu özel marjları (' + ug.join(', ') + ') değişmez, öncelikleri sürer.</div>' : '')
+      + '</div>');
+  }
   // Boole alan: cmp ('' vs false) farkını yutmasın diye metne çevrilir — yoksa yalnız bu
   // değiştiğinde admin "Değişiklik tespit edilmedi" görüp habersiz onaylar.
   cmp('Teklif hatırlatma', eski?.hatirlatmaKapali ? '🔕 Kapalı' : 'Açık', yeni?.hatirlatmaKapali ? '🔕 Kapalı' : 'Açık');
@@ -13500,11 +13600,7 @@ async function onayMusteriKabul(i) {
       onayBekleyenleriKaydet(); onayModalAc();
       return;
     }
-    const { _tip, eskiMusteri, _onayDurumu, _onayTarih, _onayKullanici, _id, ...musteriVeri } = kayit;
-    musteriVeri.tarih = MUSTERILER[hedef].tarih; // orijinal kayıt tarihini koru
-    // Ticari alanları (marj/fiyat grubu) satıcı değiştiremez — mevcut değeri koru
-    if (MUSTERILER[hedef].fpKurallari && !musteriVeri.fpKurallari) musteriVeri.fpKurallari = MUSTERILER[hedef].fpKurallari;
-    if (MUSTERILER[hedef].fiyatgrup && !musteriVeri.fiyatgrup) musteriVeri.fiyatgrup = MUSTERILER[hedef].fiyatgrup;
+    const musteriVeri = musteriDuzenleTalebiUygula(MUSTERILER[hedef], kayit);
     const _eskiAd = MUSTERILER[hedef].firma;
     if (_eskiAd && _eskiAd !== musteriVeri.firma) _silinenMusteriFirmalar.add(String(_eskiAd)); // union'da eski ad orphan kalmasın
     const _mdEski = MUSTERILER[hedef];      // doğrulama başarısızsa geri dönülecek kayıt
