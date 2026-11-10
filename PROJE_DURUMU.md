@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-10 (son commit: `d1ec0ad`)
+> Son güncelleme: 2026-11-10 (son commit: `366a108`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -17,7 +17,7 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 - **Backend:** Repoda değil; sunucudaki `server.js`. Değişiklikler `deploy.yml` içindeki
   "Patch backend" adımlarıyla CI'da enjekte edilir (SSH'ten elle yapıştırma kullanılmıyor).
 - **Başlıca API'ler:** `/api/giris`, `/api/veri` (ana blob, full-replace + merge),
-  `/api/kullanicilar`, `/api/gorevler`, `/api/mailorder`, `/api/tahsilat`, talep-no sequence,
+  `/api/kullanicilar`, `/api/gorevler`, `/api/adaylar`, `/api/mailorder`, `/api/tahsilat`, talep-no sequence,
   oto-talep durumu, AI proxy (Claude, `.env CLAUDE_API_KEY`), sistem-durum (disk/DB).
 - **Yerel depolama:** `localStorage` önbellek + sunucu senkronu (kayıt bazlı merge, tombstone,
   Lamport damgası). Kota dolunca yerel kopya kapalı talepleri düşürerek küçülür.
@@ -48,6 +48,11 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 - **Arşiv:** Tamamlanan/Karşılanamadı/Arşivlendi talepler; tamamlanmış talep yeniden açılabilir.
 - **CRM:** Etkileşim, pipeline, müşteri/talep istatistikleri, yeni müşteri kazanımı (demo müşteriler hariç).
 - **Görevler:** Ekip içi görev atama (ayrı `gorevler` tablosu).
+- **🔥 Sıcak Satış:** Yeni müşteri adayı bulma/takip (ayrı `adaylar` tablosu, `/api/adaylar`). Kaynaklar: elle,
+  sistemdeki ipuçları (kartsız talep, gelen mail, sessiz müşteri, teklif alıp sipariş vermeyen), AI web
+  araştırması (Opus 5.5 + web_search). Admin atar (satıcıya e-posta), satıcı kendi adaylarını görür/ekler;
+  görüşme geçmişi, sonraki temas rozeti, "Müşteriye Dönüştür" → müşteri formu dolu açılır.
+  Satıcılara Ayarlar'dan açılır (varsayılan kapalı, CRM gibi).
 - **Finans:** Mail Order (sanal KK ile tedarikçi ödemesi, onay akışı, kaşe) + **Tahsilat Takip Merkezi**.
 - **Yönetim:** Sürüm bandı/otomatik yenileme (CalVer), hard reset, sunucu deposu kartı, tema.
 
@@ -135,6 +140,10 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
   partiler halinde yapılmalı.
 - **Sunucu yazımı tek kuyruk:** `_veriPush` yalnız `_veriPushSirali` üzerinden çağrılmalı (tam gövde
   full-replace olduğundan paralel iki yazımda yavaş olan yenisini ezer; `tools/push-sira-test.js`).
+- **Sıcak Satış / Görevler sunucuda rol filtresi YOK:** `/api/adaylar` tüm adayları her girişli kullanıcıya
+  döner, "satıcı yalnız kendininkini görür" kuralı istemcide. Hassas veri konmamalı / gerekirse backend'e filtre.
+- **AI aday araması 1-3 dk sürer:** nginx `proxy_read_timeout 200s` (deploy.yml). Bir `location` bloğu kendi
+  timeout'unu tanımlıyorsa o geçerli kalır → 504 görülürse oraya bakılmalı.
 - macOS güncellemesi WireGuard tünelini düşürebilir (config kaybolmaz, yeniden içe aktar).
 
 ## Son Değişiklikler
@@ -142,7 +151,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- Admin'in doğrudan müşteri ekleme/düzenlemesi artık sunucuda doğrulanıyor (`musteriKaydiSunucudaMi`: yazılan her alan sunucudan geri okunur); doğrulanana kadar form açık kalır, başarısızlıkta girdi formda durur ve "Kaydet" tekrar denemedir
+- 🔥 Sıcak Satış modülü: aday listesi + görüşme geçmişi + temas rozeti, sistemden aday bulma (kartsız talep / gelen mail / sessiz / dönüşmeyen müşteri), AI ile web araştırması, admin ataması + e-posta, müşteriye dönüştürme. CRM gibi Ayarlar'dan satıcılara aç/kapa (`AYARLAR.sicakSatisAktif`, varsayılan KAPALI; kapalıyken yalnız admin görür, atama maili gitmez). Backend `adaylar` tablosu + nginx proxy timeout 200s (deploy.yml). Test: `tools/sicak-satis-test.js`
+- `366a108` Admin'in doğrudan müşteri ekleme/düzenlemesi artık sunucuda doğrulanıyor (`musteriKaydiSunucudaMi`: yazılan her alan sunucudan geri okunur); doğrulanana kadar form açık kalır, başarısızlıkta girdi formda durur ve "Kaydet" tekrar denemedir
 - `d1ec0ad` Müşteri marjı: satıcının müşteri değişiklik talebi onaylanınca talep anındaki marj/satıcı ataması kopyası kartı eziyordu → admin'in arada yaptığı marj değişikliği "yansımıyordu" (Intetra). Onay artık 3-yollu (`musteriDuzenleTalebiUygula`): yalnız satıcının değiştirdiği alanlar uygulanır. + Satıcı müşteri formunda "📈 Kar marjı değişiklik talebi" (istenen baz % + gerekçe) → Onay Bekleyenler diff'i + admin'e "[Kar Marjı Talebi]" e-postası. Test: `tools/musteri-marj-talep-test.js`
 
 ### 2026-10

@@ -587,6 +587,10 @@
       <span class="icon">📇</span> CRM
       <span id="crm-takip-badge" style="display:none;background:var(--accent2);color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
     </div>
+    <div class="nav-item" onclick="goPage('sicakSatis',this)" id="nav-sicak-satis" style="display:none;">
+      <span class="icon">🔥</span> Sıcak Satış
+      <span id="badge-adaylar" title="Bugün/gecikmiş temas edilecek adaylarınız" style="display:none;background:#ea580c;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:auto;"></span>
+    </div>
     <div class="nav-label" id="nav-label-finans" data-nav-label="finans" style="margin-top:8px;display:none;">Finans</div>
     <div class="nav-item" onclick="goPage('mailorder',this)" id="nav-mailorder" style="display:none;">
       <span class="icon">💳</span> Mail Order
@@ -2044,6 +2048,25 @@
       </div>
     </div>
 
+    <!-- Sıcak Satış Modülü -->
+    <div class="card" style="margin-top:16px;" data-admin-only>
+      <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;">
+          <div class="card-title" style="margin-bottom:4px;">🔥 Sıcak Satış Modülü</div>
+          <div style="font-size:12px;color:var(--text3);line-height:1.6;">
+            Yeni müşteri adayı bulma ve takip. <b>Kapalıyken</b> yalnızca <b>admin</b> görür: aday ekler,
+            listeyi hazırlar, satıcılara atar (atama e-postası gitmez). Açınca satıcılar kendilerine atanan
+            adayları görür ve kendi bulduklarını ekleyebilir. Adaylar her durumda korunur.
+          </div>
+          <div id="sicak-satis-aktif-durum" style="font-size:12px;font-weight:600;margin-top:10px;"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;flex-shrink:0;padding-top:4px;">
+          <input type="checkbox" id="ayar-sicak-satis-aktif" onchange="sicakSatisAktifToggle(this)" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span>Satıcılara aç</span>
+        </label>
+      </div>
+    </div>
+
     <!-- Mail Order Modülü -->
     <div class="card" style="margin-top:16px;" data-admin-only>
       <div style="flex:1;min-width:240px;">
@@ -2354,6 +2377,37 @@
     </div>
   </div>
 
+  <!-- SICAK SATIŞ: yeni müşteri adayı bulma + takip. Ayrı /api/adaylar tablosu (satır-başına upsert). -->
+  <div class="content page" id="page-sicakSatis">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:600;">🔥 Sıcak Satış</div>
+        <div style="font-size:12px;color:var(--text3);">Yeni müşteri adaylarını bul, ara, takip et — kazanılınca tek tıkla müşteri kartına dönüştür</div>
+      </div>
+      <div style="flex:1;"></div>
+      <button class="btn" onclick="adaySistemModalAc()">🔎 Sistemden Bul</button>
+      <button class="btn" onclick="adayAiModalAc()">🤖 AI ile Ara</button>
+      <button class="btn btn-primary" onclick="adayModalAc()">➕ Aday Ekle</button>
+    </div>
+    <div id="aday-istat" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <input type="text" id="aday-ara" placeholder="Firma, kişi, sektör, şehir ara…" oninput="renderAdaylar()" style="flex:1;min-width:200px;">
+      <select id="aday-f-durum" onchange="renderAdaylar()" style="width:auto;">
+        <option value="acik">Açık adaylar</option>
+        <option value="bugun">Bugün / gecikmiş temas</option>
+        <option value="">Tümü</option>
+      </select>
+      <select id="aday-f-sicaklik" onchange="renderAdaylar()" style="width:auto;">
+        <option value="">Her sıcaklık</option>
+        <option value="sicak">🔥 Sıcak</option>
+        <option value="ilik">🌤 Ilık</option>
+        <option value="soguk">❄️ Soğuk</option>
+      </select>
+      <select id="aday-f-sahip" onchange="renderAdaylar()" style="width:auto;" data-admin-only></select>
+    </div>
+    <div id="aday-liste" style="display:flex;flex-direction:column;gap:8px;"></div>
+  </div>
+
   <!-- MAIL ORDER: tedarikçi sanal KK ödeme (pilot, cihaz-yerel) -->
   <div class="content page" id="page-mailorder">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
@@ -2641,6 +2695,101 @@
 </div><!-- /main -->
 
 <!-- MODAL: Görev Ata / Düzenle -->
+<!-- SICAK SATIŞ: aday ekle/düzenle + görüşme geçmişi -->
+<div class="modal-overlay" id="modal-adayForm">
+  <div class="modal" style="width:min(96vw,640px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title" id="aday-modal-title">➕ Yeni Aday</div>
+    <div id="aday-ai-kutu" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:var(--radius);background:rgba(124,58,237,0.07);border:1px solid rgba(124,58,237,0.3);font-size:12px;"></div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Firma *</label><input type="text" id="aday-firma" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Sektör</label><input type="text" id="aday-sektor" placeholder="örn. Lojistik" autocomplete="off"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Şehir / Bölge</label><input type="text" id="aday-sehir" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Web sitesi</label><input type="text" id="aday-web" placeholder="ornek.com.tr" autocomplete="off"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Yetkili kişi</label><input type="text" id="aday-kisi" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Unvan</label><input type="text" id="aday-unvan" placeholder="örn. Satın Alma Müdürü" autocomplete="off"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Telefon</label><input type="text" id="aday-tel" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">E-posta</label><input type="email" id="aday-mail" autocomplete="off"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">İlgi alanı / ihtiyaç</label><input type="text" id="aday-ilgi" placeholder="örn. Yazıcı sarf, dizüstü yenileme" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Sıcaklık</label>
+        <select id="aday-sicaklik"><option value="sicak">🔥 Sıcak</option><option value="ilik" selected>🌤 Ilık</option><option value="soguk">❄️ Soğuk</option></select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Durum</label>
+        <select id="aday-durum"></select>
+      </div>
+      <div class="form-group"><label class="form-label">Sonraki temas</label><input type="date" id="aday-sonraki"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Sorumlu satıcı <span id="aday-sahip-uyari" style="font-size:11px;color:var(--text3);font-weight:400;display:none;">(yalnızca admin değiştirebilir)</span></label><select id="aday-sahip"></select></div>
+    <div class="form-group"><label class="form-label">Not</label><textarea id="aday-not" rows="2" placeholder="Nereden duyuldu, kim tanıştırdı, dikkat edilecekler…"></textarea></div>
+    <div id="aday-gorusme-blok" style="display:none;">
+      <div style="font-size:12px;font-weight:600;margin:6px 0 8px;">📞 Görüşme geçmişi</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+        <select id="aday-g-tip" style="width:auto;"><option>Telefon</option><option>E-posta</option><option>Ziyaret</option><option>Toplantı</option><option>Not</option></select>
+        <input type="text" id="aday-g-not" placeholder="Ne konuşuldu? (Enter ile ekle)" style="flex:1;min-width:180px;" onkeydown="if(event.key==='Enter'){event.preventDefault();adayGorusmeEkle();}">
+        <button class="btn btn-sm" onclick="adayGorusmeEkle()">➕ Ekle</button>
+      </div>
+      <div id="aday-g-liste" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;margin-bottom:8px;"></div>
+    </div>
+    <div id="aday-hata" style="display:none;background:rgba(240,96,96,0.12);border:1px solid rgba(240,96,96,0.3);border-radius:var(--radius);padding:8px 12px;font-size:12px;color:var(--red);margin-bottom:10px;"></div>
+    <div class="modal-footer" style="flex-wrap:wrap;">
+      <button class="btn btn-sm" id="aday-sil-btn" onclick="adaySil()" style="color:var(--red);margin-right:auto;display:none;">🗑 Sil</button>
+      <button class="btn btn-sm" id="aday-donustur-btn" onclick="adayMusteriyeDonustur()" style="display:none;">🎉 Müşteriye Dönüştür</button>
+      <button class="btn" onclick="closeModal('adayForm')">İptal</button>
+      <button class="btn btn-primary" id="aday-kaydet-btn" onclick="adayKaydet()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- SICAK SATIŞ: sistemdeki ipuçlarından aday önerileri -->
+<div class="modal-overlay" id="modal-adaySistem">
+  <div class="modal" style="width:min(96vw,720px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">🔎 Sistemden Aday Bul</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">Mevcut verinizden çıkarılan fırsatlar. İstediklerinizi seçip aday listesine ekleyin; zaten aday olan firmalar listelenmez.</div>
+    <div id="aday-sistem-liste"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('adaySistem')">Kapat</button>
+      <button class="btn btn-primary" onclick="adaySistemSecilenleriEkle()">➕ Seçilenleri Aday Yap</button>
+    </div>
+  </div>
+</div>
+
+<!-- SICAK SATIŞ: AI (web araması) ile aday araştırma -->
+<div class="modal-overlay" id="modal-adayAi">
+  <div class="modal" style="width:min(96vw,760px);max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">🤖 AI ile Aday Araştır</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px;">AI web'de arama yaparak hedef kitlenize uyan firmaları önerir. <b>Bilgileri aramadan önce doğrulayın</b> — kaynak bağlantıları her önerinin altında. Bir arama 1-3 dakika sürebilir.</div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Sektör *</label><input type="text" id="aday-ai-sektor" placeholder="örn. Lojistik, özel hastane, OSB üretici"></div>
+      <div class="form-group"><label class="form-label">Şehir / Bölge</label><input type="text" id="aday-ai-sehir" placeholder="örn. İstanbul Anadolu yakası"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Satmak istediğimiz</label><input type="text" id="aday-ai-odak" placeholder="örn. yazıcı sarf, dizüstü, Microsoft lisans"></div>
+      <div class="form-group"><label class="form-label">Firma büyüklüğü</label>
+        <select id="aday-ai-buyukluk"><option value="">Fark etmez</option><option>KOBİ (10-250 çalışan)</option><option>Büyük (250+ çalışan)</option><option>Kurumsal / Holding</option></select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="form-group"><label class="form-label">Kaç öneri</label><select id="aday-ai-adet"><option>5</option><option selected>8</option><option>12</option></select></div>
+      <div class="form-group"><label class="form-label">Ek not</label><input type="text" id="aday-ai-not" placeholder="örn. yeni yatırım/şube açan firmalar"></div>
+    </div>
+    <button class="btn btn-primary" id="aday-ai-btn" onclick="adayAiAra()">🔎 Araştır</button>
+    <div id="aday-ai-sonuc" style="margin-top:14px;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('adayAi')">Kapat</button>
+      <button class="btn btn-primary" id="aday-ai-ekle-btn" onclick="adayAiSecilenleriEkle()" style="display:none;">➕ Seçilenleri Aday Yap</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-gorevForm">
   <div class="modal" style="width:min(96vw,560px);max-height:90vh;overflow-y:auto;">
     <div class="modal-title" id="gorev-modal-title">➕ Yeni Görev</div>
@@ -5598,6 +5747,10 @@ function goPage(id, el) {
     showToast('CRM modülü şu an kapalı.');
     return;
   }
+  if (id === 'sicakSatis' && !sicakSatisGorunur()) {
+    showToast('Sıcak Satış modülü size kapalı.');
+    return;
+  }
   if (id === 'mailorder' && !mailorderGorunur()) {
     showToast('Mail Order modülü size kapalı.');
     return;
@@ -5606,7 +5759,7 @@ function goPage(id, el) {
   document.getElementById('page-' + id).classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order',tahsilat:'Tahsilat Takip Merkezi',revizyonlar:'Revizyonlar',fiyatOnaylari:'Fiyat Onayları'};
+  const titles = {panel:'Panel',talepler:'Talepler',talepDetay:'Talep Detayı',teklifler:'Teklifler',gorevler:'Görevler',arsiv:'Arşiv',tedarikciler:'Tedarikçiler',musteriler:'Müşteriler',musteriDetay:'Müşteri Detayı',kullanicilar:'Kullanıcı Yönetimi',ayarlar:'Ayarlar',crm:'CRM',mailorder:'Mail Order',tahsilat:'Tahsilat Takip Merkezi',revizyonlar:'Revizyonlar',fiyatOnaylari:'Fiyat Onayları',sicakSatis:'Sıcak Satış'};
   document.getElementById('page-title').textContent = titles[id] || id;
   if (window.innerWidth <= 768) sidebarKapat();
   window.scrollTo(0, 0);
@@ -5620,6 +5773,7 @@ function goPage(id, el) {
   if (id === 'ayarlar') { claudeKeyDurumGuncelle(); otoTalepDurumGuncelle(); otoHatirlatDurumGuncelle(); hpListeDurumGuncelle(); sistemDurumYukle(); if (typeof apiMoKaseYukle === 'function') apiMoKaseYukle().catch(() => {}); }
   if (id === 'crm') renderCRM();
   if (id === 'gorevler') { renderGorevler(); gorevlerYenile(); }
+  if (id === 'sicakSatis') { renderAdaylar(); adaylarYenile(); }
   if (id === 'mailorder') { renderMailOrder(); moYenile(); }
   if (id === 'tahsilat') { renderTahsilat(); tahYenile(); }
   // Liste/özet sayfalarına geçişte sunucudan taze veri çek (başka
@@ -6538,6 +6692,7 @@ function ozelSartEkle(metin) {
 function ozelSartSablon(m) { ozelSartEkle(m); }
 
 function musteriFormAc(idx) {
+  _adayDonusumId = null; // Sıcak Satış dönüşümü yalnız adayMusteriyeDonustur'dan gelen formda geçerli
   document.getElementById('mf-index').value = idx;
   document.getElementById('mf-yetkililer-list').innerHTML = '';
   document.getElementById('mf-ozel-list').innerHTML = '';
@@ -6627,6 +6782,690 @@ let crmSayac = 0;
 // { id, baslik, aciklama, atayanEmail, atayanAd, atananEmail, atananAd, sonTarih, oncelik, talepNo, durum, olusturma, guncelleme, kapanma }
 // durum: 'acik' → (atanan bitirdim) 'beklemede' → (atayan onayla) 'kapandi'
 let GOREVLER = (() => { try { return JSON.parse(localStorage.getItem('emonfast_gorevler') || '[]') || []; } catch(_) { return []; } })();
+
+/* ══════════════════════════════════════════════════════════════════
+   🔥 SICAK SATIŞ — yeni müşteri adayı bulma + takip.
+   Ayrı /api/adaylar tablosu (satır-başına upsert; Görevler deseni) →
+   emonfast_v1 blob'una girmez, MUSTERILER merge/guard'ını şişirmez.
+   Kaynaklar: elle · sistemdeki ipuçları (kartsız talep, gelen mail,
+   sessiz müşteri, teklif alıp sipariş vermeyen) · AI web araştırması.
+   Görünürlük: admin hepsini görür/atar; satıcı yalnız kendi adaylarını.
+   NOT: sunucu rol filtresi YOK (Görevler gibi) — filtre istemcide.
+   ══════════════════════════════════════════════════════════════════ */
+let ADAYLAR = (() => { try { return JSON.parse(localStorage.getItem('emonfast_adaylar') || '[]') || []; } catch(_) { return []; } })();
+let _adayBekleyen = new Set();   // sunucuya yazılamamış aday id'leri (yenilemede ezilmesin, tekrar denensin)
+let _adayDuzenleId = null;
+let _adayDonusumId = null;       // "Müşteriye dönüştür" ile açılan müşteri formu hangi adaydan geldi
+let _adayApiYok = false;         // backend henüz deploy edilmediyse (404) yalnız bu cihazda saklanır
+let _adaySistemOneriler = [];
+let _adayAiOneriler = [];
+
+const ADAY_DURUMLAR = [
+  { key:'yeni',        label:'Yeni',            renk:'#64748b' },
+  { key:'arandi',      label:'Temas kuruldu',   renk:'#2563eb' },
+  { key:'ilgileniyor', label:'İlgileniyor',     renk:'#d97706' },
+  { key:'teklif',      label:'Teklif verildi',  renk:'#7c3aed' },
+  { key:'kazanildi',   label:'Kazanıldı',       renk:'#16a34a' },
+  { key:'kaybedildi',  label:'Kaybedildi',      renk:'#dc2626' },
+  { key:'uygun-degil', label:'Uygun değil',     renk:'#94a3b8' },
+];
+const ADAY_KAPALI = ['kazanildi','kaybedildi','uygun-degil'];
+const ADAY_SICAKLIK = { sicak:'🔥 Sıcak', ilik:'🌤 Ilık', soguk:'❄️ Soğuk' };
+const ADAY_KAYNAK = { elle:'✍️ Elle', ai:'🤖 AI araştırma', mail:'📧 Gelen mail', kartsiz:'📋 Kartsız talep', sessiz:'💤 Sessiz müşteri', donusmeyen:'🧾 Teklif alıp almayan' };
+
+// Admin her zaman görür; satıcı yalnız modül ekibe AÇIKSA (Ayarlar > Sıcak Satış, CRM gibi). Operasyon hiç görmez.
+function sicakSatisGorunur() {
+  const r = aktifKullanici?.rol;
+  return r === 'admin' || (r === 'satici' && typeof AYARLAR !== 'undefined' && AYARLAR.sicakSatisAktif === true);
+}
+function sicakSatisNavGuncelle() {
+  const nav = document.getElementById('nav-sicak-satis');
+  if (nav) nav.style.display = sicakSatisGorunur() ? '' : 'none';
+  adayBadgeGuncelle();
+  // Modül kapatıldığında sayfada kalan satıcıyı panele al
+  if (!sicakSatisGorunur() && document.getElementById('page-sicakSatis')?.classList.contains('active')) {
+    goPage('panel', document.querySelector('.nav-item[data-nav=panel]'));
+  }
+}
+function sicakSatisAktifToggle(cb) {
+  AYARLAR.sicakSatisAktif = !!cb.checked;
+  veriKaydet();
+  sicakSatisAktifDurumGuncelle();
+  sicakSatisNavGuncelle();
+  showToast(AYARLAR.sicakSatisAktif
+    ? '🔥 Sıcak Satış satıcılara açıldı — kendilerine atanan adayları görebilirler.'
+    : '🔥 Sıcak Satış satıcılara kapatıldı — yalnızca admin görüyor (adaylar korunur).');
+}
+function sicakSatisAktifDurumGuncelle() {
+  const cb = document.getElementById('ayar-sicak-satis-aktif');
+  if (cb) cb.checked = !!AYARLAR.sicakSatisAktif;
+  const el = document.getElementById('sicak-satis-aktif-durum');
+  if (el) {
+    el.textContent = AYARLAR.sicakSatisAktif
+      ? '🔥 Açık — satıcılar kendi adaylarını görür ve ekleyebilir.'
+      : '🔒 Kapalı — yalnızca admin görür; atamalar yapılabilir, satıcıya e-posta gitmez.';
+    el.style.color = AYARLAR.sicakSatisAktif ? 'var(--green)' : 'var(--text3)';
+  }
+}
+function _adayAdmin() { return aktifKullanici?.rol === 'admin'; }
+function adayGorunurMu(a) { return !!a && (_adayAdmin() || String(a.sahip || '').toLowerCase() === _benEmail()); }
+function _adayBugun() { return new Date().toLocaleDateString('sv-SE'); } // yerel YYYY-MM-DD
+function adayDurumBilgi(k) { return ADAY_DURUMLAR.find(d => d.key === k) || ADAY_DURUMLAR[0]; }
+function adayAcikMi(a) { return !ADAY_KAPALI.includes(a.durum); }
+function _adayKisiAd(email) {
+  const e = String(email || '').toLowerCase();
+  if (!e) return 'Atanmamış';
+  return (ekipUyeleri().find(k => k.email === e) || {}).ad || e;
+}
+function _adayWebUrl(w) { w = String(w || '').trim(); if (!w) return ''; return /^https?:\/\//i.test(w) ? w : 'https://' + w; }
+// Aynı firma zaten aday mı / müşteri mi? (Türkçe-duyarsız normalize)
+function adayFirmaBul(firma, haricId) { const n = _musteriNorm(firma); return ADAYLAR.find(a => a.id !== haricId && _musteriNorm(a.firma) === n); }
+function musteriFirmaVarMi(firma) { const n = _musteriNorm(firma); return MUSTERILER.some(m => m && _musteriNorm(m.firma) === n); }
+
+// ── API ──
+async function apiAdaylarYukle() {
+  const token = apiTokenAl();
+  if (!token) return false;
+  try {
+    const r = await fetch(API_URL + '/api/adaylar', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.status === 404) { _adayApiYok = true; return false; }
+    if (!r.ok) { if (r.status === 401) oturumSuresiDoldu(); return false; }
+    _adayApiYok = false;
+    const veri = await r.json();
+    if (Array.isArray(veri.adaylar)) {
+      // Sunucuya henüz yazılamamış yerel değişiklikler EZİLMESİN → onları koru, tekrar dene
+      const yerelBekleyen = ADAYLAR.filter(a => _adayBekleyen.has(a.id));
+      const yeni = veri.adaylar.filter(a => a && !_adayBekleyen.has(a.id));
+      ADAYLAR.length = 0; ADAYLAR.push(...yerelBekleyen, ...yeni);
+      _adayYerelKaydet();
+      yerelBekleyen.forEach(a => apiAdayKaydet(a));
+    }
+    return true;
+  } catch (e) { return false; }
+}
+async function apiAdayKaydet(a) {
+  const token = apiTokenAl();
+  if (!token || _adayApiYok) { _adayBekleyen.add(a.id); return false; }
+  try {
+    const r = await fetch(API_URL + '/api/adaylar', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify(a)
+    });
+    if (r.status === 401) oturumSuresiDoldu();
+    if (r.status === 404) _adayApiYok = true;
+    if (r.ok) _adayBekleyen.delete(a.id); else _adayBekleyen.add(a.id);
+    return r.ok;
+  } catch (e) { _adayBekleyen.add(a.id); return false; }
+}
+async function apiAdaySil(id) {
+  const token = apiTokenAl();
+  if (!token || _adayApiYok) return false;
+  try {
+    const r = await fetch(API_URL + '/api/adaylar/' + encodeURIComponent(id), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+    if (r.status === 401) oturumSuresiDoldu();
+    return r.ok;
+  } catch (e) { return false; }
+}
+function _adayYerelKaydet() { try { localStorage.setItem('emonfast_adaylar', JSON.stringify(ADAYLAR)); } catch(_) {} }
+
+async function adaylarYenile() {
+  if (!sicakSatisGorunur()) return false;
+  const ok = await apiAdaylarYukle();
+  adayBadgeGuncelle();
+  if (document.getElementById('page-sicakSatis')?.classList.contains('active')) renderAdaylar();
+  return ok;
+}
+
+// Tek kayıt yaz (yerel + sunucu). Sunucu başarısızsa kullanıcıya söyle, yerelde tut.
+async function _adayYaz(a, sessiz) {
+  a.guncelleme = new Date().toISOString();
+  a.guncelleyen = _benEmail();
+  const i = ADAYLAR.findIndex(x => x.id === a.id);
+  if (i >= 0) ADAYLAR[i] = a; else ADAYLAR.unshift(a);
+  _adayYerelKaydet();
+  const ok = await apiAdayKaydet(a);
+  if (!ok && !sessiz) {
+    showToast(_adayApiYok
+      ? '⚠ Aday bu cihaza kaydedildi — sunucu modülü henüz kurulmadı (deploy sonrası otomatik gönderilecek).'
+      : '⚠ Aday sunucuya yazılamadı (bağlantı?) — bu cihazda tutuluyor, sonraki yenilemede tekrar denenecek.');
+  }
+  adayBadgeGuncelle();
+  return ok;
+}
+
+// Rozet: bana ait, açık, sonraki temas bugün/geçmiş
+function adayBadgeGuncelle() {
+  const el = document.getElementById('badge-adaylar');
+  if (!el) return;
+  if (!sicakSatisGorunur()) { el.style.display = 'none'; return; }
+  const bugun = _adayBugun(), ben = _benEmail();
+  const n = ADAYLAR.filter(a => adayAcikMi(a) && String(a.sahip || '').toLowerCase() === ben && a.sonrakiTemas && a.sonrakiTemas <= bugun).length;
+  el.textContent = n; el.style.display = n ? '' : 'none';
+}
+
+// ── LİSTE ──
+function renderAdaylar() {
+  const liste = document.getElementById('aday-liste');
+  if (!liste) return;
+  const esc = _gorevEsc, bugun = _adayBugun();
+  const gorunen = ADAYLAR.filter(adayGorunurMu);
+
+  // Sahip filtresi (admin)
+  const sahipSel = document.getElementById('aday-f-sahip');
+  if (sahipSel) {
+    const onceki = sahipSel.value;
+    sahipSel.innerHTML = '<option value="">Tüm satıcılar</option><option value="__yok">Atanmamış</option>'
+      + ekipUyeleri().map(k => `<option value="${esc(k.email)}">${esc(k.ad)}</option>`).join('');
+    sahipSel.value = onceki;
+    sahipSel.style.display = _adayAdmin() ? '' : 'none';
+  }
+
+  // İstatistik
+  const acik = gorunen.filter(adayAcikMi);
+  const temas = acik.filter(a => a.sonrakiTemas && a.sonrakiTemas <= bugun).length;
+  const sicak = acik.filter(a => a.sicaklik === 'sicak').length;
+  const ay = bugun.slice(0, 7);
+  const kazanilan = gorunen.filter(a => a.durum === 'kazanildi' && String(a.kapanis || a.guncelleme || '').slice(0, 7) === ay).length;
+  const kart = (baslik, deger, alt, renk) => `<div class="card" style="padding:12px 14px;"><div style="font-size:11px;color:var(--text3);">${baslik}</div><div style="font-size:22px;font-weight:700;${renk ? 'color:' + renk + ';' : ''}">${deger}</div><div style="font-size:11px;color:var(--text3);">${alt}</div></div>`;
+  const ist = document.getElementById('aday-istat');
+  if (ist) ist.innerHTML = kart('Açık aday', acik.length, 'takipte') + kart('Bugün ara', temas, 'bugün / gecikmiş temas', temas ? '#ea580c' : '')
+    + kart('Sıcak', sicak, 'açık sıcak aday', sicak ? '#dc2626' : '') + kart('Bu ay kazanılan', kazanilan, 'müşteriye dönüşen', kazanilan ? 'var(--green)' : '');
+
+  // Filtreler
+  const q = aramaKucult(document.getElementById('aday-ara')?.value || '');
+  const fDurum = document.getElementById('aday-f-durum')?.value ?? 'acik';
+  const fSic = document.getElementById('aday-f-sicaklik')?.value || '';
+  const fSahip = _adayAdmin() ? (sahipSel?.value || '') : '';
+  const rows = gorunen.filter(a => {
+    if (fDurum === 'acik' && !adayAcikMi(a)) return false;
+    if (fDurum === 'bugun' && !(adayAcikMi(a) && a.sonrakiTemas && a.sonrakiTemas <= bugun)) return false;
+    if (fSic && a.sicaklik !== fSic) return false;
+    if (fSahip === '__yok' && a.sahip) return false;
+    if (fSahip && fSahip !== '__yok' && String(a.sahip || '').toLowerCase() !== fSahip) return false;
+    if (q && !aramaKucult([a.firma, a.kisi, a.sektor, a.sehir, a.ilgi, a.not, a.mail].join(' ')).includes(q)) return false;
+    return true;
+  });
+  const sicSira = { sicak: 0, ilik: 1, soguk: 2 };
+  rows.sort((x, y) => {
+    const xg = x.sonrakiTemas && x.sonrakiTemas <= bugun ? 0 : 1, yg = y.sonrakiTemas && y.sonrakiTemas <= bugun ? 0 : 1;
+    if (xg !== yg) return xg - yg;
+    const s = (sicSira[x.sicaklik] ?? 1) - (sicSira[y.sicaklik] ?? 1);
+    if (s) return s;
+    return String(y.guncelleme || '').localeCompare(String(x.guncelleme || ''));
+  });
+
+  if (!rows.length) {
+    liste.innerHTML = `<div style="padding:28px;text-align:center;color:var(--text3);font-size:13px;">${gorunen.length ? 'Filtreye uyan aday yok.' : 'Henüz aday yok. <b>➕ Aday Ekle</b>, <b>🔎 Sistemden Bul</b> veya <b>🤖 AI ile Ara</b> ile başlayın.'}</div>`;
+    return;
+  }
+  liste.innerHTML = rows.map(a => {
+    const d = adayDurumBilgi(a.durum);
+    const acikMi = adayAcikMi(a);
+    const gec = a.sonrakiTemas && a.sonrakiTemas < bugun, bug = a.sonrakiTemas === bugun;
+    const son = (a.aktiviteler || [])[0];
+    const temasHtml = a.sonrakiTemas && acikMi
+      ? `<span style="font-size:11px;font-weight:600;color:${gec ? 'var(--red)' : bug ? '#ea580c' : 'var(--text3)'};">📅 ${gec ? 'Gecikti: ' : bug ? 'Bugün: ' : ''}${new Date(a.sonrakiTemas + 'T00:00:00').toLocaleDateString('tr-TR')}</span>` : '';
+    return `<div class="card" style="padding:10px 14px;cursor:pointer;${gec && acikMi ? 'border-left:3px solid var(--red);' : a.sicaklik === 'sicak' && acikMi ? 'border-left:3px solid #ea580c;' : ''}" onclick="adayModalAc('${esc(a.id)}')">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-weight:600;">${esc(a.firma)}</span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:${d.renk};color:#fff;">${d.label}</span>
+        <span style="font-size:11px;">${ADAY_SICAKLIK[a.sicaklik] || ''}</span>
+        ${a.musteriFirma ? '<span style="font-size:10px;color:var(--green);">✓ müşteri: ' + esc(a.musteriFirma) + '</span>' : ''}
+        <span style="flex:1;"></span>${temasHtml}
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:3px;">${[a.sektor, a.sehir, a.kisi && (a.kisi + (a.unvan ? ' (' + a.unvan + ')' : '')), a.tel].filter(Boolean).map(esc).join(' · ') || '<span style="color:var(--text3);">—</span>'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px;">${esc(ADAY_KAYNAK[a.kaynak] || a.kaynak || '')}${_adayAdmin() ? ' · 👤 ' + esc(_adayKisiAd(a.sahip)) : ''}${a.ilgi ? ' · 🎯 ' + esc(a.ilgi) : ''}${son ? ' · son: ' + esc(son.tip) + ' — ' + esc(String(son.not || '').slice(0, 70)) : ''}${_adayBekleyen.has(a.id) ? ' · <span style="color:var(--amber);">⏳ sunucuya gönderilmedi</span>' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── FORM ──
+function adayModalAc(id) {
+  _adayDuzenleId = id || null;
+  const a = id ? ADAYLAR.find(x => x.id === id) : {};
+  if (id && !a) { showToast('Aday bulunamadı.'); return; }
+  const set = (k, v) => { const el = document.getElementById(k); if (el) el.value = v ?? ''; };
+  document.getElementById('aday-modal-title').textContent = id ? '✏️ ' + a.firma : '➕ Yeni Aday';
+  set('aday-firma', a.firma); set('aday-sektor', a.sektor); set('aday-sehir', a.sehir); set('aday-web', a.web);
+  set('aday-kisi', a.kisi); set('aday-unvan', a.unvan); set('aday-tel', a.tel); set('aday-mail', a.mail);
+  set('aday-ilgi', a.ilgi); set('aday-not', a.not); set('aday-sonraki', a.sonrakiTemas || (id ? '' : _adayBugun()));
+  set('aday-sicaklik', a.sicaklik || 'ilik');
+  const dSel = document.getElementById('aday-durum');
+  dSel.innerHTML = ADAY_DURUMLAR.map(d => `<option value="${d.key}">${d.label}</option>`).join('');
+  dSel.value = a.durum || 'yeni';
+  const sSel = document.getElementById('aday-sahip');
+  sSel.innerHTML = '<option value="">— Atanmamış —</option>' + ekipUyeleri().filter(k => k.rol === 'admin' || k.rol === 'satici')
+    .map(k => `<option value="${_gorevEsc(k.email)}">${_gorevEsc(k.ad)}</option>`).join('');
+  const sahip = id ? String(a.sahip || '').toLowerCase() : (_adayAdmin() ? '' : _benEmail());
+  if (sahip && ![...sSel.options].some(o => o.value === sahip)) sSel.insertAdjacentHTML('beforeend', `<option value="${_gorevEsc(sahip)}">${_gorevEsc(_adayKisiAd(sahip))}</option>`);
+  sSel.value = sahip;
+  sSel.disabled = !_adayAdmin();
+  document.getElementById('aday-sahip-uyari').style.display = _adayAdmin() ? 'none' : 'inline';
+  // AI önerisi kutusu
+  const ak = document.getElementById('aday-ai-kutu');
+  const o = a.aiOneri;
+  if (o && (o.neden || o.acilis || o.kaynak)) {
+    ak.style.display = '';
+    ak.innerHTML = '<b>🤖 AI önerisi</b>' + (o.neden ? '<div style="margin-top:4px;"><b>Neden:</b> ' + _gorevEsc(o.neden) + '</div>' : '')
+      + (o.ihtiyac ? '<div><b>Olası ihtiyaç:</b> ' + _gorevEsc(o.ihtiyac) + '</div>' : '')
+      + (o.acilis ? '<div><b>Açılış cümlesi:</b> <i>' + _gorevEsc(o.acilis) + '</i></div>' : '')
+      + (o.kaynak ? '<div style="margin-top:4px;"><a href="' + _gorevEsc(_adayWebUrl(o.kaynak)) + '" target="_blank" rel="noopener">🔗 Kaynak</a> <span style="color:var(--text3);">— aramadan önce doğrulayın</span></div>' : '');
+  } else { ak.style.display = 'none'; ak.innerHTML = ''; }
+  document.getElementById('aday-gorusme-blok').style.display = id ? '' : 'none';
+  document.getElementById('aday-g-not').value = '';
+  adayGorusmeListeRender();
+  const sahibiMi = id && (_adayAdmin() || String(a.sahip || '').toLowerCase() === _benEmail());
+  document.getElementById('aday-sil-btn').style.display = sahibiMi ? '' : 'none';
+  document.getElementById('aday-donustur-btn').style.display = (id && !a.musteriFirma) ? '' : 'none';
+  document.getElementById('aday-hata').style.display = 'none';
+  openModal('adayForm');
+}
+
+function adayGorusmeListeRender() {
+  const el = document.getElementById('aday-g-liste');
+  if (!el) return;
+  const a = ADAYLAR.find(x => x.id === _adayDuzenleId);
+  const akt = (a && a.aktiviteler) || [];
+  el.innerHTML = akt.length ? akt.map(g => `<div style="font-size:12px;padding:6px 8px;border-radius:var(--radius);background:var(--bg3);">
+      <span style="font-weight:600;">${_gorevEsc(g.tip)}</span> <span style="color:var(--text3);">· ${new Date(g.tarih).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })} · ${_gorevEsc(g.kullaniciAd || '')}</span>
+      <div>${_gorevEsc(g.not)}</div></div>`).join('')
+    : '<div style="font-size:12px;color:var(--text3);">Henüz görüşme kaydı yok.</div>';
+}
+
+async function adayGorusmeEkle() {
+  const a = ADAYLAR.find(x => x.id === _adayDuzenleId);
+  if (!a) return;
+  const inp = document.getElementById('aday-g-not');
+  const not = (inp.value || '').trim();
+  if (!not) { inp.focus(); return; }
+  const tip = document.getElementById('aday-g-tip').value;
+  const yeni = JSON.parse(JSON.stringify(a));
+  yeni.aktiviteler = [{ tarih: new Date().toISOString(), tip, not, kullanici: _benEmail(), kullaniciAd: aktifKullanici?.ad || '' }, ...(yeni.aktiviteler || [])];
+  if (yeni.durum === 'yeni' && tip !== 'Not') { yeni.durum = 'arandi'; document.getElementById('aday-durum').value = 'arandi'; }
+  inp.value = '';
+  await _adayYaz(yeni);
+  adayGorusmeListeRender();
+  renderAdaylar();
+  showToast('📞 Görüşme kaydedildi. Sonraki temas tarihini güncellemeyi unutmayın.');
+}
+
+async function adayKaydet() {
+  const hata = document.getElementById('aday-hata');
+  const g = id => (document.getElementById(id)?.value || '').trim();
+  const firma = g('aday-firma');
+  if (!firma) { hata.textContent = 'Firma adı zorunlu.'; hata.style.display = 'block'; return; }
+  const ikiz = adayFirmaBul(firma, _adayDuzenleId);
+  if (ikiz) {
+    hata.textContent = '"' + ikiz.firma + '" zaten aday listesinde (' + _adayKisiAd(ikiz.sahip) + ', ' + adayDurumBilgi(ikiz.durum).label + ').';
+    hata.style.display = 'block'; return;
+  }
+  const eski = _adayDuzenleId ? ADAYLAR.find(x => x.id === _adayDuzenleId) : null;
+  if (!eski && musteriFirmaVarMi(firma) && !confirm('"' + firma + '" zaten müşteri olarak kayıtlı. Yine de aday olarak eklensin mi? (ör. yeniden kazanma / ek ürün satışı)')) return;
+  const mail = g('aday-mail');
+  if (mail && !mail.includes('@')) { hata.textContent = 'E-posta geçersiz.'; hata.style.display = 'block'; return; }
+  const a = eski ? JSON.parse(JSON.stringify(eski)) : {
+    id: 'ADY-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), kaynak: 'elle',
+    olusturan: _benEmail(), olusturanAd: aktifKullanici?.ad || '', olusturma: new Date().toISOString(), aktiviteler: [],
+  };
+  Object.assign(a, {
+    firma, sektor: g('aday-sektor'), sehir: g('aday-sehir'), web: g('aday-web'), kisi: g('aday-kisi'), unvan: g('aday-unvan'),
+    tel: g('aday-tel'), mail, ilgi: g('aday-ilgi'), not: g('aday-not'), sonrakiTemas: g('aday-sonraki'),
+    sicaklik: g('aday-sicaklik') || 'ilik',
+  });
+  const yeniDurum = g('aday-durum') || 'yeni';
+  if (eski && eski.durum !== yeniDurum) {
+    a.aktiviteler = [{ tarih: new Date().toISOString(), tip: 'Durum', not: adayDurumBilgi(eski.durum).label + ' → ' + adayDurumBilgi(yeniDurum).label, kullanici: _benEmail(), kullaniciAd: aktifKullanici?.ad || '' }, ...(a.aktiviteler || [])];
+  }
+  a.durum = yeniDurum;
+  if (ADAY_KAPALI.includes(yeniDurum) && (!eski || !ADAY_KAPALI.includes(eski.durum))) a.kapanis = new Date().toISOString();
+  if (!ADAY_KAPALI.includes(yeniDurum)) delete a.kapanis;
+  // Sahip: yalnız admin değiştirir; satıcının yeni adayı kendisine
+  const eskiSahip = String(eski?.sahip || '').toLowerCase();
+  a.sahip = _adayAdmin() ? g('aday-sahip').toLowerCase() : (eski ? eskiSahip : _benEmail());
+  if (a.sahip !== eskiSahip && a.sahip) { a.atayan = _benEmail(); a.atamaTarih = new Date().toISOString(); }
+  const btn = document.getElementById('aday-kaydet-btn');
+  if (btn) btn.disabled = true;
+  try { await _adayYaz(a); } finally { if (btn) btn.disabled = false; }
+  closeModal('adayForm');
+  renderAdaylar();
+  showToast(eski ? '✅ Aday güncellendi.' : '✅ "' + firma + '" aday listesine eklendi.');
+  if (a.sahip && a.sahip !== eskiSahip && a.sahip !== _benEmail()) adayAtamaBildirimGonder([a]);
+}
+
+async function adaySil() {
+  const a = ADAYLAR.find(x => x.id === _adayDuzenleId);
+  if (!a || !confirm('"' + a.firma + '" aday listesinden silinsin mi? (Görüşme geçmişi de silinir. Kapatmak için durumu "Kaybedildi / Uygun değil" yapmanız önerilir.)')) return;
+  const ok = await apiAdaySil(a.id);
+  if (!ok && !_adayApiYok) { showToast('⛔ Silme sunucuya yazılamadı — tekrar deneyin.'); return; }
+  const i = ADAYLAR.findIndex(x => x.id === a.id);
+  if (i >= 0) ADAYLAR.splice(i, 1);
+  _adayBekleyen.delete(a.id);
+  _adayYerelKaydet(); adayBadgeGuncelle();
+  closeModal('adayForm'); renderAdaylar();
+  showToast('🗑 Aday silindi.');
+}
+
+// Admin bir satıcıya aday atadı → satıcıya e-posta (toplu atamada kişi başı tek mail)
+async function adayAtamaBildirimGonder(adaylar) {
+  if (!AYARLAR.sicakSatisAktif) return; // modül satıcılara kapalı → göremeyecekleri aday için mail atma
+  try {
+    const grup = {};
+    adaylar.forEach(a => { if (a.sahip && a.sahip !== _benEmail()) (grup[a.sahip] = grup[a.sahip] || []).push(a); });
+    for (const [to, list] of Object.entries(grup)) {
+      const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;">
+        <h2 style="margin:0 0 4px;">🔥 Size ${list.length} yeni müşteri adayı atandı</h2>
+        <p style="color:#666;margin:0 0 12px;">${_gorevEsc(aktifKullanici?.ad || 'Admin')} size aday atadı. EMON FAST &gt; <b>Sıcak Satış</b> ekranından takip edebilirsiniz.</p>
+        <ul style="padding-left:18px;">${list.map(a => '<li><b>' + _gorevEsc(a.firma) + '</b>' + [a.sektor, a.sehir].filter(Boolean).map(x => ' · ' + _gorevEsc(x)).join('') + (a.sonrakiTemas ? ' — temas: ' + new Date(a.sonrakiTemas + 'T00:00:00').toLocaleDateString('tr-TR') : '') + '</li>').join('')}</ul>
+      </div>`;
+      await graphMailHtmlGonder([to], `[Sıcak Satış] ${list.length} yeni aday atandı`, html);
+    }
+  } catch (e) { console.error('adayAtamaBildirimGonder:', e); }
+}
+
+// ── MÜŞTERİYE DÖNÜŞTÜR ──
+function adayMusteriyeDonustur() {
+  const a = ADAYLAR.find(x => x.id === _adayDuzenleId);
+  if (!a) return;
+  const mevcut = MUSTERILER.find(m => m && _musteriNorm(m.firma) === _musteriNorm(a.firma));
+  if (mevcut) {
+    if (!confirm('"' + a.firma + '" zaten müşteri olarak kayıtlı. Aday "Kazanıldı" olarak kapatılsın mı?')) return;
+    adayDonusumTamamla(a.id, mevcut.firma, false);
+    closeModal('adayForm');
+    return;
+  }
+  closeModal('adayForm');
+  musteriFormAc(-1);
+  _adayDonusumId = a.id;   // musteriFormAc bunu sıfırlar → SONRA ata
+  const set = (k, v) => { const el = document.getElementById(k); if (el && v) el.value = v; };
+  set('mf-firma', a.firma);
+  set('mf-adres', a.sehir);
+  const sek = document.getElementById('mf-sektor');
+  if (sek && a.sektor) {
+    const n = _musteriNorm(a.sektor);
+    const o = [...sek.options].find(op => op.value && (_musteriNorm(op.textContent).includes(n) || n.includes(_musteriNorm(op.textContent).split(' ')[0])));
+    if (o) sek.value = o.value;
+  }
+  const kay = document.getElementById('mf-kaynak');
+  if (kay) kay.value = (a.kaynak === 'mail' || a.kaynak === 'kartsiz') ? 'Gelen e-posta' : a.kaynak === 'ai' ? 'Soğuk arama' : 'Diğer';
+  set('mf-not', [a.ilgi && ('İlgi: ' + a.ilgi), a.not, 'Sıcak Satış adayından dönüştürüldü.'].filter(Boolean).join('\n'));
+  if (a.kisi || a.mail || a.tel) {
+    document.getElementById('mf-yetkililer-list').innerHTML = '';
+    yetkiliEkleRow({ ad: a.kisi || '', unvan: a.unvan || '', mail: a.mail || '', tel: a.tel || '' });
+  }
+  showToast('Müşteri formu adaydan dolduruldu — ödeme şartı ve diğer zorunlu alanları tamamlayıp kaydedin.');
+}
+
+// Müşteri kaydı başarıyla bitince musteriKaydet çağırır
+async function adayDonusumTamamla(id, firma, onayda) {
+  const a = ADAYLAR.find(x => x.id === id);
+  if (!a) return;
+  const y = JSON.parse(JSON.stringify(a));
+  y.durum = 'kazanildi'; y.kapanis = new Date().toISOString(); y.musteriFirma = firma;
+  y.aktiviteler = [{ tarih: new Date().toISOString(), tip: 'Durum', not: '🎉 Müşteriye dönüştürüldü' + (onayda ? ' (müşteri kartı admin onayında)' : ''), kullanici: _benEmail(), kullaniciAd: aktifKullanici?.ad || '' }, ...(y.aktiviteler || [])];
+  await _adayYaz(y, true);
+  renderAdaylar();
+}
+
+// ── SİSTEMDEN BUL ──
+function adaySistemOnerileriHesapla() {
+  const benAdmin = _adayAdmin(), ben = _benEmail();
+  const mevcutAday = new Set(ADAYLAR.map(a => _musteriNorm(a.firma)));
+  const musteriVar = new Set(MUSTERILER.filter(Boolean).map(m => _musteriNorm(m.firma)));
+  const benimMusterim = m => benAdmin || String(m.satici || '').toLowerCase() === ben;
+  const talepler = (typeof crmStatTalepler === 'function' ? crmStatTalepler(TALEPLER) : TALEPLER).filter(t => t && (benAdmin || talepBenim(t)));
+  const oneriler = new Map();
+  const ekle = (o) => { const n = _musteriNorm(o.firma); if (!n || mevcutAday.has(n) || oneriler.has(n)) return; oneriler.set(n, o); };
+  const gunOnce = (iso) => iso ? Math.floor((Date.now() - new Date(String(iso).slice(0, 10) + 'T00:00:00').getTime()) / 86400000) : null;
+
+  // 1) Talep gelmiş ama müşteri kartı yok
+  const kartsiz = {}; // normalize anahtar → { ad: ilk görülen yazım, ts: [...] } ("ABC Ltd" = "abc ltd")
+  talepler.forEach(t => {
+    const f = String(t.musteri || '').trim(), n = _musteriNorm(f);
+    if (!f || musteriVar.has(n)) return;
+    (kartsiz[n] = kartsiz[n] || { ad: f, ts: [] }).ts.push(t);
+  });
+  Object.values(kartsiz).forEach(({ ad: f, ts }) => ekle({ firma: f, kaynak: 'kartsiz', sicaklik: 'sicak',
+    neden: ts.length + ' talep göndermiş, müşteri kartı yok' + (ts.some(crmSiparisMi) ? ' (sipariş de vermiş!)' : ''),
+    sonTarih: ts.map(t => t.tarih).filter(Boolean).sort().reverse()[0] || '' }));
+
+  // 2) Gelen mail taslakları — gönderen kayıtlı müşteri değil (yalnız admin: taslaklar ortak kutudan)
+  if (benAdmin) (typeof OTO_DURUM !== 'undefined' && OTO_DURUM.taslaklar || []).forEach(x => {
+    if (!x || x.musteri) return;
+    const mail = x.oneriMusteriMail || (!x.icIletme ? x.gonderen : '');
+    if (!mail && !x.oneriMusteriAd) return;
+    const domain = String(mail || '').split('@')[1] || '';
+    const firma = x.oneriMusteriAd || domain;
+    if (!firma || musteriVar.has(_musteriNorm(firma))) return;
+    ekle({ firma, kaynak: 'mail', sicaklik: 'sicak', kisi: x.oneriMusteriKisi || (x.icIletme ? '' : x.gonderenAd) || '', mail,
+      neden: 'Mail ile talep göndermiş: "' + String(x.konu || '').slice(0, 60) + '"', sonTarih: x.tarih || '' });
+  });
+
+  // 3) Sessiz müşteri: daha önce sipariş vermiş, 120+ gündür talep yok
+  // 4) Teklif alıp hiç sipariş vermeyen (son 1 yılda 2+ teklif)
+  const musteriTalep = {};
+  talepler.forEach(t => { const n = _musteriNorm(t.musteri); if (n) (musteriTalep[n] = musteriTalep[n] || []).push(t); });
+  (typeof crmStatMusteriler === 'function' ? crmStatMusteriler() : MUSTERILER).forEach(m => {
+    if (!m || !m.firma || !benimMusterim(m) || m.durum === 'Pasif') return;
+    const ts = musteriTalep[_musteriNorm(m.firma)] || [];
+    if (!ts.length) return;
+    const sonTarih = ts.map(t => t.tarih).filter(Boolean).sort().reverse()[0] || '';
+    const sessizGun = gunOnce(sonTarih);
+    const siparisVar = ts.some(crmSiparisMi);
+    const yetkili = (m.yetkililer || [])[0] || {};
+    const ortak = { firma: m.firma, sektor: m.sektor || '', kisi: yetkili.ad || '', unvan: yetkili.unvan || '', mail: yetkili.mail || '', tel: yetkili.tel || '', sahip: String(m.satici || '').toLowerCase(), sonTarih };
+    if (siparisVar && sessizGun != null && sessizGun >= 120) {
+      ekle({ ...ortak, kaynak: 'sessiz', sicaklik: 'ilik', neden: 'Eskiden sipariş veriyordu, ' + sessizGun + ' gündür talep yok' });
+    } else if (!siparisVar) {
+      const yil = ts.filter(t => crmDonulduMu(t) && (gunOnce(t.tarih) ?? 999) <= 365);
+      if (yil.length >= 2) ekle({ ...ortak, kaynak: 'donusmeyen', sicaklik: 'ilik', neden: 'Son 1 yılda ' + yil.length + ' teklif aldı, hiç sipariş vermedi' });
+    }
+  });
+  const sira = { kartsiz: 0, mail: 1, donusmeyen: 2, sessiz: 3 };
+  return [...oneriler.values()].sort((a, b) => (sira[a.kaynak] - sira[b.kaynak]) || String(b.sonTarih).localeCompare(String(a.sonTarih)));
+}
+
+function adaySistemModalAc() {
+  _adaySistemOneriler = adaySistemOnerileriHesapla();
+  const el = document.getElementById('aday-sistem-liste');
+  const esc = _gorevEsc;
+  if (!_adaySistemOneriler.length) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">Şu an sistemde yeni ipucu yok — kartsız talep, sessiz müşteri veya dönüşmeyen teklif bulunmadı (ya da hepsi zaten aday).</div>';
+  } else {
+    const gruplar = {};
+    _adaySistemOneriler.forEach((o, i) => (gruplar[o.kaynak] = gruplar[o.kaynak] || []).push([o, i]));
+    el.innerHTML = Object.entries(gruplar).map(([k, list]) => `<div style="margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;">${esc(ADAY_KAYNAK[k] || k)} <span style="color:var(--text3);font-weight:400;">(${list.length})</span>
+        <a href="#" style="font-size:11px;margin-left:8px;" onclick="document.querySelectorAll('.aday-sis-cb[data-k=${k}]').forEach(c=>c.checked=true);return false;">tümünü seç</a></div>
+      ${list.map(([o, i]) => `<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:var(--radius);background:var(--bg3);margin-bottom:4px;cursor:pointer;">
+        <input type="checkbox" class="aday-sis-cb" data-k="${k}" data-i="${i}" style="width:auto;margin-top:3px;" ${k === 'kartsiz' || k === 'mail' ? 'checked' : ''}>
+        <div><div style="font-size:13px;font-weight:600;">${esc(o.firma)}</div><div style="font-size:11px;color:var(--text3);">${esc(o.neden)}${o.kisi ? ' · ' + esc(o.kisi) : ''}${o.sonTarih ? ' · son: ' + new Date(o.sonTarih).toLocaleDateString('tr-TR') : ''}</div></div>
+      </label>`).join('')}</div>`).join('');
+  }
+  openModal('adaySistem');
+}
+
+async function adaySistemSecilenleriEkle() {
+  const secili = [...document.querySelectorAll('.aday-sis-cb:checked')].map(c => _adaySistemOneriler[+c.dataset.i]).filter(Boolean);
+  if (!secili.length) { showToast('Önce en az bir öneri seçin.'); return; }
+  const yeniler = await _adayTopluEkle(secili.map(o => ({
+    firma: o.firma, sektor: o.sektor || '', kisi: o.kisi || '', unvan: o.unvan || '', mail: o.mail || '', tel: o.tel || '',
+    kaynak: o.kaynak, sicaklik: o.sicaklik || 'ilik', not: o.neden || '',
+    // Sessiz/dönüşmeyen müşteri → kartın sorumlu satıcısına; diğerleri ekleyene (admin ise atanmamış)
+    sahip: o.sahip || (_adayAdmin() ? '' : _benEmail()),
+  })));
+  closeModal('adaySistem');
+  renderAdaylar();
+  showToast('✅ ' + yeniler.length + ' aday eklendi.');
+}
+
+// Toplu ekle (sistem/AI): ikizleri atla, sonraki temas = bugün, atanan satıcılara mail
+async function _adayTopluEkle(list) {
+  const eklenen = [];
+  for (const o of list) {
+    if (!o.firma || adayFirmaBul(o.firma)) continue;
+    const a = { id: 'ADY-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), durum: 'yeni', aktiviteler: [],
+      olusturan: _benEmail(), olusturanAd: aktifKullanici?.ad || '', olusturma: new Date().toISOString(),
+      sonrakiTemas: _adayBugun(), ...o };
+    if (!_adayAdmin()) a.sahip = _benEmail();
+    if (a.sahip && a.sahip !== _benEmail()) { a.atayan = _benEmail(); a.atamaTarih = new Date().toISOString(); }
+    await _adayYaz(a, true);
+    eklenen.push(a);
+  }
+  if (eklenen.some(a => _adayBekleyen.has(a.id))) showToast('⚠ Bazı adaylar sunucuya yazılamadı — bu cihazda tutuluyor, tekrar denenecek.');
+  adayAtamaBildirimGonder(eklenen);
+  return eklenen;
+}
+
+// ── AI İLE ARA (Claude + web araması) ──
+// Ham gövde ile çağrı: önce sunucu proxy'si (merkezi key), yoksa yerel key ile doğrudan.
+// Proxy yalnız gövdeyi iletir (beta header yok) → refusal fallback kullanılamaz; refusal'ı biz yakalarız.
+async function _claudeGovdeCagir(govde) {
+  const token = apiTokenAl();
+  if (token) {
+    try {
+      const r = await fetch(API_URL + '/api/ai/messages', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(govde)
+      });
+      if (r.status === 401) { oturumSuresiDoldu(); return { _err: 'oturum' }; }
+      if (r.status === 504 || r.status === 502) return { _err: 'zaman-asimi' };
+      if (r.status !== 404 && r.status !== 405 && r.status !== 503) {
+        const env = await r.json().catch(() => null);
+        if (!env) return { _err: 'ag' };
+        if (env.status === 200 && env.data) return { data: env.data };
+        return { _err: env.hata && /timeout/i.test(env.hata) ? 'zaman-asimi' : ('http-' + (env.status || 0)), detay: env.data?.error?.message || env.hata || '' };
+      }
+    } catch (e) { return { _err: 'ag' }; }
+  }
+  const apiKey = claudeKeyGetir();
+  if (!apiKey) return { _err: 'no-key' };
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify(govde)
+    });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) return { _err: 'http-' + r.status, detay: d?.error?.message || '' };
+    return { data: d };
+  } catch (e) { return { _err: 'ag' }; }
+}
+
+function adayAiModalAc() {
+  document.getElementById('aday-ai-sonuc').innerHTML = '';
+  document.getElementById('aday-ai-ekle-btn').style.display = 'none';
+  _adayAiOneriler = [];
+  openModal('adayAi');
+}
+
+// Model yanıtından aday JSON'unu çıkar (metin blokları birleştirilir; web aramada çok sayıda text bloğu gelir)
+function adayAiYanitCoz(content) {
+  const metin = (content || []).filter(b => b && b.type === 'text').map(b => b.text || '').join('');
+  const m = metin.replace(/```(?:json)?/gi, '').match(/\{[\s\S]*"adaylar"[\s\S]*\}/);
+  if (!m) return [];
+  try { const j = JSON.parse(m[0]); return (Array.isArray(j.adaylar) ? j.adaylar : []).filter(x => x && x.firma); } catch (_) { return []; }
+}
+
+async function adayAiAra() {
+  const g = id => (document.getElementById(id)?.value || '').trim();
+  const sektor = g('aday-ai-sektor');
+  const sonucEl = document.getElementById('aday-ai-sonuc');
+  if (!sektor) { sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">Sektör girin.</div>'; return; }
+  const adet = parseInt(g('aday-ai-adet'), 10) || 8;
+  const haric = [...new Set([...MUSTERILER.map(m => m && m.firma), ...ADAYLAR.map(a => a.firma)].filter(Boolean))].slice(0, 400);
+  const sistem = 'Sen EMON adlı Türk bir BT tedarik/satın alma firmasının (bilgisayar, sunucu, yazıcı ve sarf malzemesi, yazılım lisansı, telefon, aksesuar tedariği yapar) B2B satış araştırmacısısın. '
+    + 'Görevin: verilen kriterlere uyan, GERÇEK ve hâlen faaliyette olan Türkiye\'deki firmaları web araması ile bulmak. '
+    + 'Kurallar: (1) Yalnız web aramasında varlığına kanıt bulduğun firmaları yaz; her biri için kanıtın olduğu sayfanın URL\'sini "kaynak" alanına koy. '
+    + '(2) Kişi adı, telefon veya e-posta UYDURMA — yalnız kaynak sayfada açıkça yayımlanmışsa yaz, yoksa boş bırak. '
+    + '(3) Hariç listesindeki firmaları (zaten müşterimiz/adayımız) önerme. '
+    + '(4) "neden": bu firmanın neden iyi bir aday olduğu (somut sinyal: yeni şube, büyüme, ihale, işe alım, yatırım vb.). "ihtiyac": EMON\'un satabileceği olası ürünler. "acilis": satıcının ilk aramada kullanabileceği tek cümlelik, firmaya özel açılış. '
+    + '(5) Yanıtının SONUNDA yalnız şu biçimde tek bir JSON nesnesi ver, başka metin ekleme: '
+    + '{"adaylar":[{"firma":"","sektor":"","sehir":"","web":"","kisi":"","unvan":"","tel":"","mail":"","neden":"","ihtiyac":"","acilis":"","kaynak":""}]}. Tüm metinler Türkçe.';
+  const istek = 'Kriterler:\n- Sektör: ' + sektor
+    + '\n- Şehir/bölge: ' + (g('aday-ai-sehir') || 'Türkiye geneli')
+    + (g('aday-ai-odak') ? '\n- Satmak istediğimiz ürünler: ' + g('aday-ai-odak') : '')
+    + (g('aday-ai-buyukluk') ? '\n- Firma büyüklüğü: ' + g('aday-ai-buyukluk') : '')
+    + (g('aday-ai-not') ? '\n- Ek not: ' + g('aday-ai-not') : '')
+    + '\n- İstenen öneri sayısı: ' + adet
+    + '\n\nHariç tutulacak firmalar: ' + (haric.join('; ') || '—');
+  const btn = document.getElementById('aday-ai-btn');
+  btn.disabled = true; btn.textContent = '⏳ Araştırılıyor… (1-3 dk)';
+  document.getElementById('aday-ai-ekle-btn').style.display = 'none';
+  sonucEl.innerHTML = '<div style="font-size:12px;color:var(--text3);">AI web\'de arıyor, pencereyi kapatmayın…</div>';
+  try {
+    const govde = {
+      model: 'claude-opus-5-5', max_tokens: 16000,
+      output_config: { effort: 'low' },
+      system: sistem,
+      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6,
+        user_location: { type: 'approximate', country: 'TR', timezone: 'Europe/Istanbul' } }],
+      messages: [{ role: 'user', content: istek }],
+    };
+    let r, devam = 0;
+    for (;;) {
+      r = await _claudeGovdeCagir(govde);
+      if (r._err) break;
+      // Sunucu tarafı arama döngüsü sınıra geldi → aynı konuşmayı gönder, kaldığı yerden devam eder
+      if (r.data.stop_reason === 'pause_turn' && devam < 3) {
+        govde.messages = [govde.messages[0], { role: 'assistant', content: r.data.content }];
+        devam++; continue;
+      }
+      break;
+    }
+    if (r._err) {
+      const msj = { 'no-key': 'AI kullanılamıyor — sunucuda Claude anahtarı yok ve bu cihazda da tanımlı değil.',
+        'zaman-asimi': 'Arama zaman aşımına uğradı. Kriterleri daraltıp (şehir ekleyin) ya da öneri sayısını azaltıp tekrar deneyin.',
+        'oturum': 'Oturum süresi doldu — tekrar giriş yapın.', 'ag': 'Bağlantı hatası.' }[r._err]
+        || ('AI hatası (' + r._err + ')' + (r.detay ? ': ' + r.detay : '') + (/web_search/i.test(r.detay || '') ? ' — Anthropic konsolunda web araması kapalı olabilir.' : ''));
+      sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">⛔ ' + _gorevEsc(msj) + '</div>';
+      return;
+    }
+    if (r.data.stop_reason === 'refusal') { sonucEl.innerHTML = '<div style="color:var(--red);font-size:12px;">⛔ AI bu isteği yanıtlamadı. Kriterleri farklı ifade edip tekrar deneyin.</div>'; return; }
+    const kaynaklar = new Set();
+    (r.data.content || []).forEach(b => { if (b && b.type === 'web_search_tool_result' && Array.isArray(b.content)) b.content.forEach(x => x && x.url && kaynaklar.add(x.url)); });
+    const liste = adayAiYanitCoz(r.data.content);
+    if (!liste.length) {
+      sonucEl.innerHTML = '<div style="color:var(--amber);font-size:12px;">AI uygun aday bulamadı ya da yanıt okunamadı. Kriterleri genişletip tekrar deneyin.</div>';
+      return;
+    }
+    _adayAiOneriler = liste.map(x => {
+      const s = v => String(v == null ? '' : v).trim().slice(0, 300);
+      const firma = s(x.firma);
+      const durum = musteriFirmaVarMi(firma) ? 'müşteri' : adayFirmaBul(firma) ? 'aday' : '';
+      return { firma, sektor: s(x.sektor) || sektor, sehir: s(x.sehir), web: s(x.web), kisi: s(x.kisi), unvan: s(x.unvan), tel: s(x.tel), mail: s(x.mail),
+        neden: s(x.neden), ihtiyac: s(x.ihtiyac), acilis: s(x.acilis), kaynak: s(x.kaynak), _durum: durum };
+    });
+    const esc = _gorevEsc;
+    sonucEl.innerHTML = '<div style="font-size:12px;font-weight:700;margin-bottom:6px;">' + _adayAiOneriler.length + ' öneri — eklemek istediklerinizi seçin</div>'
+      + _adayAiOneriler.map((o, i) => `<label style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:var(--radius);background:var(--bg3);margin-bottom:6px;cursor:pointer;${o._durum ? 'opacity:0.55;' : ''}">
+        <input type="checkbox" class="aday-ai-cb" data-i="${i}" style="width:auto;margin-top:3px;" ${o._durum ? 'disabled' : 'checked'}>
+        <div style="font-size:12px;">
+          <div style="font-size:13px;font-weight:600;">${esc(o.firma)} ${o._durum ? '<span style="font-size:10px;color:var(--amber);">(zaten ' + o._durum + ')</span>' : ''}</div>
+          <div style="color:var(--text3);">${[o.sektor, o.sehir, o.web].filter(Boolean).map(esc).join(' · ')}</div>
+          ${o.neden ? '<div><b>Neden:</b> ' + esc(o.neden) + '</div>' : ''}
+          ${o.ihtiyac ? '<div><b>İhtiyaç:</b> ' + esc(o.ihtiyac) + '</div>' : ''}
+          ${o.kaynak ? '<div><a href="' + esc(_adayWebUrl(o.kaynak)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation();">🔗 kaynak</a></div>' : '<div style="color:var(--amber);">⚠ kaynak verilmedi — dikkatle doğrulayın</div>'}
+        </div></label>`).join('')
+      + (kaynaklar.size ? '<div style="font-size:11px;color:var(--text3);margin-top:6px;">AI ' + kaynaklar.size + ' web sayfası inceledi.</div>' : '');
+    document.getElementById('aday-ai-ekle-btn').style.display = '';
+  } finally {
+    btn.disabled = false; btn.textContent = '🔎 Araştır';
+  }
+}
+
+async function adayAiSecilenleriEkle() {
+  const secili = [...document.querySelectorAll('.aday-ai-cb:checked')].map(c => _adayAiOneriler[+c.dataset.i]).filter(Boolean);
+  if (!secili.length) { showToast('Önce en az bir öneri seçin.'); return; }
+  const yeniler = await _adayTopluEkle(secili.map(o => ({
+    firma: o.firma, sektor: o.sektor, sehir: o.sehir, web: o.web, kisi: o.kisi, unvan: o.unvan, tel: o.tel, mail: o.mail,
+    ilgi: o.ihtiyac, kaynak: 'ai', sicaklik: 'soguk', not: '',
+    aiOneri: { neden: o.neden, ihtiyac: o.ihtiyac, acilis: o.acilis, kaynak: o.kaynak },
+    sahip: _adayAdmin() ? '' : _benEmail(),
+  })));
+  closeModal('adayAi');
+  renderAdaylar();
+  showToast('✅ ' + yeniler.length + ' aday eklendi' + (_adayAdmin() ? ' — satıcılara atamak için adayı açın.' : '.'));
+}
 let gorevSayac = 0;
 let _gorevDuzenleId = null;
 let _gorevAcikNot = null; // süreç notları paneli açık olan görevin id'si
@@ -6857,6 +7696,7 @@ async function musteriKaydet() {
     closeModal('musteriForm');
     filterMusteriler();
     showToast('📋 "' + firma + '" onay için gönderildi. Admin onayından sonra aktif olacak.');
+    if (_adayDonusumId) { adayDonusumTamamla(_adayDonusumId, firma, true); _adayDonusumId = null; }
     return;
   }
   // Admin onay akışı — ticari detayları zorunlu tut
@@ -7004,6 +7844,7 @@ async function musteriKaydet() {
     showToast('⛔ "' + firma + '" sunucuda doğrulanamadı — form açık, tekrar deneyin.');
     return;
   }
+  if (yeniMi && _adayDonusumId) { adayDonusumTamamla(_adayDonusumId, firma, false); _adayDonusumId = null; }
   showToast(yeniMi ? `✅ "${firma}" eklendi ve sunucuda doğrulandı.`
     : '✅ Müşteri güncellendi ve sunucuda doğrulandı.' + (tasinan ? ' (' + tasinan + ' talep yeni ada taşındı)' : ''));
   closeModal('musteriForm');
@@ -13895,6 +14736,7 @@ async function loginYap() {
     try { saticiMigrasyonu(); } catch(_) {} // eski yerel-id satıcı atamalarını e-postaya taşı
     try { await otoTalepDurumYukle(); } catch(_) {} // kullanıcı-başına oto-talep durumu (taslaklar/işlenenler)
     try { await gorevlerYenile(); gorevGirisBildirim(); } catch(_) {} // ekip içi görevler + "sana N görev" bilgisi
+    try { adaylarYenile(); } catch(_) {} // sıcak satış adayları + rozet
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster();
@@ -13994,6 +14836,7 @@ function rolUygula() {
   if (typeof onayliGonderimGuncelle === 'function') onayliGonderimGuncelle();
   crmNavGuncelle();
   mailorderNavGuncelle();
+  sicakSatisNavGuncelle();
   if (typeof moBadgeYenile === 'function') moBadgeYenile().catch(() => {});
   // Operasyon yetkisiz/varsayılan (panel) bir sayfadaysa izinli sayfaya geçir
   if (isOperasyon) {
@@ -17648,6 +18491,7 @@ async function _msalGirisisle(result) {
     try { saticiMigrasyonu(); } catch(_) {} // eski yerel-id satıcı atamalarını e-postaya taşı
     try { await otoTalepDurumYukle(); } catch(_) {} // kullanıcı-başına oto-talep durumu (taslaklar/işlenenler)
     try { await gorevlerYenile(); gorevGirisBildirim(); } catch(_) {} // ekip içi görevler + "sana N görev" bilgisi
+    try { adaylarYenile(); } catch(_) {} // sıcak satış adayları + rozet
     try { await aiDurumProbe(); } catch(_) {} // merkezi Claude key var mı?
     filterMusteriler(); filterTedarikciler(); renderTalepler();
     rolUygula(); sidebarGuncelle(); renderKullanicilar(); aktifOturumGoster(); stzUyariBaslat(); onayBadgeGuncelle();
@@ -18072,6 +18916,7 @@ let AYARLAR = {
   awayMode: false,
   onayBildirimMaili: '', // satıcı fiyat onayı gönderince uyarı maili gidecek admin e-postası
   crmAktif: false,   // CRM modülü ekibe açık mı? (kapalıyken sadece admin görür, veri yine birikir)
+  sicakSatisAktif: false, // Sıcak Satış satıcılara açık mı? (kapalıyken yalnız admin görür, aday hazırlar)
   mailorderRoller: [], // Mail Order modülüne erişebilen roller (admin her zaman erişir). örn: ['satici','operasyon']
   mailorderOnayci: '', // MO imzalama yetkilisi (e-posta) — onaya gönderilen MO'lar bu kişiye düşer
   mailorderSaticiForm: false, // Satıcı rolü "Tedarikçi Form Şablonları"nı yönetebilsin mi? (varsayılan KAPALI)
@@ -18764,6 +19609,7 @@ function crmAktifDurumGuncelle() {
 }
 
 function ayarlariYukle() {
+  try { sicakSatisAktifDurumGuncelle(); } catch (_) {}
   const setVal = (id, val) => { const el=document.getElementById(id); if(el&&val) el.value=val; };
   awayModeDurumGuncelle();
   izinYonetimRender();
@@ -19144,6 +19990,7 @@ function renderPanelMetrikler() {
   renderPanelTakip();
   crmNavGuncelle();
   mailorderNavGuncelle();
+  sicakSatisNavGuncelle();
   // Satıcılardan gelen fiyat onay talepleri (sadece admin)
   renderPanelFiyatOnaylari();
   renderPanelRevizyonlar();
@@ -25267,6 +26114,7 @@ async function sunucudanTazele(zorla = false) {
       renderPanelMetrikler(); onayBadgeGuncelle();
       onayBekleyenBadgeGuncelle(); // fiyat-onay bekleyen sayısı (sidebar) tazelensin
       gorevlerYenile(); // başka kullanıcıların atadığı/güncellediği görevler + rozet
+      adaylarYenile();  // sıcak satış: admin'in atadığı yeni adaylar + rozet
       // Fiyat Onayları sayfası açıksa, başka cihazdan gelen onay taleplerini yansıt
       if (document.getElementById('page-fiyatOnaylari')?.classList.contains('active')) renderFiyatOnaylari();
       if (document.getElementById('page-revizyonlar')?.classList.contains('active')) renderRevizyonlar();
@@ -25866,7 +26714,7 @@ msalBaslat();
               derinLinkIsle(); // mail linkinden gelindiyse (#talep=NO) ilgili talebi aç
               ayarlariYukle();
               otoTalepDurumYukle(); // kullanıcı-başına oto-talep durumunu sunucudan getir
-              gorevlerYenile().then(() => { gorevGirisBildirim(); derinLinkIsle(); }).catch(()=>{}); // ekip içi görevler (+ görev derin linki)
+              gorevlerYenile().then(() => { gorevGirisBildirim(); derinLinkIsle(); }).catch(()=>{}); adaylarYenile().catch(()=>{}); // ekip içi görevler (+ görev derin linki)
               // API'den taze veri geldi — bugünün snapshot'ını taze veriyle güncelle
               try { yedekSnapshotAl(true); yedekDurumMiniGuncelle(); } catch(_) {}
             }
