@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-10 (son commit: `23c9ef1`)
+> Son güncelleme: 2026-11-10 (son commit: `bc27d33`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -151,7 +151,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- Sıcak Satış AI iyileştirmesi ("az/boş sonuç, iletişim yok"): keşif effort low→medium + liste kaynaklarını (OSB/oda/dernek/fuar) hedefleyen istem + web_fetch; JSON ayrıştırıcı önde `{` geçen yanıtları okuyamıyordu (`_jsonNesneleri`), "okunamadı" artık "bulunamadı"dan ayrı. 2. adım: her öneri için firmanın sitesinden yayımlanmış iletişim (paralel 3'lü) + aday kartında "🔍 İletişim bul (AI)"
+- Sol kenar çubuğu 220→272px (`--sidebar-w`): Talepler satırı 4 rozetiyle tek satıra sığıyor; nav öğeleri kaydırmasız
+- `bc27d33` Sıcak Satış AI iyileştirmesi ("az/boş sonuç, iletişim yok"): keşif effort low→medium + liste kaynaklarını (OSB/oda/dernek/fuar) hedefleyen istem + web_fetch; JSON ayrıştırıcı önde `{` geçen yanıtları okuyamıyordu (`_jsonNesneleri`), "okunamadı" artık "bulunamadı"dan ayrı. 2. adım: her öneri için firmanın sitesinden yayımlanmış iletişim (paralel 3'lü) + aday kartında "🔍 İletişim bul (AI)"
 - `23c9ef1` 🔥 Sıcak Satış modülü: aday listesi + görüşme geçmişi + temas rozeti, sistemden aday bulma (kartsız talep / gelen mail / sessiz / dönüşmeyen müşteri), AI ile web araştırması, admin ataması + e-posta, müşteriye dönüştürme. CRM gibi Ayarlar'dan satıcılara aç/kapa (`AYARLAR.sicakSatisAktif`, varsayılan KAPALI; kapalıyken yalnız admin görür, atama maili gitmez). Backend `adaylar` tablosu + nginx proxy timeout 200s (deploy.yml). Test: `tools/sicak-satis-test.js`
 - `366a108` Admin'in doğrudan müşteri ekleme/düzenlemesi artık sunucuda doğrulanıyor (`musteriKaydiSunucudaMi`: yazılan her alan sunucudan geri okunur); doğrulanana kadar form açık kalır, başarısızlıkta girdi formda durur ve "Kaydet" tekrar denemedir
 - `d1ec0ad` Müşteri marjı: satıcının müşteri değişiklik talebi onaylanınca talep anındaki marj/satıcı ataması kopyası kartı eziyordu → admin'in arada yaptığı marj değişikliği "yansımıyordu" (Intetra). Onay artık 3-yollu (`musteriDuzenleTalebiUygula`): yalnız satıcının değiştirdiği alanlar uygulanır. + Satıcı müşteri formunda "📈 Kar marjı değişiklik talebi" (istenen baz % + gerekçe) → Onay Bekleyenler diff'i + admin'e "[Kar Marjı Talebi]" e-postası. Test: `tools/musteri-marj-talep-test.js`

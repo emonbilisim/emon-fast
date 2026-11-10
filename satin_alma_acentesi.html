@@ -44,9 +44,11 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; }
 
-  /* SIDEBAR */
+  /* SIDEBAR — genişlik: Talepler satırı (ikon + ad + 4 rozet) tek satıra sığsın diye 272px.
+     .main'in sol boşluğu aynı değişkenden gelir; mobilde (≤768px) ayrı 280px çekmece kullanılır. */
+  :root { --sidebar-w: 272px; }
   .sidebar {
-    width: 220px; height: 100vh; background: var(--bg2);
+    width: var(--sidebar-w); height: 100vh; background: var(--bg2);
     border-right: 1px solid var(--border); display: flex; flex-direction: column;
     position: fixed; top: 0; left: 0; z-index: 100; overflow-y: auto;
   }
@@ -66,7 +68,9 @@
     display: flex; align-items: center; gap: 10px; padding: 9px 10px;
     border-radius: var(--radius); cursor: pointer; font-size: 13px; font-weight: 400;
     color: var(--text2); transition: all 0.15s; margin-bottom: 2px;
+    white-space: nowrap;
   }
+  .nav-badge + .nav-badge { margin-left: -4px; } /* yan yana rozetler arasında gap'i daralt */
   .nav-item:hover { background: var(--bg3); color: var(--text); }
   .nav-item.active { background: rgba(79,142,247,0.15); color: var(--accent2); font-weight: 500; }
   .nav-item .icon { font-size: 15px; width: 18px; text-align: center; }
@@ -75,7 +79,7 @@
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 6px; }
 
   /* MAIN */
-  .main { margin-left: 220px; flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
+  .main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
   .topbar {
     height: 56px; border-bottom: 1px solid var(--border); background: var(--bg);
     display: flex; align-items: center; padding: 0 28px; gap: 12px; position: sticky; top: 0; z-index: 50;
