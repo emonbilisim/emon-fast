@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-10 (son commit: `ce82af7`)
+> Son güncelleme: 2026-11-11 (son commit: `8897206`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -142,6 +142,7 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
   full-replace olduğundan paralel iki yazımda yavaş olan yenisini ezer; `tools/push-sira-test.js`).
 - **Sıcak Satış / Görevler sunucuda rol filtresi YOK:** `/api/adaylar` tüm adayları her girişli kullanıcıya
   döner, "satıcı yalnız kendininkini görür" kuralı istemcide. Hassas veri konmamalı / gerekirse backend'e filtre.
+- **Anthropic kredisi:** tüm AI (gelen mail taraması, fiyat okuma, Sıcak Satış) sunucudaki tek `CLAUDE_API_KEY` hesabından düşer. Kredi biterse tarama durur (mail kaybı yok); kredi yüklenince kesinti dönemindeki mailler için Ayarlar → "♻️ İşaretleri Temizle" + "Şimdi Tara". Otomatik yükleme (auto-reload) önerilir.
 - **AI aday araması 1-3 dk sürer:** nginx `proxy_read_timeout 200s` (deploy.yml). Bir `location` bloğu kendi
   timeout'unu tanımlıyorsa o geçerli kalır → 504 görülürse oraya bakılmalı.
 - macOS güncellemesi WireGuard tünelini düşürebilir (config kaybolmaz, yeniden içe aktar).
@@ -151,7 +152,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- Panel "✅ Fiyatınız Onaylandı — Müşteriye Gönderilmeyi Bekliyor" kartı şişiyordu: sahiplik filtresi yoktu (admin/satıcı herkesinkini görüyordu) + gönderim kaydı olmayan ama sipariş alınmış / elle "Müşteriye İletildi" yapılmış teklifler takılı kalıyordu. Artık yalnız kendi işin (`onayliGonderimBenim`), admin diğerlerini katlanmış "satıcılarda bekleyen" özetinde görür; satırlarda bekleme günü + sistem dışı gönderim için "✓ Gönderildi". Test: `tools/onayli-gonderim-test.js`
+- AI kredisi bitti ("credit balance is too low"): hesap/servis geneli AI hataları (`kredi`, geçersiz anahtar, limit, aşırı yük, ağ — `_aiHataKodu` / `AI_SERVIS_HATALARI`) gelen mail taramasında maili 3 denemede kalıcı "işlendi" yapıyordu → kredi bitikken talep mailleri sessizce atlanıyordu. Artık tarama durur, mail işaretlenmez; kullanıcıya Türkçe kredi uyarısı. Test: `tools/ai-kredi-test.js`
+- `8897206` Panel "✅ Fiyatınız Onaylandı — Müşteriye Gönderilmeyi Bekliyor" kartı şişiyordu: sahiplik filtresi yoktu (admin/satıcı herkesinkini görüyordu) + gönderim kaydı olmayan ama sipariş alınmış / elle "Müşteriye İletildi" yapılmış teklifler takılı kalıyordu. Artık yalnız kendi işin (`onayliGonderimBenim`), admin diğerlerini katlanmış "satıcılarda bekleyen" özetinde görür; satırlarda bekleme günü + sistem dışı gönderim için "✓ Gönderildi". Test: `tools/onayli-gonderim-test.js`
 - `ce82af7` Sol kenar çubuğu 220→272px (`--sidebar-w`): Talepler satırı 4 rozetiyle tek satıra sığıyor; nav öğeleri kaydırmasız
 - `bc27d33` Sıcak Satış AI iyileştirmesi ("az/boş sonuç, iletişim yok"): keşif effort low→medium + liste kaynaklarını (OSB/oda/dernek/fuar) hedefleyen istem + web_fetch; JSON ayrıştırıcı önde `{` geçen yanıtları okuyamıyordu (`_jsonNesneleri`), "okunamadı" artık "bulunamadı"dan ayrı. 2. adım: her öneri için firmanın sitesinden yayımlanmış iletişim (paralel 3'lü) + aday kartında "🔍 İletişim bul (AI)"
 - `23c9ef1` 🔥 Sıcak Satış modülü: aday listesi + görüşme geçmişi + temas rozeti, sistemden aday bulma (kartsız talep / gelen mail / sessiz / dönüşmeyen müşteri), AI ile web araştırması, admin ataması + e-posta, müşteriye dönüştürme. CRM gibi Ayarlar'dan satıcılara aç/kapa (`AYARLAR.sicakSatisAktif`, varsayılan KAPALI; kapalıyken yalnız admin görür, atama maili gitmez). Backend `adaylar` tablosu + nginx proxy timeout 200s (deploy.yml). Test: `tools/sicak-satis-test.js`

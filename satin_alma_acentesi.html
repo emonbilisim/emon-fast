@@ -7340,7 +7340,7 @@ async function _claudeGovdeCagir(govde) {
         const env = await r.json().catch(() => null);
         if (!env) return { _err: 'ag' };
         if (env.status === 200 && env.data) return { data: env.data };
-        return { _err: env.hata && /timeout/i.test(env.hata) ? 'zaman-asimi' : ('http-' + (env.status || 0)), detay: env.data?.error?.message || env.hata || '' };
+        return { _err: env.hata && /timeout/i.test(env.hata) ? 'zaman-asimi' : _aiHataKodu(env.status, env.data), detay: env.data?.error?.message || env.hata || '' };
       }
     } catch (e) { return { _err: 'ag' }; }
   }
@@ -7353,7 +7353,7 @@ async function _claudeGovdeCagir(govde) {
       body: JSON.stringify(govde)
     });
     const d = await r.json().catch(() => null);
-    if (!r.ok) return { _err: 'http-' + r.status, detay: d?.error?.message || '' };
+    if (!r.ok) return { _err: _aiHataKodu(r.status, d), detay: d?.error?.message || '' };
     return { data: d };
   } catch (e) { return { _err: 'ag' }; }
 }
@@ -7408,6 +7408,10 @@ async function _adayAiCalistir(govde, azamiDevam) {
 }
 function _adayAiHataMetni(r) {
   return ({ 'no-key': 'AI kullanılamıyor — sunucuda Claude anahtarı yok ve bu cihazda da tanımlı değil.',
+    'kredi': 'Anthropic (Claude) hesabında kredi bitti. console.anthropic.com → Plans & Billing\'den kredi yükleyin; yüklenince arama hemen çalışır.',
+    'unauthorized': 'Sunucudaki Claude API anahtarı geçersiz ya da iptal edilmiş.',
+    'rate-limit': 'Claude kullanım sınırına takıldı — birkaç dakika sonra tekrar deneyin.',
+    'asiri-yuk': 'Claude servisi şu an yoğun/erişilemiyor — biraz sonra tekrar deneyin.',
     'zaman-asimi': 'Arama zaman aşımına uğradı. Kriterleri daraltıp (şehir ekleyin) ya da öneri sayısını azaltıp tekrar deneyin.',
     'oturum': 'Oturum süresi doldu — tekrar giriş yapın.', 'ag': 'Bağlantı hatası.' }[r._err])
     || ('AI hatası (' + r._err + ')' + (r.detay ? ': ' + r.detay : '') + (/web_(search|fetch)/i.test(r.detay || '') ? ' — Anthropic konsolunda web araması/getirme kapalı olabilir.' : ''));
@@ -23028,6 +23032,27 @@ function _claudeYanitParse(d) {
 
 // Tek HTTP çağrısı. ÖNCE backend proxy (merkezi sunucu key'i, JWT ile); sunucuda key
 // yoksa (503) veya eski sürümse (404/405) yerel key + doğrudan Anthropic'e düşer.
+/* Anthropic hata yanıtını sınıflandır. 'kredi' (bakiye bitti), 'unauthorized', 'rate-limit',
+   'asiri-yuk' HESAP/SERVİS geneli hatalardır — tek bir maile/isteğe özgü değil. Eskiden hepsi
+   'http-400' gibi tek tipti; gelen mail taraması bunları "bu mail sorunlu" sayıp 3 denemede
+   maili kalıcı "işlendi" işaretliyordu → kredi bittiği sürece talep mailleri sessizce kayboluyordu. */
+function _aiHataKodu(status, data) {
+  const msj = String(data?.error?.message || '');
+  if (/credit balance|billing|purchase credits/i.test(msj)) { _aiKrediUyarisi(); return 'kredi'; }
+  if (status === 401 || status === 403) return 'unauthorized';
+  if (status === 429) return 'rate-limit';
+  if (status === 529 || status >= 500) return 'asiri-yuk';
+  return status ? ('http-' + status) : 'network';
+}
+// Servis geneli hata mı? (isteğe/maile özgü değil → o maili "sorunlu" sayma, taramayı durdur)
+const AI_SERVIS_HATALARI = new Set(['kredi', 'unauthorized', 'unauthorized-jwt', 'rate-limit', 'asiri-yuk', 'network', 'no-key']);
+let _aiKrediUyariZamani = 0;
+function _aiKrediUyarisi() {
+  if (Date.now() - _aiKrediUyariZamani < 10 * 60000) return; // 10 dk'da bir
+  _aiKrediUyariZamani = Date.now();
+  showToast('⛔ Anthropic (Claude) kredisi bitti — AI özellikleri çalışmıyor: gelen mail taraması, fiyat okuma, Sıcak Satış. console.anthropic.com → Plans & Billing\'den kredi yükleyin.');
+}
+
 async function _claudeAiCagir(model, systemMsg, contentBlocks, maxTokens) {
   const govde = { model, max_tokens: maxTokens, system: systemMsg, messages: [{ role:'user', content: contentBlocks }] };
   const token = apiTokenAl();
@@ -23043,9 +23068,7 @@ async function _claudeAiCagir(model, systemMsg, contentBlocks, maxTokens) {
         _aiProxyHazir = true;
         const env = await r.json().catch(() => null);
         if (!env) return { _err: 'network' };
-        if (env.status === 401) return { _err: 'unauthorized' };   // sunucudaki key geçersiz
-        if (env.status === 429) return { _err: 'rate-limit' };
-        if (env.status !== 200 || !env.data) return { _err: env.status ? ('http-' + env.status) : 'network' };
+        if (env.status !== 200 || !env.data) return { _err: _aiHataKodu(env.status, env.data) }; // 401 = sunucudaki key geçersiz
         return _claudeYanitParse(env.data);
       }
       _aiProxyHazir = false; // proxy yok → yerel yola düş
@@ -23065,11 +23088,7 @@ async function _claudeAiCagir(model, systemMsg, contentBlocks, maxTokens) {
       },
       body: JSON.stringify(govde)
     });
-    if (!r.ok) {
-      if (r.status === 401) return { _err: 'unauthorized' };
-      if (r.status === 429) return { _err: 'rate-limit' };
-      return { _err: 'http-' + r.status };
-    }
+    if (!r.ok) return { _err: _aiHataKodu(r.status, await r.json().catch(() => null)) };
     return _claudeYanitParse(await r.json());
   } catch (e) {
     return { _err: 'network' };
@@ -23134,6 +23153,8 @@ async function maildenFiyatlariCikar(mailIcerik, urunler, pdfler) {
       if (sonuc._err === 'unauthorized') showToast('⚠ Claude API key geçersiz (401). Ayarlar\'dan kontrol edin.');
       else if (sonuc._err === 'rate-limit') showToast('⚠ Claude API limit aşıldı (429). Bir süre bekleyip tekrar deneyin.');
       else if (sonuc._err === 'network') showToast('⚠ AI bağlantı hatası');
+      else if (sonuc._err === 'asiri-yuk') showToast('⚠ Claude servisi şu an yoğun — biraz sonra tekrar deneyin.');
+      // 'kredi' → _aiKrediUyarisi zaten gösterdi
       else if (sonuc._err.startsWith('http-')) showToast('⚠ AI API hatası: ' + sonuc._err.slice(5));
     }
     return sonuc;
@@ -23781,6 +23802,15 @@ async function otoTalepTara(sessiz = false, zorla = false) {
       const sonuc = await maildenTalepCikar(icerik, pdfler);
       // Geçici hata VE yanıtın hiç okunamaması (null: kesik/bozuk JSON) → İŞARETLEME, tekrar denenecek.
       // Eskiden null "talep değil" sayılıp mail kalıcı yutuluyordu; talep mailleri sessizce kayboluyordu.
+      if (sonuc && sonuc._err && AI_SERVIS_HATALARI.has(sonuc._err)) {
+        // Hesap/servis geneli hata (kredi bitti, anahtar geçersiz, limit, ağ) → bu mail SORUNLU
+        // DEĞİL: sayaç artırma, işaretleme; kalan mailleri de boşuna deneme, taramayı durdur.
+        // Servis düzelince sonraki tarama hepsini normal şekilde işler.
+        rapor.aiHata++;
+        rapor.aiServis = sonuc._err;
+        console.warn('[oto-talep] AI servisi kullanılamıyor (' + sonuc._err + ') — tarama durduruldu, mailler işaretlenmedi.');
+        break;
+      }
       if (!sonuc || sonuc._err) {
         rapor.aiHata++;
         cfg.aiHataSayac = cfg.aiHataSayac || {};
@@ -23891,6 +23921,7 @@ function otoTalepRaporMetni(r) {
   if (!r) return 'rapor yok';
   if (r.hata) return '⛔ tarama hata verdi: ' + r.hata;
   const p = [];
+  if (r.aiServis) p.push('⛔ AI servisi kullanılamıyor (' + ({ kredi: 'Anthropic kredisi bitti', unauthorized: 'API anahtarı geçersiz', 'rate-limit': 'kullanım sınırı', 'asiri-yuk': 'servis yoğun', network: 'bağlantı', 'no-key': 'anahtar yok' }[r.aiServis] || r.aiServis) + ') — tarama durduruldu, mailler işaretlenmedi, düzelince tekrar taranacak');
   p.push(`${r.bakilan} mail bakıldı${r.pencere ? ' (' + r.pencere + ' sonrası)' : ''}`);
   if (r.zatenIslenmis) p.push(`${r.zatenIslenmis} zaten işlenmiş`);
   if (r.musteriDegil)  p.push(`${r.musteriDegil} kayıtlı müşteri değil`);
