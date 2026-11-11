@@ -6385,7 +6385,7 @@ function gorevModalAc(id) {
   });
   const tsel = document.getElementById('gorev-talep');
   tsel.innerHTML = '<option value="">— Talep bağla (opsiyonel) —</option>';
-  TALEPLER.slice().reverse().slice(0, 300).forEach(t => {
+  TALEPLER.filter(talepGorunur).reverse().slice(0, 300).forEach(t => {
     const o = document.createElement('option');
     o.value = t.no;
     o.textContent = t.no + (t.musteri ? ' · ' + t.musteri : '');
@@ -6396,6 +6396,12 @@ function gorevModalAc(id) {
   document.getElementById('gorev-sontarih').value = g?.sonTarih || '';
   document.getElementById('gorev-oncelik').value = g?.oncelik || 'normal';
   sel.value = g?.atananEmail || _benEmail();
+  // Görev başkasının talebine bağlıysa listede yoktur → bağlantı kaydederken sessizce kopmasın
+  if (g?.talepNo && ![...tsel.options].some(o => o.value === g.talepNo)) {
+    const o = document.createElement('option');
+    o.value = g.talepNo; o.textContent = g.talepNo;
+    tsel.appendChild(o);
+  }
   tsel.value = g?.talepNo || '';
   document.getElementById('gorev-modal-title').textContent = g ? '✏️ Görevi Düzenle' : '➕ Yeni Görev';
   const hata = document.getElementById('gorev-hata'); hata.style.display = 'none';
@@ -9153,8 +9159,14 @@ function teslimSuresiKaydet() {
 
 
 function talepDetayAc(idx) {
-  aktifTalepIdx = idx;
   const t = TALEPLER[idx];
+  // Sahiplik kapısı: satıcı başka satıcının talebini/tekliflerini açamaz
+  // (görev bağlantısı, derin link, eski render'da kalmış buton vb. tüm girişler için).
+  if (!t || !talepGorunur(t)) {
+    showToast('⛔ Bu talep size atanmamış — detaylarını görüntüleme yetkiniz yok.');
+    return;
+  }
+  aktifTalepIdx = idx;
   aktifTalepNo = t?.no ?? null;   // kararlı kimlik — tazelemede indeks kaysa da doğru talep
   if (!talepTeklifleri[t.no]) talepTeklifleri[t.no] = [];
   // "+ Teklif Ekle" ile açılıp DOLDURULMAMIŞ satırlar bu cihazda taslak olarak yaşar
@@ -17388,11 +17400,19 @@ function arsivTalepSil(idx) {
 // MÜŞTERİ TEKLİFLERİ SAYFASI
 // ═══════════════════════════════════════
 
-// Talep görünürlüğü — Admin tümünü görür. Satıcı yalnızca kendine ait (sorumlu)
-// talepleri ve sahibi atanmamış eski kayıtları görür (geri uyum).
+// Talep görünürlüğü — Admin tümünü görür. Satıcı YALNIZ kendine atanmış (sorumlu olduğu
+// ya da izindeki sahibin vekili olduğu) talepleri ve onların tekliflerini görür.
+// Sahibi atanmamış talepler artık "paylaşımlı" DEĞİL: admin atayana kadar yalnız admin görür.
+// Tüm liste/detay ekranları bu tek kapıdan geçer (Talepler, Teklifler, Arşiv, Panel, detay, derin link).
+function talepGorunur(t) {
+  return talepBenim(t);
+}
+
+// Gelen mail eşleştirmesi için GENİŞ kapsam (görünürlük değil): sahipsiz eski talepler de
+// aday sayılır ki müşterinin revize maili yeni mükerrer talep açmasın.
 // Kararlı kimlik: t.saticiEmail (admin atamasıyla yazılır). Eski kayıtlarda yalnız
 // t.satici (yerel id) olabilir → ona düşeriz. Bkz yerel-id-tuzagi.
-function talepGorunur(t) {
+function talepEslesmeKapsami(t) {
   if (!aktifKullanici) return false;
   if (aktifKullanici.rol === 'admin') return true;
   if (t && t.saticiEmail) { // e-posta bazlı sahiplik (yeni, cihazlar arası kararlı)
@@ -21910,7 +21930,7 @@ function tedSipRozet(t) {
 // Nav rozeti + Panel afişini güncelle (renderTalepler sonu + sipariş kaydet/gönder/geri al)
 function tedSipBekleyenGuncelle() {
   const liste = TALEPLER
-    .map((t, idx) => ({ t, idx, eksik: tedSipBekleyenKalemler(t) }))
+    .map((t, idx) => ({ t, idx, eksik: talepGorunur(t) ? tedSipBekleyenKalemler(t) : [] }))
     .filter(x => x.eksik.length);
   const n = liste.length;
   const badge = document.getElementById('badge-tedsip-bekleyen');
@@ -23413,7 +23433,7 @@ function otoTalepAralikGuncelle(val) {
 // Kapalı = Tamamlandı / İptal / teklifDurumu 'red' (arşiv kriteriyle aynı).
 function otoAdayTalepler() {
   return TALEPLER.filter(t =>
-    t && t.no && talepGorunur(t) &&
+    t && t.no && talepEslesmeKapsami(t) &&
     !talepKapaliMi(t) && t.teklifDurumu !== 'red');
 }
 // Talep teklif olarak müşteriye gitti mi (etiketleme için)
