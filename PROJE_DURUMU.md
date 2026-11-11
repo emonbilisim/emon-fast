@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-11 (son commit: `2fcc486`)
+> Son güncelleme: 2026-11-11 (son commit: `02e9643`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -152,7 +152,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- 📁 Onaylanan fiyatların arşiv kopyası: her fiyat onayında (admin onayı, away oto-onay, admin revizesi) sorumlu satıcıya ayrı "[Fiyat Arşivi] NO — Müşteri" maili: onay türü/tarihi/onaylayan, ürünler ve onaylanan fiyat tablosu. Önceden yalnız portal talepleri için vardı (`portalArsivMailiGonder` → `onayArsivMailiGonder`); onaylayanın Outlook'undan gider
+- Fiyat arşiv maili daraltıldı: yalnız portal talebi (`t.portalTalebi`) veya portal müşterisi (`m.portal`) için gider; diğer talepler sadece "Fiyatınız Onaylandı" bildirimini alır
+- `02e9643` 📁 Onaylanan fiyatların arşiv kopyası: her fiyat onayında (admin onayı, away oto-onay, admin revizesi) sorumlu satıcıya ayrı "[Fiyat Arşivi] NO — Müşteri" maili: onay türü/tarihi/onaylayan, ürünler ve onaylanan fiyat tablosu. Önceden yalnız portal talepleri için vardı (`portalArsivMailiGonder` → `onayArsivMailiGonder`); onaylayanın Outlook'undan gider
 - `2fcc486` 🌐 Portal müşterisi (`m.portal`): müşteri formunda ve talep formundaki satır içi yeni müşteride onay kutusu. İşaretliyse yetkili ve e-posta zorunlu değil (girilen e-posta yine geçerli olmalı); "Müşteriye Gönder" mail açmaz, "portala yüklendi → gönderildi" işaretler (`onayliGonderildiIsaretle`); otomatik hatırlatma maili atlanır (`musteriHatirlatmaKapaliMi`); listede "🌐 Portal" rozeti
 - `f0bd342` Satıcı yalnız kendi talep/tekliflerini görür: `talepGorunur` artık `talepBenim` ile aynı (sahipsiz eski talepler satıcıya "paylaşımlı" açık değil — admin atayana dek yalnız admin). `talepDetayAc` sahiplik kapısı (görev linki, `#talep=` derin link, eski buton dahil), Panel "🛒 Sipariş Geç" afişi/rozeti ve görev formundaki talep listesi de filtreli. Gelen mail eşleştirmesi geniş kapsamda kaldı (`talepEslesmeKapsami`) ki revize mailleri mükerrer talep açmasın. CRM istatistikleri (yalnız sayılar) değişmedi
 - `652383c` AI kredisi bitti ("credit balance is too low"): hesap/servis geneli AI hataları (`kredi`, geçersiz anahtar, limit, aşırı yük, ağ — `_aiHataKodu` / `AI_SERVIS_HATALARI`) gelen mail taramasında maili 3 denemede kalıcı "işlendi" yapıyordu → kredi bitikken talep mailleri sessizce atlanıyordu. Artık tarama durur, mail işaretlenmez; kullanıcıya Türkçe kredi uyarısı. Test: `tools/ai-kredi-test.js`

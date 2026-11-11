@@ -16106,9 +16106,12 @@ function tahMusteriYap(id){
 // tablosunun bir KOPYASI arşiv amaçlı sorumlu satıcının e-postasına gider. "Onaylandı"
 // bildiriminden AYRI mail: konu sabit "[Fiyat Arşivi]" önekiyle Outlook'ta aranabilir/kurallanabilir.
 // tabloHtml çağıran tarafta DOM canlıyken satisTabloEmailHtml() ile yakalanmalı.
-// Önceden yalnız portal talepleri için vardı (portalArsivMailiGonder) — artık tüm talepler.
+// YALNIZ portal işleri için: portal talebi (t.portalTalebi) ya da portal müşterisi (m.portal).
+// Bu teklifler müşteriye mail ile gitmez → onaylı fiyatın elde kalan tek kopyası bu mail.
+// Diğer talepler yalnız "Fiyatınız Onaylandı" bildirimini alır (çift mail olmasın).
 async function onayArsivMailiGonder(t, tabloHtml, toplamStr, opts) {
   if (!t) return;
+  if (!t.portalTalebi && !musteriPortalMi(t.musteri)) return;
   const revizyon = !!(opts && opts.revizyon);
   const oT = t.fiyatOnayTalep || {};
   // Satıcı e-postası: onay talebinde yakalanan → kullanıcı listesinde ada göre → talebin sorumlusu
