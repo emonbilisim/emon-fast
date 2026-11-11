@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-11 (son commit: `2ced2e4`)
+> Son güncelleme: 2026-11-11 (son commit: `35e9aea`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -152,7 +152,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- Tarayıcı sekme ikonu (favicon): EMON logosundaki mavi "e", satır içi SVG (`#1C5AAA`)
+- Gelen mail sahipliği: müşteri maili birden fazla satıcıya (To/CC) düşünce yalnız müşterinin sorumlu satıcısı (izindeyse vekili) taslak açar (`gelenMailBaskaSorumlu`); sorumlu alıcılar arasında değilse ya da müşterinin sorumlusu yoksa mail eskisi gibi herkesçe işlenir (kayıp yok). Tarama raporunda "sorumlu satıcısına bırakıldı" sayacı
+- `35e9aea` Tarayıcı sekme ikonu (favicon): EMON logosundaki mavi "e", satır içi SVG (`#1C5AAA`)
 - `2ced2e4` Fiyat arşiv maili daraltıldı: yalnız portal talebi (`t.portalTalebi`) veya portal müşterisi (`m.portal`) için gider; diğer talepler sadece "Fiyatınız Onaylandı" bildirimini alır
 - `02e9643` 📁 Onaylanan fiyatların arşiv kopyası: her fiyat onayında (admin onayı, away oto-onay, admin revizesi) sorumlu satıcıya ayrı "[Fiyat Arşivi] NO — Müşteri" maili: onay türü/tarihi/onaylayan, ürünler ve onaylanan fiyat tablosu. Önceden yalnız portal talepleri için vardı (`portalArsivMailiGonder` → `onayArsivMailiGonder`); onaylayanın Outlook'undan gider
 - `2fcc486` 🌐 Portal müşterisi (`m.portal`): müşteri formunda ve talep formundaki satır içi yeni müşteride onay kutusu. İşaretliyse yetkili ve e-posta zorunlu değil (girilen e-posta yine geçerli olmalı); "Müşteriye Gönder" mail açmaz, "portala yüklendi → gönderildi" işaretler (`onayliGonderildiIsaretle`); otomatik hatırlatma maili atlanır (`musteriHatirlatmaKapaliMi`); listede "🌐 Portal" rozeti

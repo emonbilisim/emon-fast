@@ -23684,6 +23684,26 @@ function musteriBulByMail(mail) {
   return '';
 }
 
+// Gelen mail sahipliği: müşterinin SORUMLU SATICISI (izindeyse aktif vekili) bu maili
+// kendi kutusunda alıyorsa, maili yalnız o işler. Aynı müşteri maili birden fazla satıcıya
+// (To/CC) düşünce herkesin kutusunda ayrı taslak açılıyordu (ör. FORD).
+// Kayıp riski yok: sorumlu alıcılar arasında DEĞİLSE (ya da müşterinin sorumlusu yoksa)
+// mail eskisi gibi alan herkesçe işlenir. Döner: atlanması gerekiyorsa sorumlunun e-postası, yoksa ''.
+function gelenMailBaskaSorumlu(m, musteriFirma) {
+  if (!musteriFirma) return '';
+  const mus = (MUSTERILER || []).find(x => (x.firma || '') === musteriFirma);
+  let sorumlu = musteriSahibiEmail(mus);
+  if (!sorumlu) return '';
+  const iz = izinKayitlari()[sorumlu];
+  if (_izinAktif(iz)) sorumlu = String(iz.vekil || '').toLowerCase() || sorumlu;
+  const benim = new Set([aktifKullanici?.msAccount?.username, aktifKullanici?.email]
+    .map(x => String(x || '').trim().toLowerCase()).filter(Boolean));
+  if (benim.has(sorumlu)) return '';
+  const alicilar = new Set([...(m.toRecipients || []), ...(m.ccRecipients || [])]
+    .map(r => String(r?.emailAddress?.address || '').trim().toLowerCase()).filter(Boolean));
+  return alicilar.has(sorumlu) ? sorumlu : '';
+}
+
 // Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
 async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) return { _err: 'no-key' };
@@ -23803,7 +23823,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     let url = GRAPH_API + '/me/mailFolders/inbox/messages'
       + '?$filter=' + encodeURIComponent('receivedDateTime ge ' + basla)
       + '&$top=100&$orderby=receivedDateTime%20desc'
-      + '&$select=id,subject,from,ccRecipients,receivedDateTime,bodyPreview,hasAttachments';
+      + '&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments';
     const maxSayfa = (cfg.sonTarama && !cfg.genisTarama) ? 5 : 10; // geniş taramada 1000 maile kadar
     for (let sayfa = 0; sayfa < maxSayfa && url; sayfa++) {
       const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + msGraphToken } });
@@ -23827,7 +23847,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
     const domainMap = musteriDomainMap();
     // Teşhis sayaçları — "mail geldi ama talep çıkmadı" şikâyetinde hangi adımda elendiğini gösterir
     const rapor = { bakilan: mesajlar.length, pencere: basla.slice(0, 10), zatenIslenmis: 0, musteriDegil: 0,
-                    icDuz: 0, sistemMaili: 0, incelenen: 0, taslak: 0, digerSayildi: 0, aiHata: 0,
+                    icDuz: 0, baskaSatici: 0, sistemMaili: 0, incelenen: 0, taslak: 0, digerSayildi: 0, aiHata: 0,
                     atlananlar: [], limit: 0 };
     const adaylar = mesajlar.filter(m => {
       const from = (m.from?.emailAddress?.address || '').toLowerCase();
@@ -23841,7 +23861,17 @@ async function otoTalepTara(sessiz = false, zorla = false) {
         rapor.icDuz++; return false;
       }
       // Dış mail: kayıtlı müşteri (tam adres VEYA kurumsal domain)
-      if (mailSet.has(from) || domainMap.has(_mailDomain(from))) return true;
+      if (mailSet.has(from) || domainMap.has(_mailDomain(from))) {
+        // Müşterinin sorumlu satıcısı da bu maili aldıysa onun işi — burada taslak açma.
+        // İŞARETLENMEZ: sorumlu sonradan değişirse mail yeniden değerlendirilebilsin.
+        const sorumlu = gelenMailBaskaSorumlu(m, musteriBulByMail(from));
+        if (sorumlu) {
+          rapor.baskaSatici++;
+          if (rapor.atlananlar.length < 8) rapor.atlananlar.push({ from, konu: (m.subject || '').slice(0, 60), neden: 'sorumlu satıcı işler: ' + sorumlu });
+          return false;
+        }
+        return true;
+      }
       rapor.musteriDegil++;
       if (rapor.atlananlar.length < 8) rapor.atlananlar.push({ from, konu: (m.subject || '').slice(0, 60) });
       return false;
@@ -24021,6 +24051,7 @@ function otoTalepRaporMetni(r) {
   if (r.zatenIslenmis) p.push(`${r.zatenIslenmis} zaten işlenmiş`);
   if (r.musteriDegil)  p.push(`${r.musteriDegil} kayıtlı müşteri değil`);
   if (r.icDuz)         p.push(`${r.icDuz} iç yazışma (iletilmemiş)`);
+  if (r.baskaSatici)   p.push(`${r.baskaSatici} müşterinin sorumlu satıcısına bırakıldı`);
   if (r.sistemMaili)   p.push(`${r.sistemMaili} sistem/otomatik mail`);
   if (r.incelenen)     p.push(`${r.incelenen} AI'ya gönderildi`);
   if (r.digerSayildi)  p.push(`${r.digerSayildi} "talep değil" sayıldı`);
