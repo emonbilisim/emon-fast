@@ -3024,7 +3024,7 @@
         </div>
       </div>
       <div class="grid2">
-        <div class="form-group"><label class="form-label">Yetkili Ad Soyad *</label><input type="text" id="ym-yetkili" placeholder="Ad Soyad"></div>
+        <div class="form-group"><label class="form-label">Yetkili Ad Soyad <span id="ym-yetkili-zorunlu">*</span></label><input type="text" id="ym-yetkili" placeholder="Ad Soyad"></div>
         <div class="form-group"><label class="form-label">Unvan</label><input type="text" id="ym-unvan" placeholder="örn. Satın Alma Müdürü"></div>
       </div>
       <div class="grid2">
@@ -3050,6 +3050,14 @@
             <option value="mevcut">Mevcut Müşteri</option>
             <option value="demo">Demo Müşteri</option>
           </select>
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;" title="Teklifler portala yüklenir, e-posta ile gitmez">
+            <input type="checkbox" id="ym-portal" onchange="musteriPortalUyariGuncelle('ym')" style="width:16px;height:16px;margin-top:2px;cursor:pointer;flex-shrink:0;">
+            <span style="font-size:13px;color:var(--text2);">🌐 Portal müşterisi
+              <span style="display:block;font-size:11px;color:var(--text3);font-weight:400;">Yetkili/e-posta zorunlu değil</span>
+            </span>
+          </label>
         </div>
       </div>
       <div id="ym-hata" style="display:none;font-size:12px;color:var(--red);margin-top:6px;"></div>
@@ -3605,6 +3613,14 @@ HP 250 G9  HP9    5     Adet" style="min-height:140px;font-family:var(--font-mon
         <option value="mevcut">Mevcut Müşteri</option>
         <option value="demo">Demo Müşteri</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="mf-portal" onchange="musteriPortalUyariGuncelle('mf')" style="width:16px;height:16px;margin-top:2px;cursor:pointer;flex-shrink:0;">
+        <span style="font-size:13px;color:var(--text2);">🌐 Portal müşterisi
+          <span style="display:block;font-size:11px;color:var(--text3);font-weight:400;">Teklifler müşterinin satın alma portalına yüklenir, e-posta ile gitmez. Yetkili ve e-posta zorunlu değildir; otomatik hatırlatma maili gönderilmez.</span>
+        </span>
+      </label>
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
@@ -6734,6 +6750,7 @@ function musteriFormAc(idx) {
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value='ilk'; } // yeni müşteri → varsayılan İlk Kayıt
     { const hk=document.getElementById('mf-hatirlatma-kapali'); if(hk) hk.checked=false; }
+    { const pc=document.getElementById('mf-portal'); if(pc) pc.checked=false; }
     { const dk=document.getElementById('mf-doviz-kuru-tipi'); if(dk) dk.value='satis'; } // varsayılan: TCMB Günlük Satış Kuru
     // Yeni müşteride sorumlu satıcı varsayılan: oluşturan kullanıcı
     if (saticiSel) saticiSel.value = (aktifKullanici?.email || '').toLowerCase();
@@ -6755,6 +6772,7 @@ function musteriFormAc(idx) {
     { const k=document.getElementById('mf-kaynak'); if(k) k.value=m.kaynak||''; }
     { const mt=document.getElementById('mf-musteritipi'); if(mt) mt.value=m.musteriTipi||''; }
     { const hk=document.getElementById('mf-hatirlatma-kapali'); if(hk) hk.checked=!!m.hatirlatmaKapali; }
+    { const pc=document.getElementById('mf-portal'); if(pc) pc.checked=!!m.portal; }
     { const dk=document.getElementById('mf-doviz-kuru-tipi'); if(dk) dk.value=m.dovizKuruTipi||'satis'; } // eski kayıtlar → varsayılan Satış
     if (saticiSel) { const _sk = saticiKullaniciBul(m.satici); saticiSel.value = _sk ? (_sk.email||'').toLowerCase() : ''; }
     const o=m.odeme||{};
@@ -7781,9 +7799,12 @@ async function musteriKaydet() {
     const ad=div.querySelector('.ytkl-ad').value.trim();
     if(ad) yetkililer.push({ad,unvan:div.querySelector('.ytkl-unvan').value.trim(),tel:div.querySelector('.ytkl-tel').value.trim(),mail:div.querySelector('.ytkl-mail').value.trim(),finansal:!!div.querySelector('.ytkl-finansal')?.checked});
   });
-  if (!yetkililer.length) { hata.textContent='En az bir yetkili kişi ekleyin.'; hata.style.display='block'; return; }
-  // Yetkili e-posta zorunlu
-  const yetkiliMailsiz = yetkililer.find(y => !y.mail || !y.mail.includes('@'));
+  // Portal müşterisi: teklifler portala yüklenir, mail ile gitmez → yetkili ve e-posta ZORUNLU DEĞİL.
+  // Yine de girilmiş bir e-posta geçersizse kaydı bozuk adresle almayalım.
+  const portal = !!document.getElementById('mf-portal')?.checked;
+  if (!portal && !yetkililer.length) { hata.textContent='En az bir yetkili kişi ekleyin (portal müşterisiyse "🌐 Portal müşterisi"ni işaretleyin).'; hata.style.display='block'; return; }
+  // Yetkili e-posta zorunlu (portal müşterisinde yalnız girilmişse geçerli olmalı)
+  const yetkiliMailsiz = yetkililer.find(y => portal ? (y.mail && !y.mail.includes('@')) : (!y.mail || !y.mail.includes('@')));
   if (yetkiliMailsiz) { hata.textContent='Yetkili kişi "' + yetkiliMailsiz.ad + '" için geçerli e-posta girilmesi zorunludur.'; hata.style.display='block'; return; }
   // Ödeme şartı zorunlu
   const odemeSecildi = document.getElementById('mf-odeme-havale')?.checked
@@ -7814,6 +7835,7 @@ async function musteriKaydet() {
     kaynak:document.getElementById('mf-kaynak')?.value || '',
     musteriTipi:document.getElementById('mf-musteritipi')?.value || '',
     hatirlatmaKapali: !!document.getElementById('mf-hatirlatma-kapali')?.checked,
+    portal,
     dovizKuruTipi:document.getElementById('mf-doviz-kuru-tipi')?.value || 'satis',
     not:document.getElementById('mf-not').value.trim(), tarih:new Date().toISOString().slice(0,10),
     fpKurallari: fpKurallariOku(),
@@ -8044,7 +8066,7 @@ function filterMusteriler() {
         : `<div style="font-size:10px;color:var(--amber);margin-top:2px;">👤 Atanmamış</div>`;
       const tr=document.createElement('tr');
       tr.innerHTML=`
-        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${m.musteriTipi==='demo' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);color:#a78bfa;white-space:nowrap;">Demo</span>' : ''}${m.hatirlatmaKapali ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;" title="Teklif hatırlatma maili gönderilmiyor">🔕</span>' : ''}${saticiSatir}</td>
+        <td data-label="Firma" style="font-weight:500;"><a href="#" style="color:var(--text);text-decoration:none;" onclick="musteriDetay(${idx});return false;">${m.firma}</a>${crmGorunur() && m.crmAsama && m.crmAsama!=='aday' ? ` <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:${crmAsamaBilgi(m.crmAsama).renk};color:#fff;white-space:nowrap;">${crmAsamaBilgi(m.crmAsama).label}</span>` : ''}${m.musteriTipi==='mevcut' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;">Mevcut</span>' : ''}${m.musteriTipi==='demo' ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.4);color:#a78bfa;white-space:nowrap;">Demo</span>' : ''}${m.portal ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.4);color:#38bdf8;white-space:nowrap;" title="Portal müşterisi — teklifler portala yüklenir, e-posta ile gitmez">🌐 Portal</span>' : ''}${m.hatirlatmaKapali ? ' <span style="font-size:9px;padding:1px 6px;border-radius:10px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);white-space:nowrap;" title="Teklif hatırlatma maili gönderilmiyor">🔕</span>' : ''}${saticiSatir}</td>
         <td data-label="Sektör" style="font-size:12px;color:var(--text2);">${m.sektor||'—'}</td>
         <td data-label="Yetkili"><div style="font-size:13px;">${ilk.ad||'—'}${ek}</div><div style="font-size:11px;color:var(--text3);">${ilk.unvan||''}</div></td>
         <td data-label="Telefon" style="font-size:12px;font-family:'DM Mono',monospace;white-space:nowrap;">${ilk.tel||'—'}</td>
@@ -13092,6 +13114,12 @@ async function musteriTeklifMaili() {
     return;
   }
 
+  // Portal müşterisi: teklif mail ile gitmez — portala yüklenir, burada "gönderildi" işaretlenir.
+  if (musteriPortalMi(t.musteri)) {
+    onayliGonderildiIsaretle(aktifTalepIdx, '🌐 ' + (t.musteri || '') + ' bir PORTAL müşterisi — teklif e-posta ile gönderilmez.\n\n#' + t.no + ' teklifini müşterinin portalına yüklediyseniz "gönderildi" olarak işaretlensin mi?');
+    return;
+  }
+
   // To önceliği: talebi gönderen kişi → eşleşen yetkili → ilk yetkili (teklifYetkiliBul).
   const { ad, mail } = teklifYetkiliBul(t);
   if (!mail) { showToast('Müşteri e-posta adresi bulunamadı!'); return; }
@@ -14168,6 +14196,7 @@ function talepYeniMusteriAc() {
   const q = document.getElementById('talep-musteri-ara').value.trim();
   document.getElementById('ym-firma').value = q;
   document.getElementById('ym-yetkili').value = '';
+  { const pc = document.getElementById('ym-portal'); if (pc) pc.checked = false; musteriPortalUyariGuncelle('ym'); }
   document.getElementById('ym-unvan').value = '';
   document.getElementById('ym-tel').value = '';
   document.getElementById('ym-mail').value = '';
@@ -14200,8 +14229,15 @@ async function talepKaydet() {
     const ymFirma = document.getElementById('ym-firma').value.trim();
     const ymYetkili = document.getElementById('ym-yetkili').value.trim();
     const ymHata = document.getElementById('ym-hata');
-    if (!ymFirma || !ymYetkili) {
-      ymHata.textContent = 'Firma adı ve yetkili adı zorunludur.';
+    const ymPortal = !!document.getElementById('ym-portal')?.checked;
+    const ymMail = document.getElementById('ym-mail').value.trim();
+    if (!ymFirma || (!ymYetkili && !ymPortal)) {
+      ymHata.textContent = ymFirma ? 'Yetkili adı zorunludur (portal müşterisiyse "🌐 Portal müşterisi"ni işaretleyin).' : 'Firma adı zorunludur.';
+      ymHata.style.display = 'block';
+      return;
+    }
+    if (ymMail && !ymMail.includes('@')) {
+      ymHata.textContent = 'Girilen e-posta adresi geçersiz.';
       ymHata.style.display = 'block';
       return;
     }
@@ -14217,12 +14253,14 @@ async function talepKaydet() {
     const yeniM = {
       firma: ymFirma,
       sektor: document.getElementById('ym-sektor').value,
-      yetkililer: [{
-        ad: ymYetkili,
+      // Portal müşterisinde yetkili boş bırakılabilir → boş yetkili satırı yazma
+      yetkililer: (ymYetkili || ymMail) ? [{
+        ad: ymYetkili || 'İlgili',
         unvan: document.getElementById('ym-unvan').value.trim(),
         tel: document.getElementById('ym-tel').value.trim(),
-        mail: document.getElementById('ym-mail').value.trim(),
-      }],
+        mail: ymMail,
+      }] : [],
+      portal: ymPortal,
       adres: '', vergino: '', vergidaire: '',
       odeme: { havale: document.getElementById('ym-odeme').value==='Havale', kk: document.getElementById('ym-odeme').value==='KK Komisyonsuz', kkkom: document.getElementById('ym-odeme').value==='KK Komisyonlu', kkkomOran:'', vadeli: document.getElementById('ym-odeme').value==='Vadeli', vadeGun: document.getElementById('ym-vade').value },
       ozelSartlar: [], fiyatgrup: '', durum: 'Aktif', not: '',
@@ -16416,10 +16454,10 @@ function onayliGonderimBenim(t) {
 
 // Sistem dışından (kendi Outlook'u, telefon, elden) iletilmiş teklifi "gönderildi" işaretle —
 // karttan çıkmanın tek yolu sistemden mail atmaktı; dışarıdan gönderilenler takılı kalıyordu.
-function onayliGonderildiIsaretle(idx) {
+function onayliGonderildiIsaretle(idx, soru) {
   const t = TALEPLER[idx];
   if (!t) return;
-  if (!confirm('#' + t.no + ' — ' + (t.musteri || '') + '\n\nBu teklif müşteriye sistem dışından (kendi e-postanız, telefon vb.) iletildi olarak işaretlensin mi?\nKart panelden kalkar; admin fiyatı yeniden revize ederse tekrar görünür.')) return;
+  if (!confirm(soru || '#' + t.no + ' — ' + (t.musteri || '') + '\n\nBu teklif müşteriye sistem dışından (kendi e-postanız, telefon vb.) iletildi olarak işaretlensin mi?\nKart panelden kalkar; admin fiyatı yeniden revize ederse tekrar görünür.')) return;
   if (!['Sipariş Verildi', 'Tamamlandı'].includes(t.durum)) t.durum = 'Müşteriye İletildi';
   t.musteriTeklifGonderildi = true;
   t.musteriTeklifTarih = new Date().toISOString();
@@ -18123,7 +18161,21 @@ function musteriHatirlatmaKapaliMi(musteriAd) {
   if (!musteriAd) return false;
   const n = _musteriNorm(musteriAd);
   const m = MUSTERILER.find(x => x && _musteriNorm(x.firma) === n);
-  return !!(m && m.hatirlatmaKapali);
+  return !!(m && (m.hatirlatmaKapali || m.portal)); // portal müşterisine mail gitmez → hatırlatma da yok
+}
+
+// Portal müşterisi: teklifler müşterinin satın alma portalına yüklenir, e-posta ile gitmez.
+function musteriPortalMi(musteriAd) {
+  if (!musteriAd) return false;
+  const n = _musteriNorm(musteriAd);
+  const m = MUSTERILER.find(x => x && _musteriNorm(x.firma) === n);
+  return !!(m && m.portal);
+}
+
+// Formda portal işaretlenince "zorunlu" yıldızlarını gizle (pre = 'mf' | 'ym')
+function musteriPortalUyariGuncelle(pre) {
+  const portal = !!document.getElementById(pre + '-portal')?.checked;
+  if (pre === 'ym') { const z = document.getElementById('ym-yetkili-zorunlu'); if (z) z.style.display = portal ? 'none' : ''; }
 }
 
 // Hatırlatma zamanı gelmiş teklifler (yalnız aktif kullanıcıya ait, açık teklifler).
