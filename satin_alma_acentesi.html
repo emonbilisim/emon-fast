@@ -23721,6 +23721,13 @@ function gelenMailBaskaSorumlu(m, musteriFirma) {
   return alicilar.has(sorumlu) ? sorumlu : '';
 }
 
+// E-satın alma / ihale portalı daveti mi? AI'ın portalDavet bayrağına YEDEK (AI kaçırırsa).
+// Yalnız belirgin portal izlerine bakar; düz müşteri mailinde geçmeyecek ifadeler.
+const _PORTAL_DAVET_RE = /(davet edildiniz|teklif isteği turu|ek teklif isteği|pazarlık (açılışı|kapanışı)|oracle (iş akışı|workflow|sourcing)|isupplier|sap ariba|ariba network|coupa|jaggaer|e-?ihale|you have been invited to (an? )?(rfq|rfx|sourcing|event))/i;
+function portalDavetMi(sonuc, metin) {
+  return !!(sonuc && sonuc.portalDavet === true) || _PORTAL_DAVET_RE.test(String(metin || ''));
+}
+
 // Gelen müşteri mailini Claude ile çözümle: bu bir teklif talebi mi? Öyleyse ürünleri çıkar.
 async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
   if (!_aiProxyHazir && !apiTokenAl() && !claudeKeyGetir()) return { _err: 'no-key' };
@@ -23742,7 +23749,8 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
       'SATIN ALMA PORTALI DAVETLERİ: Müşterinin e-satın alma / ihale sisteminden (Oracle Sourcing/iSupplier, SAP Ariba, Coupa, Jaggaer vb.) gelen ' +
       '"teklif isteği", "RFQ", "davet edildiniz", "ihale/pazarlık turu", "teklif verin" bildirimleri tip "talep"tir — otomatik/sistem maili olsa da "diger" DEĞİLDİR. ' +
       'Ürünler mailde yoksa urunler BOŞ dizi bırak (ürünler portalde). Portalın teklif/ihale numarasını musteriNo\'ya, kapanış/vade zamanını sonTeklifTarih/sonTeklifSaat\'e yaz (ÖS/PM saati 24 saate çevir). ' +
-      'Müşteri, portal yazılımını işleten firma ya da gönderen sistem adresi DEĞİL, teklifi isteyen ALICI şirkettir (ör. "Şirket" alanı) → musteriAdi.\n\n' +
+      'Müşteri, portal yazılımını işleten firma ya da gönderen sistem adresi DEĞİL, teklifi isteyen ALICI şirkettir (ör. "Şirket" alanı) → musteriAdi. ' +
+      'Böyle bir portal davetinde/bildiriminde portalDavet: true yaz; normal (kişinin yazdığı) mailde false.\n\n' +
       'KURALLAR:\n' +
       '- tip "talep" ise ürünleri ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet").\n' +
       '- tip "revizyon" ise: müşterinin EKLEDİĞİ veya ADEDİNİ DEĞİŞTİRDİĞİ ürünleri aynı biçimde urunler dizisine yaz (adet = müşterinin istediği YENİ adet). Ürün adı/adedi geçmiyorsa (yalnız fiyat/indirim/termin isteği) urunler boş dizi. Müşterinin ÇIKARILMASINI istediği ürünleri urunler\'e YAZMA, bunun yerine not alanında belirt.\n' +
@@ -23755,7 +23763,7 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
       _fwKural + '\n' +
       'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
       'SADECE şu JSON ile cevap ver (markdown/açıklama yok):\n' +
-      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":"","musteriAdi":"","musteriMail":"","musteriKisi":""}';
+      '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":"","musteriAdi":"","musteriMail":"","musteriKisi":"","portalDavet":false}';
 
     // "Yeni Talep Olarak Al" dönüşümü: tip'i tartışma, mail+eklerden TÜM ürünleri çıkar.
     if (zorlaTalep) {
@@ -23763,10 +23771,11 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
         'Aşağıdaki müşteri e-postası ve (varsa) ekleri bir TEKLİF TALEBİ olarak işlenecek. tip HER ZAMAN "talep".\n' +
         'Mailden VE EKLERİNDEN (PDF/Excel dökümü metni) İSTENEN TÜM ürün kalemlerini çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet"). Fiyatlandırılacak her satırı ayrı kalem yap.\n' +
         'Müşterinin kendi talep/referans numarası varsa musteriNo. Son teklif zamanı varsa sonTeklifTarih (YYYY-MM-DD) / sonTeklifSaat (HH:MM). ozet: tek cümlelik kısa Türkçe özet.\n' +
+        'Mail müşterinin e-satın alma/ihale portalından (Oracle Sourcing, SAP Ariba, Coupa vb.) gelen bir davet/bildirimse portalDavet: true, değilse false.\n' +
         _fwKural + '\n' +
         'E-POSTA:\n' + (mailIcerik || '(boş)') + '\n\n' +
         'SADECE şu JSON (markdown yok):\n' +
-        '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":"","musteriAdi":"","musteriMail":"","musteriKisi":""}';
+        '{"tip":"talep","ozet":"","teklifNo":"","urunler":[{"aciklama":"","kod":"","adet":"1","birim":"Adet"}],"musteriNo":"","not":"","sonTeklifTarih":"","sonTeklifSaat":"","musteriAdi":"","musteriMail":"","musteriKisi":"","portalDavet":false}';
     }
 
     // Revizyon kartında "Ürünleri Mailden Oku": tip tartışılmaz, yalnız DEĞİŞEN kalemler istenir
@@ -23997,6 +24006,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
         not: sonuc?.not || '',
         sonTeklifTarih: (sonuc?.sonTeklifTarih || '').trim(), // mailden algılanan STZ
         sonTeklifSaat:  (sonuc?.sonTeklifSaat  || '').trim(),
+        portalDavet: portalDavetMi(sonuc, icerik), // → talep oluşurken portalTalebi önerisi (kartta değiştirilebilir)
         olusturma: new Date().toISOString(),
       };
       if (tip === 'talep' && Array.isArray(sonuc.urunler) && sonuc.urunler.some(u => u && u.aciklama)) {
@@ -24384,6 +24394,10 @@ function otoTalepTaslakRender() {
           ${eslesmeUyari}
           ${ts.musteriNo ? `<span style="font-size:11px;color:var(--text3);">Müşteri Talep No: <b>${ts.musteriNo}</b></span>` : ''}
         </div>
+        <label style="display:flex;align-items:center;gap:6px;margin:6px 0;font-size:12px;cursor:pointer;width:fit-content;">
+          <input type="checkbox" id="ott-portal-${ts.id}"${ts.portalDavet ? ' checked' : ''} onchange="otoTaslakPortalDegis('${ts.id}', this.checked)" style="width:15px;height:15px;accent-color:var(--accent);">
+          🌐 Portal talebi${ts.portalDavet ? ' <span style="font-size:11px;color:var(--green);">✓ mailden algılandı (e-satın alma portalı daveti)</span>' : ''}
+        </label>
         <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap;">
           <span style="font-size:12px;color:var(--text3);">⏰ Son Teklif Zamanı:</span>
           <input type="date" id="ott-stz-tarih-${ts.id}" value="${ts.sonTeklifTarih || ''}" style="font-size:12px;padding:5px 8px;">
@@ -24659,6 +24673,7 @@ async function otoTaslakYeniTalepYap(taslakId) {
     try {
       const { icerik, pdfler } = await otoMailIcerikEkCek(ts);
       const r = await maildenTalepCikar(icerik, pdfler, true);
+      if (r && !r._err && !ts.portalDavet && portalDavetMi(r, icerik)) { ts.portalDavet = true; otoTalepDurumKaydet(); otoTalepTaslakRender(); }
       if (r && !r._err && Array.isArray(r.urunler)) {
         const urunler = r.urunler
           .map(u => ({ aciklama: String(u.aciklama || '').trim(), kod: String(u.kod || '').trim(), adet: String(u.adet || '1'), birim: String(u.birim || 'Adet') }))
@@ -24726,6 +24741,13 @@ function otoTaslakRevizyonYap(taslakId) {
   showToast('Taslak “Revizyon” olarak işaretlendi — ilgili talebi seçip Revizyonu Uygula.');
 }
 
+function otoTaslakPortalDegis(taslakId, v) {
+  const ts = otoTalepCfg().taslaklar.find(x => x.id === taslakId);
+  if (!ts) return;
+  ts.portalDavet = !!v;
+  otoTalepDurumKaydet();
+}
+
 const _ottOnayMesgul = new Set(); // çift-tık/yarış koruması: aynı taslak için eşzamanlı onayı engelle
 async function otoTalepOnayla(taslakId) {
   if (_ottOnayMesgul.has(taslakId)) return; // apiTalepNoReserve await'i sürerken 2. tık → 2. talep oluşmasın
@@ -24791,7 +24813,8 @@ async function otoTalepOnayla(taslakId) {
     not: (ts.not ? ts.not + '\n' : '') + '📥 Gelen mailden otomatik oluşturuldu — "' + (ts.konu || '') + '" (' + (ts.gonderen || '') + ')' +
       (ts.icIletme ? '\n🔁 İç iletme — asıl talep sahibi: ' + [ts.oneriMusteriAd, ts.oneriMusteriKisi, ts.oneriMusteriMail].filter(Boolean).join(' · ') : ''),
     oncelik: 'Normal',
-    portalTalebi: false,
+    // Portal daveti algılandıysa (ya da kullanıcı kartta işaretlediyse) portal talebi olarak açılır
+    portalTalebi: !!(document.getElementById('ott-portal-' + taslakId)?.checked ?? ts.portalDavet),
     _kaynak: 'oto-mail',
     mailId: ts.mailId || '',  // kaynak mail — tekrar taramada bu mailden yeni talep oluşmasın
     cc: Array.isArray(ts.cc) ? ts.cc : [],  // gelen mailin CC'leri — teklifte CC önerisi

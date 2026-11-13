@@ -1,6 +1,6 @@
 # EMON FAST — Proje Durumu
 
-> Son güncelleme: 2026-11-13 (son commit: `9cd14c5`)
+> Son güncelleme: 2026-11-13 (son commit: `4ec588e`)
 > Bu dosya projenin yaşayan özetidir. **Her commit/güncellemeyle birlikte güncellenir**
 > (bkz. `CLAUDE.md`): "Son Değişiklikler" bölümüne satır eklenir, gerekirse diğer bölümler düzeltilir.
 
@@ -152,7 +152,8 @@ teklif (PDF/mail) üretir; sipariş, kargo/fatura, tahsilat ve mail order ödeme
 Yeni kayıtlar en üste eklenir.
 
 ### 2026-11
-- İletilen (FW) portal davetleri algılanmıyordu (Aksa Oracle "Davet edildiniz… Teklif İsteği turu"): `mailGovdeKirp` FW'de alıntıyı keserek AI'ya yalnız iletenin imzasını gönderiyordu → artık iletmede alıntı korunur (4000 krk). AI prompt'u: e-satın alma portalı davetleri ürünsüz de olsa `talep` (müşteri = alıcı şirket, portal no → musteriNo, kapanış → STZ). `musteriBulByAd` Türkçe karakter katlaması + tek harf/"sanayii" atma ("San. A.S." ↔ "SANAYİİ A.Ş.")
+- Mailden gelen e-satın alma portalı davetleri otomatik **portal talebi** (`t.portalTalebi`) olarak açılır: AI `portalDavet` bayrağı + anahtar kelime yedeği (`portalDavetMi`); taslak kartında "🌐 Portal talebi" kutusu (değiştirilebilir)
+- `4ec588e` İletilen (FW) portal davetleri algılanmıyordu (Aksa Oracle "Davet edildiniz… Teklif İsteği turu"): `mailGovdeKirp` FW'de alıntıyı keserek AI'ya yalnız iletenin imzasını gönderiyordu → artık iletmede alıntı korunur (4000 krk). AI prompt'u: e-satın alma portalı davetleri ürünsüz de olsa `talep` (müşteri = alıcı şirket, portal no → musteriNo, kapanış → STZ). `musteriBulByAd` Türkçe karakter katlaması + tek harf/"sanayii" atma ("San. A.S." ↔ "SANAYİİ A.Ş.")
 - `9cd14c5` Gelen mail sahipliği: müşteri maili birden fazla satıcıya (To/CC) düşünce yalnız müşterinin sorumlu satıcısı (izindeyse vekili) taslak açar (`gelenMailBaskaSorumlu`); sorumlu alıcılar arasında değilse ya da müşterinin sorumlusu yoksa mail eskisi gibi herkesçe işlenir (kayıp yok). Tarama raporunda "sorumlu satıcısına bırakıldı" sayacı
 - `35e9aea` Tarayıcı sekme ikonu (favicon): EMON logosundaki mavi "e", satır içi SVG (`#1C5AAA`)
 - `2ced2e4` Fiyat arşiv maili daraltıldı: yalnız portal talebi (`t.portalTalebi`) veya portal müşterisi (`m.portal`) için gider; diğer talepler sadece "Fiyatınız Onaylandı" bildirimini alır
