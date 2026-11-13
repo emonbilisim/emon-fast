@@ -23550,10 +23550,17 @@ function maildenAdayMi(m) {
 
 // Maliyet azaltma: mail gövdesinden quoted-thread, imza, disclaimer kırpılır.
 // Tipik olarak içerik ilk 1-2K karakterde; geri kalan kuyruk AI token'larını boşa harcar.
-function mailGovdeKirp(text, maxChars) {
+// iletme=true (FW/İLT): ASIL içerik alıntının İÇİNDEDİR → alıntı kesilmez. Eskiden ileten
+// kişinin uzun imzası (≥200 krk) "anlamlı ön metin" sanılıp alıntı atılıyordu; AI'ya yalnız
+// imza gidiyor, mail "talep değil" diye yutuluyordu (Aksa portal daveti, 2026-11-13).
+function mailGovdeKirp(text, maxChars, iletme) {
   if (!text) return '';
   maxChars = maxChars || 2500;
   let s = text;
+  if (iletme) {
+    if (s.length > maxChars) s = s.slice(0, maxChars) + ' …[kırpıldı]';
+    return s;
+  }
 
   // Quoted reply'ın başladığı en erken noktayı bul
   const kesicilerRegex = [
@@ -23638,12 +23645,22 @@ function iletilmisMailMi(m) {
 
 // Firma adından müşteri bul (AI'ın iletilen mailde algıladığı ad için). Yanlış eşleşmeyi
 // önlemek için: normalize edilmiş ad birebir eşleşmeli ya da 4+ karakterlik çekirdek ad içermeli.
+// ASCII'ye katlanmış biçimde (bkz. musteriBulByAd nrm)
+const _FIRMA_KALIP_KELIMELER = new Set(['as','ltd','sti','limited','anonim','sirketi','sirket',
+  'san','sanayi','sanayii','tic','ticaret','ins','insaat','adi','ortakligi',
+  'ticari','isletmesi','ve','group','grup','co','inc','llc','gmbh']);
 function musteriBulByAd(ad) {
+  // Türkçe karakter katlaması: portallar/yabancı sistemler "OTOMOTIV", "A.S." yazar; TR küçük
+  // harfte "I"→"ı" olur ve "otomotiv" ile eşleşmezdi. Karşılaştırma ASCII'ye katlanmış yapılır.
   const nrm = s => String(s == null ? '' : s).toLocaleLowerCase('tr')
+    .replace(/\u0307/g, '').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c').replace(/[âà]/g, 'a').replace(/[îì]/g, 'i').replace(/[ûù]/g, 'u')
     .replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
   const cekirdek = s => nrm(s)
-    .replace(/\b(a ş|aş|as|ltd|şti|sti|limited|anonim|şirketi|sirketi|san|sanayi|tic|ticaret|inş|insaat|inşaat|adi|ortaklığı|ortakligi|ticari|işletmesi|isletmesi|ve|group|grup)\b/g, ' ')
-    .replace(/\s+/g, ' ').trim();
+    .split(' ')
+    // Şirket türü/kalıp kelimeleri + TEK HARFLİ parçalar ("A.S."/"A.Ş." → "a s"/"a ş") atılır;
+    // portallar Türkçe karaktersiz yazar (Aksa: "San. A.S."), kayıt "SANAYİİ A.Ş." olabilir.
+    .filter(w => w.length > 1 && !_FIRMA_KALIP_KELIMELER.has(w))
+    .join(' ');
   const q = nrm(ad), qc = cekirdek(ad);
   if (q.length < 3) return '';
   const tam = MUSTERILER.find(m => nrm(m.firma) === q || (qc.length >= 3 && cekirdek(m.firma) === qc));
@@ -23722,6 +23739,10 @@ async function maildenTalepCikar(mailIcerik, pdfler, zorlaTalep) {
       '- "onay": Müşteri bizim gönderdiğimiz teklifi KABUL/ONAY ediyor, sipariş veriyor.\n' +
       '- "revizyon": Müşteri DAHA ÖNCE İLETTİĞİ bir talebinde/teklifte DEĞİŞİKLİK istiyor: ürün ekliyor, adet değiştiriyor, ürün çıkarıyor, fiyat/koşul/indirim istiyor. (Teklifi henüz göndermemiş olabiliriz — "teklifinizi bekliyorum, şunu da ekleyin" de revizyondur.)\n' +
       '- "diger": Teşekkür, bilgi, fatura, otomatik yanıt, pazarlama, alakasız mail → işlenmeyecek.\n\n' +
+      'SATIN ALMA PORTALI DAVETLERİ: Müşterinin e-satın alma / ihale sisteminden (Oracle Sourcing/iSupplier, SAP Ariba, Coupa, Jaggaer vb.) gelen ' +
+      '"teklif isteği", "RFQ", "davet edildiniz", "ihale/pazarlık turu", "teklif verin" bildirimleri tip "talep"tir — otomatik/sistem maili olsa da "diger" DEĞİLDİR. ' +
+      'Ürünler mailde yoksa urunler BOŞ dizi bırak (ürünler portalde). Portalın teklif/ihale numarasını musteriNo\'ya, kapanış/vade zamanını sonTeklifTarih/sonTeklifSaat\'e yaz (ÖS/PM saati 24 saate çevir). ' +
+      'Müşteri, portal yazılımını işleten firma ya da gönderen sistem adresi DEĞİL, teklifi isteyen ALICI şirkettir (ör. "Şirket" alanı) → musteriAdi.\n\n' +
       'KURALLAR:\n' +
       '- tip "talep" ise ürünleri ayrı kalemler olarak çıkar: aciklama (ürün adı), kod (varsa stok/parça kodu), adet (sayı, yoksa "1"), birim (Adet/Kutu/Metre vb., yoksa "Adet").\n' +
       '- tip "revizyon" ise: müşterinin EKLEDİĞİ veya ADEDİNİ DEĞİŞTİRDİĞİ ürünleri aynı biçimde urunler dizisine yaz (adet = müşterinin istediği YENİ adet). Ürün adı/adedi geçmiyorsa (yalnız fiyat/indirim/termin isteği) urunler boş dizi. Müşterinin ÇIKARILMASINI istediği ürünleri urunler\'e YAZMA, bunun yerine not alanında belirt.\n' +
@@ -23899,7 +23920,7 @@ async function otoTalepTara(sessiz = false, zorla = false) {
         const r = await fetch(GRAPH_API + '/me/messages/' + m.id + '?$select=body', { headers: { Authorization: 'Bearer ' + msGraphToken } });
         if (r.ok) { const d = await r.json(); if (d.body?.content) govde = mailHtmlDuzMetin(d.body.content); }
       } catch {}
-      govde = mailGovdeKirp(govde, 2500);
+      govde = mailGovdeKirp(govde, iletilmisMailMi(m) ? 4000 : 2500, iletilmisMailMi(m));
       // Ekler (<5MB): PDF → AI'a document block; Excel/CSV → CSV metnine çevrilip mail'e eklenir.
       let pdfler = [], ekMetin = '';
       if (m.hasAttachments) {
@@ -24599,7 +24620,8 @@ async function otoMailIcerikEkCek(ts) {
     const r = await fetch(GRAPH_API + '/me/messages/' + ts.mailId + '?$select=body,subject', { headers: { Authorization: 'Bearer ' + msGraphToken } });
     if (r.ok) { const d = await r.json(); if (d.body && d.body.content) govde = mailHtmlDuzMetin(d.body.content); }
   } catch {}
-  govde = (typeof mailGovdeKirp === 'function') ? mailGovdeKirp(govde, 4000) : String(govde).slice(0, 4000);
+  const _iletme = !!ts.icIletme || /^\s*(fw|fwd|ilt|iletilen|yönlendirilen)\s*:/i.test(ts.konu || '');
+  govde = (typeof mailGovdeKirp === 'function') ? mailGovdeKirp(govde, 4000, _iletme) : String(govde).slice(0, 4000);
   const pdfler = [];
   let ekMetin = '';
   try {
